@@ -1,0 +1,37 @@
+{
+  "run_at_utc": "2026-03-05T16:25:48.673193900+00:00",
+  "api_base": "http://127.0.0.1:8080",
+  "run_id": "async-ee72b8f1bfc64f99bbd0bad9aacfebd4",
+  "mode": "fixed-rate",
+  "target_eps": 10000,
+  "duration_seconds": 180,
+  "concurrency": 24,
+  "batch_size": 100,
+  "elapsed_seconds": 180.048,
+  "scheduled_requests": 18000,
+  "requests_total": 18000,
+  "requests_success": 17999,
+  "requests_error": 1,
+  "events_attempted": 1800000,
+  "events_accepted": 1799900,
+  "events_rejected": 100,
+  "attempted_eps": 9997.33,
+  "accepted_eps": 9996.78,
+  "rejected_eps": 0.56,
+  "attempted_eps_target_window": 10000.0,
+  "accepted_eps_target_window": 9999.44,
+  "rejected_eps_target_window": 0.56,
+  "target_achieved_pct": 99.99,
+  "api_rejection_loss_pct": 0.0056,
+  "request_latency_p95_ms": 74.98,
+  "request_latency_p99_ms": 198.89,
+  "persisted_events": 1800000,
+  "persisted_loss_pct_vs_accepted": 0.0,
+  "persistence_probe_attempts": [
+    1795300,
+    1800000
+  ],
+  "sample_errors": [
+    "status 500 Internal Server Error: {\"message\":\"clickhouse request failed: error sending request for url (http://localhost:8123/?database=cyberbox)\"}"
+  ]
+}

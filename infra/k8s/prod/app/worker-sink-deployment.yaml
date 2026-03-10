@@ -1,0 +1,82 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cyberbox-worker-sink
+  namespace: cyberbox
+  labels:
+    app: cyberbox-worker-sink
+    worker-role: sink
+    app.kubernetes.io/part-of: cyberbox-siem
+    security.cyberbox.io/tier: app
+spec:
+  replicas: 4
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: cyberbox-worker-sink
+  template:
+    metadata:
+      labels:
+        app: cyberbox-worker-sink
+        worker-role: sink
+        app.kubernetes.io/part-of: cyberbox-siem
+        security.cyberbox.io/tier: app
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9091"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: cyberbox-worker
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: cyberbox-worker-sink
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: cyberbox-worker-sink
+      containers:
+        - name: worker
+          image: ghcr.io/cyberbox/siem-worker:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: metrics
+              containerPort: 9091
+          env:
+            - name: CYBERBOX__WORKER_ROLE
+              value: sink
+            - name: CYBERBOX__CLICKHOUSE_SEARCH_ENABLED
+              value: "false"
+            - name: CYBERBOX__CLICKHOUSE_SINK_ENABLED
+              value: "true"
+            - name: CYBERBOX__CLICKHOUSE_SINK_WORKER_COUNT
+              value: "4"
+          envFrom:
+            - configMapRef:
+                name: cyberbox-config
+            - secretRef:
+                name: cyberbox-runtime-secrets
+          resources:
+            requests:
+              cpu: "1500m"
+              memory: "2Gi"
+            limits:
+              cpu: "8"
+              memory: "8Gi"
+          livenessProbe:
+            tcpSocket:
+              port: metrics
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10

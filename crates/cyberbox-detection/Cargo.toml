@@ -1,0 +1,27 @@
+[package]
+name = "cyberbox-detection"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+chrono.workspace = true
+dashmap.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+uuid.workspace = true
+
+cyberbox-core.workspace = true
+cyberbox-models.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+chrono.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+
+[[bench]]
+name = "detection_bench"
+harness = false

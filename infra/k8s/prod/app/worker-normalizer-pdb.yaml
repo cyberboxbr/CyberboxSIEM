@@ -1,0 +1,10 @@
+﻿apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cyberbox-worker-normalizer-pdb
+  namespace: cyberbox
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: cyberbox-worker-normalizer

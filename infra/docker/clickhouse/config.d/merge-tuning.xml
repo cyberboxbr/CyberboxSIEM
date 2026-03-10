@@ -1,0 +1,9 @@
+<clickhouse>
+  <background_pool_size>16</background_pool_size>
+  <background_schedule_pool_size>16</background_schedule_pool_size>
+  <merge_tree>
+    <parts_to_delay_insert>300</parts_to_delay_insert>
+    <parts_to_throw_insert>600</parts_to_throw_insert>
+    <max_bytes_to_merge_at_max_space_in_pool>17179869184</max_bytes_to_merge_at_max_space_in_pool>
+  </merge_tree>
+</clickhouse>

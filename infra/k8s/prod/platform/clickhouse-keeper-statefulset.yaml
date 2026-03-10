@@ -1,0 +1,110 @@
+﻿apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clickhouse-keeper
+  namespace: cyberbox
+  labels:
+    app: clickhouse-keeper
+spec:
+  serviceName: clickhouse-keeper-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app: clickhouse-keeper
+  template:
+    metadata:
+      labels:
+        app: clickhouse-keeper
+    spec:
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: clickhouse-keeper
+      containers:
+        - name: keeper
+          image: clickhouse/clickhouse-server:24.8
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              ORDINAL="${HOSTNAME##*-}"
+              SERVER_ID="$((ORDINAL + 1))"
+              mkdir -p /etc/clickhouse-keeper
+              cat > /etc/clickhouse-keeper/keeper.xml <<EOF
+              <clickhouse>
+                <logger>
+                  <level>information</level>
+                  <console>true</console>
+                </logger>
+                <listen_host>0.0.0.0</listen_host>
+                <keeper_server>
+                  <tcp_port>2181</tcp_port>
+                  <server_id>${SERVER_ID}</server_id>
+                  <log_storage_path>/var/lib/clickhouse-keeper/log</log_storage_path>
+                  <snapshot_storage_path>/var/lib/clickhouse-keeper/snapshots</snapshot_storage_path>
+                  <coordination_settings>
+                    <operation_timeout_ms>10000</operation_timeout_ms>
+                    <session_timeout_ms>30000</session_timeout_ms>
+                    <raft_logs_level>warning</raft_logs_level>
+                  </coordination_settings>
+                  <raft_configuration>
+                    <server>
+                      <id>1</id>
+                      <hostname>clickhouse-keeper-0.clickhouse-keeper-headless.cyberbox.svc.cluster.local</hostname>
+                      <port>9234</port>
+                    </server>
+                    <server>
+                      <id>2</id>
+                      <hostname>clickhouse-keeper-1.clickhouse-keeper-headless.cyberbox.svc.cluster.local</hostname>
+                      <port>9234</port>
+                    </server>
+                    <server>
+                      <id>3</id>
+                      <hostname>clickhouse-keeper-2.clickhouse-keeper-headless.cyberbox.svc.cluster.local</hostname>
+                      <port>9234</port>
+                    </server>
+                  </raft_configuration>
+                </keeper_server>
+              </clickhouse>
+              EOF
+              exec clickhouse-keeper --config-file=/etc/clickhouse-keeper/keeper.xml
+          ports:
+            - name: client
+              containerPort: 2181
+            - name: raft
+              containerPort: 9234
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/clickhouse-keeper
+          readinessProbe:
+            tcpSocket:
+              port: client
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: client
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 50Gi

@@ -1,0 +1,13 @@
+﻿# TYPE stream_rule_cache_refresh_total counter
+stream_rule_cache_refresh_total 12
+
+# TYPE clickhouse_sink_consumer_error_total counter
+clickhouse_sink_consumer_error_total 104
+
+# TYPE stream_rule_cache_tenant_count gauge
+stream_rule_cache_tenant_count 0
+
+# TYPE stream_rule_cache_rule_count gauge
+stream_rule_cache_rule_count 0
+
+

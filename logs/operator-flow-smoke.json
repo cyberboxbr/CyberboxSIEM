@@ -1,0 +1,13 @@
+﻿{
+    "run_at_utc":  "2026-03-05T19:47:32.5839453Z",
+    "api_base":  "http://127.0.0.1:8080",
+    "token":  "opflow-91ffb9a8dc",
+    "rule_id":  "d7eeb9ad-76ec-4286-9f89-369d80a09193",
+    "ingest_accepted":  1,
+    "ingest_rejected":  0,
+    "alert_id":  "b22b5b67-a682-44d7-95f6-4d03ce1898d2",
+    "assign_status":  "in_progress",
+    "ack_status":  "acknowledged",
+    "audit_assign_found":  true,
+    "audit_ack_found":  true
+}

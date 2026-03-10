@@ -1,0 +1,39 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: cyberbox
+resources:
+  - namespace.yaml
+  - platform/redpanda-headless-service.yaml
+  - platform/redpanda-bootstrap-service.yaml
+  - platform/redpanda-statefulset.yaml
+  - platform/redpanda-pdb.yaml
+  - platform/redpanda-topic-bootstrap-job.yaml
+  - platform/clickhouse-keeper-headless-service.yaml
+  - platform/clickhouse-keeper-statefulset.yaml
+  - platform/clickhouse-keeper-pdb.yaml
+  - platform/clickhouse-installation.yaml
+  - platform/clickhouse-service.yaml
+  - app/configmap.yaml
+  - app/runtime-secrets.yaml
+  - app/api-serviceaccount.yaml
+  - app/worker-serviceaccount.yaml
+  - app/networkpolicy-app-default-deny.yaml
+  - app/networkpolicy-api-ingress.yaml
+  - app/networkpolicy-worker-metrics-ingress.yaml
+  - app/networkpolicy-app-egress-core.yaml
+  - app/networkpolicy-app-egress-external.yaml
+  - app/api-deployment.yaml
+  - app/api-service.yaml
+  - app/api-pdb.yaml
+  - app/worker-normalizer-deployment.yaml
+  - app/worker-stream-detect-deployment.yaml
+  - app/worker-scheduler-deployment.yaml
+  - app/worker-sink-deployment.yaml
+  - app/worker-normalizer-pdb.yaml
+  - app/worker-stream-detect-pdb.yaml
+  - app/worker-sink-pdb.yaml
+  - app/worker-scheduler-pdb.yaml
+  - autoscaling/api-hpa.yaml
+  - autoscaling/worker-normalizer-scaledobject.yaml
+  - autoscaling/worker-stream-detect-scaledobject.yaml
+  - autoscaling/worker-sink-scaledobject.yaml

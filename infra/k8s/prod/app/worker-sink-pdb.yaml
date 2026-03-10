@@ -1,0 +1,10 @@
+﻿apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cyberbox-worker-sink-pdb
+  namespace: cyberbox
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: cyberbox-worker-sink

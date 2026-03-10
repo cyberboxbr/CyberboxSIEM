@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Cyberbox SIEM — Calculadora de Preços (Brasil)</title>
+<style>
+  :root {
+    /* Cyberbox Brand */
+    --bg:       #000000;   /* Black — background */
+    --panel:    #1A1A1A;   /* Charcoal — cards */
+    --border:   #2a1a4a;   /* Deep Violet tint — borders */
+    --accent:   #6B2DBD;   /* Deep Violet — primary */
+    --accent2:  #00F4A3;   /* Acid Green — positive / success */
+    --warn:     #32F5E1;   /* Electric Cyan — warnings / info */
+    --danger:   #ff4757;   /* Red — errors */
+    --text:     #F4F4F4;   /* White Smoke — primary text */
+    --muted:    #A2A9B0;   /* Cool Gray — secondary text */
+    --green:    #00F4A3;   /* Acid Green */
+    --purple:   #6B2DBD;   /* Deep Violet */
+    --cyan:     #32F5E1;   /* Electric Cyan */
+    --radius:   8px;
+    --shadow:   0 4px 32px rgba(107,45,189,.25);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.5}
+  h1{font-size:22px;font-weight:700;letter-spacing:-.5px}
+  h2{font-size:16px;font-weight:600;margin-bottom:12px;color:var(--text)}
+  h3{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+
+  .wrapper{max-width:1280px;margin:0 auto;padding:24px 16px}
+  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px}
+  .logo{display:flex;align-items:center;gap:16px}
+  .logo-icon{width:72px;height:72px;display:flex;align-items:center;justify-content:center}
+  .logo-icon img{width:72px;height:72px;object-fit:contain}
+  .grid{display:grid;grid-template-columns:420px 1fr;gap:16px;align-items:start}
+  @media(max-width:960px){.grid{grid-template-columns:1fr}}
+
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px}
+  .card-title{font-size:11px;font-weight:600;color:var(--cyan);text-transform:uppercase;letter-spacing:.8px;
+    margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid rgba(50,245,225,.2)}
+
+  /* FX Bar */
+  .fx-bar{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
+    padding:12px 16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+  .fx-rate{font-size:22px;font-weight:700;color:var(--green)}
+  .fx-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
+  .fx-status{display:flex;align-items:center;gap:6px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0}
+  .dot.live{background:var(--accent2);animation:pulse 2s infinite}
+  .dot.stale{background:var(--cyan)}
+  .dot.offline{background:var(--danger)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  .fx-actions{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap}
+  .fx-actions input{width:80px;background:var(--bg);border:1px solid var(--border);border-radius:4px;
+    color:var(--text);padding:4px 8px;font-size:13px}
+  .btn-sm{padding:4px 10px;background:transparent;border:1px solid var(--border);border-radius:4px;
+    color:var(--muted);cursor:pointer;font-size:12px;transition:all .15s}
+  .btn-sm:hover{border-color:var(--accent2);color:var(--accent2)}
+  .btn-primary{padding:4px 10px;background:var(--accent);border:none;
+    border-radius:4px;color:#fff;cursor:pointer;font-size:12px;font-weight:600;transition:all .15s}
+  .btn-primary:hover{background:#7d35d4}
+  .btn-primary:disabled{opacity:.4;cursor:not-allowed}
+
+  /* Tabs */
+  .tabs{display:flex;gap:4px;margin-bottom:14px;background:var(--bg);border-radius:var(--radius);
+    padding:4px;border:1px solid var(--border)}
+  .tab{flex:1;padding:7px 10px;background:transparent;border:none;border-radius:6px;color:var(--muted);
+    cursor:pointer;font-size:13px;font-weight:500;transition:all .15s;text-align:center}
+  .tab.active{background:var(--accent);color:#fff;font-weight:600}
+  .tab-panel{display:none}
+  .tab-panel.active{display:block}
+
+  /* Form controls */
+  .form-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:11px;gap:8px}
+  .form-row label{font-size:13px;color:var(--muted);flex-shrink:0;max-width:50%}
+  .form-row .right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+  input[type=range]{width:130px;accent-color:var(--accent2)}
+  input[type=number]{width:80px;background:var(--bg);border:1px solid var(--border);border-radius:4px;
+    color:var(--text);padding:4px 8px;font-size:13px}
+  select{background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);
+    padding:5px 8px;font-size:13px;cursor:pointer}
+  .val-badge{min-width:72px;text-align:right;font-weight:600;color:var(--text);font-size:13px}
+
+  /* Segment */
+  .seg{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+  .seg label{flex:1;text-align:center;padding:5px 8px;font-size:12px;color:var(--muted);cursor:pointer;
+    transition:all .15s;border-right:1px solid var(--border);white-space:nowrap}
+  .seg label:last-child{border-right:none}
+  .seg input[type=radio]{display:none}
+  .seg input[type=radio]:checked+label{background:var(--accent);color:#fff;font-weight:600}
+
+  /* Toggle */
+  .toggle-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px}
+  .toggle{position:relative;width:40px;height:22px;flex-shrink:0}
+  .toggle input{opacity:0;width:0;height:0}
+  .slider-sw{position:absolute;inset:0;background:var(--border);border-radius:22px;cursor:pointer;transition:.25s}
+  .slider-sw::before{content:'';position:absolute;height:16px;width:16px;left:3px;bottom:3px;
+    background:#fff;border-radius:50%;transition:.25s}
+  .toggle input:checked+.slider-sw{background:var(--accent2)}
+  .toggle input:checked+.slider-sw::before{transform:translateX(18px)}
+
+  /* Info icon */
+  .info{display:inline-block;width:15px;height:15px;border-radius:50%;border:1px solid var(--border);
+    text-align:center;line-height:13px;font-size:9px;color:var(--muted);cursor:help;margin-left:3px;flex-shrink:0}
+
+  /* Results */
+  .result-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+  .result-card{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:14px;
+    transition:border-color .15s}
+  .result-card:hover{border-color:var(--accent)}
+  .result-card .rlabel{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
+  .result-card .rvalue{font-size:20px;font-weight:700}
+  .result-card .rsub{font-size:11px;color:var(--muted);margin-top:2px}
+  .c-accent{border-color:rgba(107,45,189,.4)}  .c-accent .rvalue{color:var(--accent)}
+  .c-green {border-color:rgba(0,244,163,.3)}   .c-green  .rvalue{color:var(--accent2)}
+  .c-purple{border-color:rgba(50,245,225,.3)}  .c-purple .rvalue{color:var(--cyan)}
+  .c-warn  {border-color:rgba(50,245,225,.2)}  .c-warn   .rvalue{color:var(--cyan)}
+  .c-red   {border-color:rgba(255,71,87,.3)}   .c-red    .rvalue{color:#ff6b7a}
+  .c-mg    {border-color:rgba(0,244,163,.5)}   .c-mg     .rvalue{color:var(--accent2)}
+  .result-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px}
+  @media(max-width:700px){.result-grid-3{grid-template-columns:1fr}}
+
+  /* Service Tier Cards */
+  .svc-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  @media(max-width:960px){.svc-grid{grid-template-columns:1fr}}
+  .svc-grid input[type=radio]{display:none}
+  .svc-card{display:block;border:1px solid var(--border);border-radius:var(--radius);padding:12px;
+    cursor:pointer;transition:border-color .2s,background .2s;background:var(--bg)}
+  .svc-grid input[type=radio]:checked+.svc-card{border-color:var(--accent);background:rgba(107,45,189,.10)}
+  .svc-card:hover{border-color:var(--accent2)}
+  .svc-name{font-size:15px;font-weight:700;color:var(--text);margin-bottom:2px}
+  .svc-tag{font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.4}
+  .svc-features{list-style:none;padding:0;margin:0 0 8px 0}
+  .svc-features li{font-size:12px;color:var(--muted);padding:2px 0;display:flex;align-items:flex-start;gap:5px}
+  .svc-features li::before{content:'·';color:var(--accent2);font-weight:700;flex-shrink:0}
+  .svc-sla-grid{display:grid;grid-template-columns:1fr 1fr;gap:3px;margin:8px 0}
+  .svc-sla{font-size:10px;padding:2px 5px;border-radius:3px;font-weight:600;text-align:center}
+  .svc-sla.crit{background:rgba(255,71,87,.15);color:#ff6b7a}
+  .svc-sla.high{background:rgba(255,150,50,.15);color:#ff9632}
+  .svc-sla.med{background:rgba(50,245,225,.15);color:var(--cyan)}
+  .svc-sla.low{background:rgba(107,45,189,.2);color:#9966dd}
+  .svc-footer{border-top:1px solid var(--border);padding-top:8px;margin-top:8px;
+    display:flex;justify-content:space-between;align-items:baseline}
+  .svc-mult{font-size:18px;font-weight:700;color:var(--accent2)}
+  .svc-mult-label{font-size:10px;color:var(--muted)}
+  .svc-badge{font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;
+    background:rgba(0,244,163,.12);color:var(--accent2)}
+
+  /* Tables */
+  .breakdown{width:100%;border-collapse:collapse;font-size:13px}
+  .breakdown th{text-align:left;color:var(--muted);font-weight:500;padding:5px 8px;
+    border-bottom:1px solid var(--border);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  .breakdown td{padding:7px 8px;border-bottom:1px solid #1c2128}
+  .breakdown tr:last-child td{border-bottom:none}
+  .breakdown td.r{text-align:right;font-weight:600}
+  .breakdown td.dim{color:var(--muted);font-size:12px}
+  .breakdown .row-sub    td{border-top:1px solid var(--border);font-weight:600}
+  .breakdown .row-total  td{border-top:2px solid var(--accent);font-weight:700;font-size:14px}
+  .breakdown .row-total  td.r{color:var(--accent2)}
+  .breakdown .row-disc   td.r{color:var(--accent2)}
+  .breakdown .row-tax    td.r{color:var(--cyan)}
+  .breakdown .row-margin td{border-top:2px solid var(--accent2);font-weight:700;font-size:14px}
+  .breakdown .row-margin td.r{color:var(--accent2)}
+  .breakdown .row-margin-neg td{border-top:2px solid var(--danger);font-weight:700;font-size:14px}
+  .breakdown .row-margin-neg td.r{color:#ff6b7a}
+  .breakdown .row-cost   td.r{color:#ff6b7a}
+  .breakdown .section-hdr td{background:rgba(255,255,255,.03);color:var(--cyan);font-size:10px;
+    font-weight:700;text-transform:uppercase;letter-spacing:.8px;padding:8px 8px 4px;
+    border-top:1px solid var(--border)}
+
+  .comp-table{width:100%;border-collapse:collapse;font-size:12px}
+  .comp-table th{text-align:left;color:var(--muted);padding:5px 8px;border-bottom:1px solid var(--border);
+    font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}
+  .comp-table td{padding:7px 8px;border-bottom:1px solid #1c2128;vertical-align:top}
+  .comp-table .me{background:rgba(107,45,189,.1);border-left:3px solid var(--accent2)}
+  .comp-table .me td:first-child{color:var(--accent2);font-weight:700}
+
+  .badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:600}
+  .bg{background:rgba(0,244,163,.12);color:var(--accent2)}
+  .br{background:rgba(255,71,87,.12);color:#ff6b7a}
+  .by{background:rgba(50,245,225,.12);color:var(--cyan)}
+  .bb{background:rgba(107,45,189,.2);color:var(--accent)}
+
+  .tax-detail{background:rgba(50,245,225,.05);border:1px solid rgba(50,245,225,.2);
+    border-radius:var(--radius);padding:10px 12px;margin-top:8px;font-size:12px}
+  .tax-row{display:flex;justify-content:space-between;margin-bottom:3px}
+  .tax-row:last-child{margin-bottom:0;font-weight:700;border-top:1px solid rgba(50,245,225,.25);
+    padding-top:5px;margin-top:5px;color:var(--cyan)}
+
+  .hint{background:rgba(107,45,189,.07);border:1px solid rgba(107,45,189,.25);
+    border-radius:6px;padding:10px 12px;font-size:12px;color:var(--muted);margin-top:8px}
+  .hint strong{color:var(--cyan)}
+
+  .divider{height:1px;background:var(--border);margin:14px 0}
+
+  /* Total bar */
+  .total-bar{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);
+    border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:16px}
+  .total-bar-cell{background:var(--panel);padding:14px 18px;text-align:center}
+  .total-bar-cell .tb-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px}
+  .total-bar-cell .tb-value{font-size:24px;font-weight:700;line-height:1.1}
+  .total-bar-cell .tb-sub{font-size:11px;color:var(--muted);margin-top:3px}
+  .tb-main .tb-value{color:var(--accent2)}
+  .tb-usd  .tb-value{color:var(--accent)}
+  .tb-ann  .tb-value{color:var(--cyan)}
+  .tb-3yr  .tb-value{color:var(--text)}
+  @media(max-width:700px){.total-bar{grid-template-columns:1fr 1fr}}
+  .results-scroll{max-height:calc(100vh - 80px);overflow-y:auto;position:sticky;top:8px}
+  @media(max-width:960px){.results-scroll{position:static;max-height:none}}
+
+  /* Brand header accent bar */
+  body::before{content:'';display:block;height:3px;background:var(--accent);
+    position:fixed;top:0;left:0;right:0;z-index:999}
+
+  /* Card hover */
+  .card{transition:border-color .15s}
+  .card:hover{border-color:var(--accent)}
+
+  /* Select & input focus */
+  select:focus,input:focus{outline:1px solid var(--accent2);outline-offset:1px}
+
+  /* Scrollbar */
+  ::-webkit-scrollbar{width:6px}
+  ::-webkit-scrollbar-track{background:var(--bg)}
+  ::-webkit-scrollbar-thumb{background:var(--accent);border-radius:3px}
+  ::-webkit-scrollbar-thumb:hover{background:var(--accent2)}
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <header>
+    <div class="logo">
+      <div class="logo-icon">
+        <img src="../CYBERBOXLOGO.png" alt="Cyberbox"/>
+      </div>
+      <div>
+        <h1 style="color:var(--text);font-size:22px;letter-spacing:.5px">CYBERBOX SIEM</h1>
+        <div style="font-size:13px;font-weight:600;color:var(--accent2);letter-spacing:.8px;text-transform:uppercase">Calculadora Comercial</div>
+        <div style="font-size:11px;color:#ffffff;margin-top:2px;text-transform:uppercase;letter-spacing:.6px">Mercado Brasileiro 2025–2026</div>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--muted);text-align:right">
+      Todos os preços em BRL · Impostos incluídos<br>
+      <span id="calc-date"></span>
+    </div>
+  </header>
+
+  <!-- ── FX Bar ── -->
+  <div class="fx-bar">
+    <div>
+      <div class="fx-label">USD / BRL</div>
+      <div class="fx-rate" id="fx-display">R$ —,——</div>
+    </div>
+    <div>
+      <div class="fx-label">Atualizado em</div>
+      <div style="font-size:12px;color:var(--muted)" id="fx-time">aguardando…</div>
+    </div>
+    <div class="fx-status">
+      <div class="dot" id="fx-dot"></div>
+      <span style="font-size:12px;color:var(--muted)" id="fx-status-txt">—</span>
+    </div>
+    <div class="fx-actions">
+      <span style="font-size:12px;color:var(--muted)">Override manual:</span>
+      <input type="number" id="fx-manual" placeholder="ex: 5.85" step="0.01" min="1" max="20"/>
+      <button class="btn-sm" id="btn-use-manual">Usar</button>
+      <button class="btn-primary" id="btn-refresh-fx">↻ Atualizar cotação</button>
+    </div>
+  </div>
+
+  <!-- ── Total Summary Bar ── -->
+  <div class="total-bar">
+    <div class="total-bar-cell tb-main">
+      <div class="tb-label">Total c/ impostos / mês</div>
+      <div class="tb-value" id="tb-total-brl">R$ —</div>
+      <div class="tb-sub" id="tb-total-usd">USD —</div>
+    </div>
+    <div class="total-bar-cell tb-usd">
+      <div class="tb-label">Total bruto da proposta (pré-desconto)</div>
+      <div class="tb-value" id="tb-tech-brl">R$ —</div>
+      <div class="tb-sub" id="tb-tech-usd">USD —</div>
+    </div>
+    <div class="total-bar-cell tb-ann">
+      <div class="tb-label">Total anual (12 meses)</div>
+      <div class="tb-value" id="tb-ann-brl">R$ —</div>
+      <div class="tb-sub" id="tb-ann-usd">USD —</div>
+    </div>
+    <div class="total-bar-cell tb-3yr">
+      <div class="tb-label">Contrato 3 anos (−25%)</div>
+      <div class="tb-value" id="tb-3yr-brl">R$ —</div>
+      <div class="tb-sub" id="tb-3yr-usd">USD —</div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- ════════ LEFT — CONTROLS ════════ -->
+    <div>
+
+      <!-- Pricing Model -->
+      <div class="card">
+        <div class="card-title">Modelo de Precificação</div>
+        <div class="tabs">
+          <button class="tab active" data-model="host" onclick="switchModel(this)">Por Host / Ativo</button>
+          <button class="tab" data-model="eps"  onclick="switchModel(this)">Por EPS</button>
+          <button class="tab" data-model="gb"   onclick="switchModel(this)">Por GB / Dia</button>
+        </div>
+
+        <!-- Host panel -->
+        <div class="tab-panel active" id="panel-host">
+          <div class="form-row">
+            <label>Nº de hosts / ativos</label>
+            <div class="right">
+              <input type="range" id="host-r" min="10" max="5000" step="10" value="500"
+                oninput="fwd('host-r','host-n');calc()"/>
+              <input type="number" id="host-n" value="500" min="1" max="99999"
+                oninput="fwd('host-n','host-r');calc()"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Preço / host / mês (USD)</label>
+            <div class="right">
+              <input type="number" id="ht-price" value="10" min="1" max="9999" step="0.5" style="width:100px"
+                oninput="calc()"/>
+            </div>
+          </div>
+          <div class="hint">
+            <strong>Referência mercado (MDR 24×7):</strong> UnderDefense $13 · Rapid7 $20 · Arctic Wolf $30 · CrowdStrike $22 /host/mês<br>
+            <strong>SIEM plataforma:</strong> Splunk ~$12,50 · Sentinel ~$16 · Elastic ~$12/host/mês (sem MDR/SOC)<br>
+            Sugestão Cyberbox: Shared $10–13 · Full $20–25 · Premium $30–50 /host/mês
+          </div>
+        </div>
+
+        <!-- EPS panel -->
+        <div class="tab-panel" id="panel-eps">
+          <div class="form-row">
+            <label>Capacidade EPS contratada</label>
+            <div class="right">
+              <input type="range" id="eps-r" min="0" max="22" step="1" value="6" oninput="updateEPS()"/>
+              <input type="number" id="eps-manual" value="5000" min="1" max="99999999" style="width:100px"
+                oninput="updateEPSManual()"/>
+            </div>
+          </div>
+          <div class="hint">
+            <strong>Preço por EPS definido pelo plano de serviço:</strong> Shared $50 · Full $80 · Premium $130 / 1k EPS/mês (MDR/SOC incluído)<br>
+            <strong>Referência mercado:</strong> IBM QRadar ~$200/1k EPS · Exabeam ~$20 · LogRhythm ~$15/1k EPS (só plataforma, sem MDR)<br>
+            Managed SIEM médio de mercado: $5.000–10.000/mês · MSSP: $5.000–20.000/mês
+          </div>
+        </div>
+
+        <!-- GB/Day panel -->
+        <div class="tab-panel" id="panel-gb">
+          <div class="form-row">
+            <label>Volume diário ingerido (GB)</label>
+            <div class="right">
+              <input type="range" id="gb-r" min="1" max="500" step="1" value="50"
+                oninput="fwd('gb-r','gb-n');calc()"/>
+              <input type="number" id="gb-n" value="50" min="1" max="9999"
+                oninput="fwd('gb-n','gb-r');calc()"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Preço / GB / dia (USD)</label>
+            <div class="right">
+              <input type="number" id="gt-price" value="8" min="0.01" max="9999" step="0.5" style="width:100px"
+                oninput="calc()"/>
+            </div>
+          </div>
+          <div class="hint">
+            <strong>Referência mercado:</strong> Splunk ~$120/GB/dia (enterprise) · Sentinel ~$156/GB/dia (PAYG) · Graylog ~$50/GB/dia<br>
+            Sugestão Cyberbox: Shared $5–8 · Full $12–20 · Premium $25–40 /GB/dia
+          </div>
+        </div>
+      </div>
+
+      <!-- Service Plan -->
+      <div class="card">
+        <div class="card-title">Plano de Serviço Cyberbox MDR / SOC 24×7</div>
+        <div class="svc-grid">
+
+          <!-- Shared -->
+          <input type="radio" name="svc" id="svc-shared" value="2"
+            data-eps-price="50" data-min-fee="300" onchange="calc()" checked>
+          <label for="svc-shared" class="svc-card">
+            <div class="svc-name">Shared</div>
+            <div class="svc-tag">Multi-tenant · Hardware compartilhado · Dados isolados · até 1.500 EPS</div>
+            <ul class="svc-features">
+              <li>Monitoramento SOC 24×7</li>
+              <li>AI Agents incluídos</li>
+              <li>Relatórios mensais de segurança</li>
+              <li>Alertas e triagem de incidentes</li>
+            </ul>
+            <div class="svc-sla-grid">
+              <div class="svc-sla crit">Crítico 15 min</div>
+              <div class="svc-sla high">Alto 45 min</div>
+              <div class="svc-sla med">Médio 2 h</div>
+              <div class="svc-sla low">Baixo 6 h</div>
+            </div>
+            <div class="svc-footer">
+              <span class="svc-mult-label">mín. $300/mês · host/GB: 2×</span>
+              <span class="svc-mult">$50<small style="font-size:10px;font-weight:400">/1k EPS</small></span>
+            </div>
+          </label>
+
+          <!-- Full -->
+          <input type="radio" name="svc" id="svc-full" value="5"
+            data-eps-price="80" data-min-fee="800" onchange="calc()">
+          <label for="svc-full" class="svc-card">
+            <div class="svc-name">Full</div>
+            <div class="svc-tag">Hardware dedicado · Ambiente exclusivo do cliente</div>
+            <ul class="svc-features">
+              <li>Tudo do plano Shared</li>
+              <li>Infraestrutura dedicada</li>
+              <li>Threat Hunting diário</li>
+              <li>Resposta ativa a incidentes</li>
+            </ul>
+            <div class="svc-sla-grid">
+              <div class="svc-sla crit">Crítico 15 min</div>
+              <div class="svc-sla high">Alto 45 min</div>
+              <div class="svc-sla med">Médio 2 h</div>
+              <div class="svc-sla low">Baixo 6 h</div>
+            </div>
+            <div class="svc-footer">
+              <span class="svc-mult-label">mín. $800/mês · host/GB: 5×</span>
+              <span class="svc-mult">$80<small style="font-size:10px;font-weight:400">/1k EPS</small></span>
+            </div>
+          </label>
+
+          <!-- Premium -->
+          <input type="radio" name="svc" id="svc-premium" value="10"
+            data-eps-price="130" data-min-fee="1500" onchange="calc()">
+          <label for="svc-premium" class="svc-card">
+            <div class="svc-name">Premium</div>
+            <div class="svc-tag">Inteligência avançada · Plataforma SENNA inclusa</div>
+            <ul class="svc-features">
+              <li>Tudo do plano Full</li>
+              <li>Threat Intelligence premium</li>
+              <li>Acesso gratuito ao SENNA</li>
+              <li>CISO virtual + compliance BR</li>
+            </ul>
+            <div class="svc-sla-grid">
+              <div class="svc-sla crit">Crítico 15 min</div>
+              <div class="svc-sla high">Alto 45 min</div>
+              <div class="svc-sla med">Médio 2 h</div>
+              <div class="svc-sla low">Baixo 6 h</div>
+            </div>
+            <div class="svc-footer">
+              <span class="svc-badge">SENNA incluso · mín. $1.500/mês · host/GB: 10×</span>
+              <span class="svc-mult">$130<small style="font-size:10px;font-weight:400">/1k EPS</small></span>
+            </div>
+          </label>
+
+        </div>
+      </div>
+
+      <!-- Retenção -->
+      <div class="card">
+        <div class="card-title">Retenção &amp; Armazenamento</div>
+        <div class="toggle-row">
+          <div>
+            <div style="font-size:13px">Dados no Brasil (sa-east-1)</div>
+            <div style="font-size:11px;color:var(--muted)">Desativado = us-east-1 (N. Virginia) — ~40% mais barato · requer aceite LGPD</div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="region-br" onchange="calc()" checked>
+            <span class="slider-sw"></span>
+          </label>
+        </div>
+        <div id="region-hint" style="display:none" class="hint" >
+          ⚠️ Dados fora do Brasil: cliente deve assinar adendo LGPD de transferência internacional (art. 33 Lei 13.709/2018). Não recomendado para clientes do setor financeiro (BACEN 4893).
+        </div>
+        <div class="divider"></div>
+        <div class="form-row">
+          <label>Retenção hot (meses)</label>
+          <div class="right">
+            <input type="range" id="hot-r" min="1" max="24" step="1" value="3"
+              oninput="fwd('hot-r','hot-n');calc()"/>
+            <input type="number" id="hot-n" value="3" min="1" max="60"
+              oninput="fwd('hot-n','hot-r');calc()"/>
+          </div>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div style="font-size:13px">BACEN 4893 — Arquivo frio 5 anos</div>
+            <div style="font-size:11px;color:var(--muted)">Obrigatório para instituições financeiras (Resolução CMN 4.893/2021)</div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="bacen-cb" onchange="calc()">
+            <span class="slider-sw"></span>
+          </label>
+        </div>
+        <div id="bacen-hint" style="display:none" class="hint">
+          Arquivo frio S3 Glacier (sa-east-1): ~$0,004/GB/mês · 60 meses de retenção obrigatória.<br>
+          Custo estimado calculado abaixo no detalhamento.
+        </div>
+      </div>
+
+      <!-- Suporte e Cobrança -->
+      <div class="card">
+        <div class="card-title">Suporte &amp; Cobrança</div>
+        <input type="hidden" id="support" value="0"/>
+        <div class="form-row">
+          <label>Desconto por fidelidade</label>
+          <div class="right">
+            <select id="disc" onchange="calc()">
+              <option value="0">Mensal (sem desconto)</option>
+              <option value="0.15">Anual (−15%)</option>
+              <option value="0.25">3 anos (−25%)</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Nº de tenants / clientes</label>
+          <div class="right">
+            <input type="range" id="ten-r" min="1" max="50" step="1" value="1"
+              oninput="fwd('ten-r','ten-n');calc()"/>
+            <input type="number" id="ten-n" value="1" min="1" max="9999"
+              oninput="fwd('ten-n','ten-r');calc()"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Taxa de implementação única (USD)</label>
+          <div class="right">
+            <select id="impl-fee" onchange="calc()">
+              <option value="0" selected>Sem taxa</option>
+              <option value="5000">$5.000 — SMB</option>
+              <option value="15000">$15.000 — Mid-Market</option>
+              <option value="50000">$50.000 — Enterprise</option>
+              <option value="150000">$150.000 — Large Enterprise</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Amortizar implementação em (meses)</label>
+          <div class="right">
+            <input type="range" id="impl-r" min="12" max="36" step="12" value="12"
+              oninput="fwd('impl-r','impl-n');calc()"/>
+            <input type="number" id="impl-n" value="12" min="1" max="60"
+              oninput="fwd('impl-n','impl-r');calc()"/>
+          </div>
+        </div>
+      </div>
+
+      <!-- Regime Tributário -->
+      <div class="card">
+        <div class="card-title">Regime Tributário &amp; Câmbio</div>
+        <div class="form-row">
+          <label>Regime fiscal</label>
+          <div class="right">
+            <select id="tax-regime" onchange="renderTax();calc()">
+              <option value="presumido">Lucro Presumido</option>
+              <option value="real">Lucro Real</option>
+              <option value="simples">Simples Nacional</option>
+            </select>
+          </div>
+        </div>
+        <div id="tax-detail" class="tax-detail"></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:8px">
+          IVA Dual 2026 — fase de testes: CBS 0,9% + IBS 0,1% (neutro: descontado do PIS/COFINS). CBS substitui PIS/COFINS em 2027; IBS substitui ISS em 2029–2032. Alíquota final estimada: 26,5–28% (não-cumulativo). Simples Nacional Anexo III: faixas de 6% (até R$180k/ano) a 17,5% (R$4,2M/ano).
+        </div>
+        <div class="divider"></div>
+        <div class="form-row">
+          <label>
+            Hedge cambial USD→BRL
+            <span class="info" title="Buffer para volatilidade do real. Aplicado sobre todos os custos denominados em dólar.">?</span>
+          </label>
+          <div class="right">
+            <div class="seg">
+              <input type="radio" name="hedge" id="h0" value="0"    onchange="calc()" checked><label for="h0">0%</label>
+              <input type="radio" name="hedge" id="h1" value="0.05" onchange="calc()"><label for="h1">5%</label>
+              <input type="radio" name="hedge" id="h2" value="0.10" onchange="calc()"><label for="h2">10%</label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════ RIGHT — RESULTS ════════ -->
+    <div class="results-scroll">
+
+      <!-- Summary cards -->
+      <div class="result-grid">
+        <div class="result-card c-accent">
+          <div class="rlabel">Total bruto da proposta (pré-desconto)</div>
+          <div class="rvalue" id="r-tech-brl">R$ —</div>
+          <div class="rsub"  id="r-tech-usd">USD —</div>
+        </div>
+        <div class="result-card c-green">
+          <div class="rlabel">Total com impostos / mês</div>
+          <div class="rvalue" id="r-total-brl">R$ —</div>
+          <div class="rsub"  id="r-total-usd">USD —</div>
+        </div>
+        <div class="result-card c-purple">
+          <div class="rlabel">Preço unitário equivalente</div>
+          <div class="rvalue" id="r-unit">—</div>
+          <div class="rsub"  id="r-unit-sub">por unidade / mês</div>
+        </div>
+        <div class="result-card c-warn">
+          <div class="rlabel">Economia plataforma vs Splunk</div>
+          <div class="rvalue" id="r-saving">—</div>
+          <div class="rsub" id="r-saving-sub">MDR/SOC 24×7 já incluído</div>
+        </div>
+      </div>
+
+      <!-- Margin / Cost cards -->
+      <div class="result-grid-3">
+        <div class="result-card">
+          <div class="rlabel">Receita líquida / mês (após desc.)</div>
+          <div class="rvalue" id="r-rev-brl" style="font-size:18px">R$ —</div>
+          <div class="rsub"  id="r-rev-usd">USD —</div>
+        </div>
+        <div class="result-card c-red">
+          <div class="rlabel">Custo AWS / infra / mês (estimado)</div>
+          <div class="rvalue" id="r-aws-brl">R$ —</div>
+          <div class="rsub"  id="r-aws-usd">USD —</div>
+        </div>
+        <div class="result-card c-mg" id="margin-card">
+          <div class="rlabel">Margem bruta estimada / mês</div>
+          <div class="rvalue" id="r-margin-brl">R$ —</div>
+          <div class="rsub"  id="r-margin-pct">— %</div>
+        </div>
+      </div>
+
+      <!-- Breakdown -->
+      <div class="card">
+        <div class="card-title">Detalhamento: Receita · Impostos · Custos · Margem</div>
+        <table class="breakdown">
+          <thead><tr><th>Item</th><th class="r">USD / mês</th><th class="r">BRL / mês</th></tr></thead>
+          <tbody id="bkd-body"></tbody>
+        </table>
+      </div>
+
+      <!-- AWS Infra -->
+      <div class="card">
+        <div class="card-title">Infraestrutura AWS Estimada (sa-east-1)</div>
+        <table class="breakdown">
+          <thead><tr><th>Componente</th><th class="r">USD / mês</th></tr></thead>
+          <tbody id="aws-body"></tbody>
+        </table>
+        <div class="hint" style="margin-top:10px">
+          <strong>Hardware recomendado para testes de performance:</strong><br>
+          &lt;10k EPS: r6i.xlarge (4 vCPU / 32 GB) + gp3 500 GB — ~$250/mês<br>
+          10–50k EPS: r6i.2xlarge (8 vCPU / 64 GB) + gp3 1 TB — ~$500/mês<br>
+          50k+ EPS: r6i.4xlarge (16 vCPU / 128 GB) + io2 2 TB — ~$1.100/mês<br>
+          ClickHouse: mesma instância da API · Kafka: m6i.large/broker · ALB: ~$20/mês
+        </div>
+      </div>
+
+      <!-- Competitor -->
+      <div class="card">
+        <div class="card-title">Comparativo de Mercado (volume configurado)</div>
+        <div style="overflow-x:auto">
+          <table class="comp-table">
+            <thead>
+              <tr>
+                <th>Fornecedor</th><th>Modelo</th><th>Preço estimado/mês</th>
+                <th>Infra inclusa</th><th>Open Source</th><th>Compliance BR</th>
+              </tr>
+            </thead>
+            <tbody id="comp-body"></tbody>
+          </table>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:8px">
+          * Estimativas com base em preços públicos 2025–2026. Solicitar cotação formal antes de apresentar ao cliente.
+        </div>
+      </div>
+
+      <!-- Annual -->
+      <div class="card">
+        <div class="card-title">Resumo Contratual</div>
+        <div id="annual-body"></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:10px" id="footnotes"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ── Constants ──────────────────────────────────────────────────────────────────
+const EPS_STEPS = [
+  100, 250, 500, 1000, 2000, 3000, 5000, 7500,
+  10000, 15000, 20000, 30000, 50000, 75000,
+  100000, 150000, 250000, 500000, 750000,
+  1000000, 2000000, 5000000, 10000000
+];
+
+const TAXES = {
+  presumido: {
+    label: 'Lucro Presumido',
+    rows: [
+      {name:'ISS (serviços TI — São Paulo 2%)',  r:0.02  },  // LC 116/2003: 2–5%; SP/Curitiba = 2%
+      {name:'PIS (cumulativo)',                   r:0.0065},
+      {name:'COFINS (cumulativo)',                r:0.03  },
+      {name:'CSLL (9% × base 32%)',              r:0.0288},  // 9% × 32% = 2,88%
+      {name:'IRPJ base (15% × base 32%)',        r:0.048 },  // 15% × 32% = 4,80%
+      {name:'IRPJ adicional 10% (estimado)',     r:0.015 },  // 10% sobre lucro > R$60k/trim; ~1,5% s/ receita
+    ]
+  },
+  real: {
+    label: 'Lucro Real',
+    rows: [
+      {name:'ISS (serviços TI — São Paulo 2%)',  r:0.02  },
+      {name:'PIS não-cumulativo (líq. créditos)',r:0.0099},  // 1,65% × ~60% após créditos cloud/infra
+      {name:'COFINS não-cumulativo (líq. créd)',r:0.0456},  // 7,60% × ~60% após créditos
+      {name:'CSLL (9% s/ lucro real ~40%)',      r:0.036 },  // 9% × 40% margem
+      {name:'IRPJ base (15% s/ lucro real 40%)',r:0.06  },  // 15% × 40%
+      {name:'IRPJ adicional 10% (lucro > R$20k/mês)',r:0.015},
+    ]
+  },
+  simples: {
+    label: 'Simples Nacional (Anexo III)',
+    // Alíquota efetiva por faixa de RBT12 (Contabilizei 2025)
+    // Faixa 3 (~R$600k/ano) como default: ~10,58%
+    rows: [
+      {name:'DAS Anexo III (faixa 3 — RBT12 ~R$600k/ano)', r:0.1058},
+    ]
+  }
+};
+
+const COMPS = [
+  // ── SIEM platforms ──
+  {name:'Cyberbox SIEM + MDR',     model:'Host/EPS/GB', ref_usd:null, infra:'Incluso',  oss:'Parcial', br:'LGPD, PCI, BACEN'},
+  {name:'Splunk Enterprise',       model:'GB/dia',      ref_usd:120,  infra:'Cliente',  oss:'Não',     br:'Limitado'},
+  {name:'IBM QRadar',              model:'EPS',         ref_usd:200,  infra:'Cliente',  oss:'Não',     br:'Parcial'},
+  {name:'Microsoft Sentinel',      model:'GB/dia',      ref_usd:156,  infra:'Azure',    oss:'Não',     br:'Parcial'},
+  {name:'Palo Alto XSIAM',         model:'Host',        ref_usd:50,   infra:'Cliente',  oss:'Não',     br:'Limitado'},
+  {name:'Elastic SIEM',            model:'Host',        ref_usd:12,   infra:'Flex',     oss:'Parcial', br:'Limitado'},
+  {name:'Graylog Enterprise',      model:'GB/dia',      ref_usd:50,   infra:'Cliente',  oss:'Core',    br:'Limitado'},
+  {name:'Wazuh',                   model:'Agentes',     ref_usd:0,    infra:'Cliente',  oss:'Sim',     br:'Parcial'},
+  // ── MDR / MSSP (SOC 24×7 incluído) ──
+  {name:'UnderDefense MAXI',       model:'Host',        ref_usd:13,   infra:'Incluso',  oss:'Não',     br:'Limitado'},
+  {name:'Rapid7 MDR',              model:'Host',        ref_usd:20,   infra:'Incluso',  oss:'Não',     br:'Parcial'},
+  {name:'Arctic Wolf',             model:'Host',        ref_usd:30,   infra:'Incluso',  oss:'Não',     br:'Limitado'},
+  {name:'CrowdStrike Falcon Comp', model:'Host',        ref_usd:22,   infra:'Incluso',  oss:'Não',     br:'Limitado'},
+];
+
+// ── State ──────────────────────────────────────────────────────────────────────
+let USD_BRL   = 5.85;
+let FX_SOURCE = 'padrão';
+let MODEL     = 'host';
+let EPS_IDX   = 6;   // 5000 EPS
+
+// ── FX ────────────────────────────────────────────────────────────────────────
+async function fetchFX() {
+  setFxUI('dot','buscando cotação ao vivo…');
+  const sources = [
+    async () => {
+      const r = await fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL',
+        {signal: AbortSignal.timeout(5000)});
+      const d = await r.json();
+      return {rate: parseFloat(d['USDBRL'].bid), src: 'AwesomeAPI'};
+    },
+    async () => {
+      const r = await fetch('https://api.frankfurter.app/latest?from=USD&to=BRL',
+        {signal: AbortSignal.timeout(5000)});
+      const d = await r.json();
+      return {rate: d.rates.BRL, src: 'Frankfurter'};
+    }
+  ];
+
+  for (const source of sources) {
+    try {
+      const {rate, src} = await source();
+      if (rate && rate > 1) {
+        USD_BRL   = rate;
+        FX_SOURCE = src;
+        document.getElementById('fx-display').textContent = 'R$ ' + rate.toFixed(4);
+        document.getElementById('fx-time').textContent = new Date().toLocaleTimeString('pt-BR');
+        setFxUI('live', src + ' (ao vivo)');
+        calc();
+        return;
+      }
+    } catch(_) {}
+  }
+
+  setFxUI('offline', 'offline — usando R$' + USD_BRL.toFixed(2));
+  document.getElementById('fx-time').textContent = 'falha na requisição';
+}
+
+function setFxUI(dotClass, label) {
+  const dot = document.getElementById('fx-dot');
+  dot.className = 'dot ' + dotClass;
+  document.getElementById('fx-status-txt').textContent = label;
+}
+
+document.getElementById('btn-refresh-fx').addEventListener('click', () => {
+  const btn = document.getElementById('btn-refresh-fx');
+  btn.disabled = true;
+  fetchFX().finally(() => setTimeout(() => btn.disabled = false, 4000));
+});
+
+document.getElementById('btn-use-manual').addEventListener('click', () => {
+  const v = parseFloat(document.getElementById('fx-manual').value);
+  if (v > 1 && v < 20) {
+    USD_BRL   = v;
+    FX_SOURCE = 'manual';
+    document.getElementById('fx-display').textContent = 'R$ ' + v.toFixed(4);
+    document.getElementById('fx-time').textContent = 'sobrescrito manualmente';
+    setFxUI('stale', 'cotação manual');
+    calc();
+  }
+});
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+function switchModel(btn) {
+  MODEL = btn.dataset.model;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  ['host','eps','gb'].forEach(p =>
+    document.getElementById('panel-'+p).classList.toggle('active', p === MODEL));
+  calc();
+}
+
+function fwd(fromId, toId) {
+  const a = document.getElementById(fromId);
+  const b = document.getElementById(toId);
+  if (a && b) b.value = a.value;
+}
+
+function updateEPS() {
+  EPS_IDX = parseInt(document.getElementById('eps-r').value, 10);
+  const eps = EPS_STEPS[Math.min(EPS_IDX, EPS_STEPS.length-1)];
+  document.getElementById('eps-manual').value = eps;
+  calc();
+}
+
+function updateEPSManual() {
+  const v = parseInt(document.getElementById('eps-manual').value, 10);
+  if (!v || v < 1) return;
+  // Snap slider to nearest step
+  let nearest = 0;
+  let minDiff = Infinity;
+  EPS_STEPS.forEach((s, i) => {
+    const diff = Math.abs(s - v);
+    if (diff < minDiff) { minDiff = diff; nearest = i; }
+  });
+  EPS_IDX = nearest;
+  document.getElementById('eps-r').value = nearest;
+  calc();
+}
+
+function radio(name) {
+  const el = document.querySelector(`input[name="${name}"]:checked`);
+  return el ? parseFloat(el.value) : 0;
+}
+function num(id) { return parseFloat(document.getElementById(id).value) || 0; }
+function checked(id) { return document.getElementById(id).checked; }
+
+const brl = v => 'R$ ' + v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const usd = v => '$ ' + v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const pct = v => (v*100).toFixed(1)+'%';
+
+// ── Tax Detail ────────────────────────────────────────────────────────────────
+function renderTax() {
+  const regime = document.getElementById('tax-regime').value;
+  const t = TAXES[regime];
+  let total = 0, html = '';
+  t.rows.forEach(row => {
+    total += row.r;
+    html += `<div class="tax-row"><span>${row.name}</span><span>${(row.r*100).toFixed(2)}%</span></div>`;
+  });
+  html += `<div class="tax-row"><span>Total impostos</span><span>${(total*100).toFixed(2)}%</span></div>`;
+  html += `<div style="margin-top:6px;font-size:11px;color:var(--muted)">
+    IVA Dual 2026 (informativo): CBS 0,90% + IBS 0,10% = 1,00% — substituirá parte do PIS/COFINS/ISS gradualmente</div>`;
+  document.getElementById('tax-detail').innerHTML = html;
+  return total;
+}
+
+// ── AWS Estimate ──────────────────────────────────────────────────────────────
+function awsEstimate(eps, gbDay, regionBR = true) {
+  // sa-east-1 is ~40% more expensive than us-east-1
+  const regionMult = regionBR ? 1.0 : 0.62;
+  const gbPrice    = regionBR ? 0.10 : 0.08;   // EBS gp3 $/GB/mês
+  let ec2, ch, kafka, disk, lb = 20;
+  if      (eps <= 5000)   { ec2=150;  ch=0;    kafka=0;   disk=50  }
+  else if (eps <= 20000)  { ec2=300;  ch=100;  kafka=130; disk=100 }
+  else if (eps <= 50000)  { ec2=600;  ch=250;  kafka=260; disk=200 }
+  else if (eps <= 100000) { ec2=1100; ch=500;  kafka=390; disk=400 }
+  else                    { ec2=2200; ch=1000; kafka=780; disk=800 }
+  ec2 = ec2 * regionMult; ch = ch * regionMult; kafka = kafka * regionMult; lb = lb * regionMult;
+  disk = disk * regionMult + Math.max(0, gbDay*30 - 500) * gbPrice;
+  const rows = [
+    {n:'EC2 API + Worker',           v:ec2},
+    {n:'ClickHouse (dados quentes)', v:ch},
+    {n:'Kafka (streaming events)',   v:kafka},
+    {n:'Armazenamento gp3/io2',      v:disk},
+    {n:'Load Balancer (ALB)',        v:lb},
+  ].filter(r=>r.v>0);
+  const total = rows.reduce((s,r)=>s+r.v, 0);
+  return {rows, total};
+}
+
+// ── Main Calc ─────────────────────────────────────────────────────────────────
+function calc() {
+  const taxRate = renderTax();
+  const regime  = document.getElementById('tax-regime').value;
+  const svcEl   = document.querySelector('input[name="svc"]:checked');
+  const mdrMult      = parseFloat(svcEl.value);                          // 2 / 5 / 10
+  const tierEpsPrice = parseFloat(svcEl.dataset.epsPrice || 15);         // $/1k EPS
+  const tierMinFee   = parseFloat(svcEl.dataset.minFee   || 0);          // $/month minimum
+  const hedge   = radio('hedge');
+  const suppPct = parseFloat(document.getElementById('support').value) || 0;
+  const discPct = parseFloat(document.getElementById('disc').value)    || 0;
+  const tenants = Math.max(1, Math.round(num('ten-n')));
+  const implFee = parseFloat(document.getElementById('impl-fee').value) || 0;
+  const implMo  = Math.max(1, Math.round(num('impl-n')));
+  const hotMo   = Math.max(1, Math.round(num('hot-n')));
+  const bacen   = checked('bacen-cb');
+
+  // Base tech cost per tenant (USD/month)
+  let techBase = 0, eps = 5000, gbDay = 50, hosts = 500;
+  let effectiveMdrMult = mdrMult;  // EPS model overrides this to 1 (price already tier-inclusive)
+  let minFeeApplied = false;
+
+  if (MODEL === 'host') {
+    hosts   = Math.max(1, Math.round(num('host-n')));
+    const htPrice = Math.max(0.01, parseFloat(document.getElementById('ht-price').value) || 10);
+    techBase = hosts * htPrice;
+    eps     = hosts * 2;
+    gbDay   = hosts * 0.1;
+  } else if (MODEL === 'eps') {
+    eps      = parseInt(document.getElementById('eps-manual').value, 10) || EPS_STEPS[EPS_IDX];
+    const rawEpsCost = (eps / 1000) * tierEpsPrice;
+    if (rawEpsCost < tierMinFee) { techBase = tierMinFee; minFeeApplied = true; }
+    else                         { techBase = rawEpsCost; }
+    effectiveMdrMult = 1;  // EPS price already includes service tier
+    hosts   = Math.round(eps / 2);
+    gbDay   = eps * 0.0864 * 0.1;
+  } else {
+    gbDay   = Math.max(1, Math.round(num('gb-n')));
+    const gtPrice = Math.max(0.01, parseFloat(document.getElementById('gt-price').value) || 8);
+    techBase = gbDay * gtPrice;
+    eps     = Math.round(gbDay / 0.0864 / 0.1);
+    hosts   = Math.round(eps / 2);
+  }
+
+  // Additional costs (per tenant, USD)
+  const regionBR_ = document.getElementById('region-br').checked;
+  const gbPriceMo = regionBR_ ? 0.10 : 0.08;  // gp3: sa-east-1 $0.10 / us-east-1 $0.08
+  const hotGB    = gbDay * 30 * hotMo;
+  const hotStore = hotGB * gbPriceMo;
+
+  const bacenUSD = bacen ? (gbDay * 30 * 60 * 0.004) : 0; // Glacier 5yr
+
+  const mdrAdd  = techBase * (effectiveMdrMult - 1);
+  const suppAdd = techBase * effectiveMdrMult * suppPct;  // % on full service bill
+  const implMo$ = implFee / implMo;
+
+  const subtotalPre  = techBase + mdrAdd + hotStore + bacenUSD + suppAdd + implMo$;
+  const hedgeAdd     = subtotalPre * hedge;
+  const perTenantUSD = subtotalPre + hedgeAdd;
+
+  // Total across tenants
+  const totalTechUSD = perTenantUSD * tenants;
+  const discUSD      = totalTechUSD * discPct;
+  const afterDisc    = totalTechUSD - discUSD;
+  const taxUSD       = afterDisc * taxRate;
+  const grandTotal   = afterDisc + taxUSD;
+
+  const grandBRL = grandTotal * USD_BRL;
+  const techBRL  = afterDisc  * USD_BRL;
+
+  // Per-unit price (total tenants in denominator for EPS/GB too)
+  const units = MODEL === 'host' ? hosts * tenants :
+                MODEL === 'eps'  ? (eps / 1000) * tenants :
+                                   gbDay * tenants;
+  const unitUSD = grandTotal / Math.max(units, 1);
+  const unitBRL = unitUSD * USD_BRL;
+  const unitSub = MODEL === 'host' ? 'por host / mês'      :
+                  MODEL === 'eps'  ? 'por 1k EPS / mês'    :
+                                    'por GB/dia / mês';
+
+  // Splunk comparison: compare platform-only costs (MDR is extra value we include)
+  // Our platform base vs Splunk platform — fair apples-to-apples
+  const splunkRef       = gbDay * 120 * tenants;   // Splunk committed enterprise $4/GB × 30d
+  const cyberboxPlatform = techBase * tenants;      // our platform only, no MDR/SOC
+  const saving = splunkRef > 0
+    ? (splunkRef - cyberboxPlatform) / splunkRef
+    : null;
+
+  // ── Render summary ─────────────────────────────────────────────────────────
+  const ann12 = grandTotal * 12;
+  const ann36 = grandTotal * 36 * 0.75;
+
+  // Top total bar
+  document.getElementById('tb-total-brl').textContent = brl(grandBRL);
+  document.getElementById('tb-total-usd').textContent = usd(grandTotal);
+  document.getElementById('tb-tech-brl').textContent  = brl(techBRL);
+  document.getElementById('tb-tech-usd').textContent  = usd(afterDisc);
+  document.getElementById('tb-ann-brl').textContent   = brl(ann12 * USD_BRL);
+  document.getElementById('tb-ann-usd').textContent   = usd(ann12);
+  document.getElementById('tb-3yr-brl').textContent   = brl(ann36 * USD_BRL);
+  document.getElementById('tb-3yr-usd').textContent   = usd(ann36);
+
+  document.getElementById('r-tech-brl').textContent = brl(techBRL);
+  document.getElementById('r-tech-usd').textContent = usd(afterDisc);
+  document.getElementById('r-total-brl').textContent = brl(grandBRL);
+  document.getElementById('r-total-usd').textContent = usd(grandTotal);
+  document.getElementById('r-unit').textContent = brl(unitBRL);
+  document.getElementById('r-unit-sub').textContent = unitSub;
+  const savingEl    = document.getElementById('r-saving');
+  const savingSubEl = document.getElementById('r-saving-sub');
+  if (saving !== null) {
+    savingEl.textContent = pct(saving);
+    const savedAmt = splunkRef - cyberboxPlatform;
+    savingSubEl.textContent = savedAmt > 0
+      ? `economia de ${brl(savedAmt * USD_BRL)}/mês · MDR/SOC incluído`
+      : 'MDR/SOC 24×7 incluído no plano';
+  } else {
+    savingEl.textContent = 'n/a';
+    savingSubEl.textContent = 'MDR/SOC 24×7 incluído no plano';
+  }
+
+  // ── AWS cost + margin ──────────────────────────────────────────────────────
+  const regionBR = document.getElementById('region-br').checked;
+  document.getElementById('region-hint').style.display = regionBR ? 'none' : 'block';
+  // Shared: fixed $200/month BR or $124/month US (hardware compartilhado)
+  const isShared   = mdrMult === 2;
+  const aws        = awsEstimate(eps, gbDay, regionBR);
+  const sharedFixed = regionBR ? 200 : 124;
+  const awsCostUSD = isShared ? sharedFixed : aws.total * tenants;
+  const awsCostBRL = awsCostUSD * USD_BRL;
+  const grossMarginUSD = afterDisc - awsCostUSD;
+  const grossMarginBRL = grossMarginUSD * USD_BRL;
+  const marginPctVal   = afterDisc > 0 ? grossMarginUSD / afterDisc : 0;
+
+  // Fill margin cards
+  document.getElementById('r-rev-brl').textContent    = brl(techBRL);
+  document.getElementById('r-rev-usd').textContent    = usd(afterDisc);
+  document.getElementById('r-aws-brl').textContent    = brl(awsCostBRL);
+  document.getElementById('r-aws-usd').textContent    = usd(awsCostUSD);
+  document.getElementById('r-margin-brl').textContent = brl(grossMarginBRL);
+  document.getElementById('r-margin-pct').textContent = pct(marginPctVal) + ' de margem bruta';
+  const mc = document.getElementById('margin-card');
+  mc.className = 'result-card ' + (grossMarginUSD >= 0 ? 'c-mg' : 'c-red');
+
+  // ── Breakdown table ────────────────────────────────────────────────────────
+  const LINE = (label, val_usd, cls='') => {
+    return `<tr class="${cls}"><td>${label}</td><td class="r">${usd(val_usd)}</td><td class="r">${brl(val_usd*USD_BRL)}</td></tr>`;
+  };
+  const HDR = label =>
+    `<tr class="section-hdr"><td colspan="3">${label}</td></tr>`;
+
+  let bkd = '';
+
+  // — Receita do Cliente
+  bkd += HDR('Receita do Cliente');
+  bkd += LINE(modelLabel(hosts, eps, gbDay), techBase);
+  const svcLabel = mdrMult === 2 ? 'Shared' : mdrMult === 5 ? 'Full' : 'Premium';
+  if (MODEL === 'eps' && minFeeApplied)
+    bkd += `<tr class="row-sub"><td colspan="3" class="dim">★ Mínimo mensal ${svcLabel} aplicado (${usd(tierMinFee)}/mês)</td></tr>`;
+  if (mdrAdd   > 0) bkd += LINE(`Plano ${svcLabel} MDR / SOC 24×7 (adicional ${effectiveMdrMult}×)`, mdrAdd);
+  if (MODEL === 'eps' && mdrAdd === 0)
+    bkd += `<tr class="row-sub"><td colspan="3" class="dim">★ ${svcLabel}: $${tierEpsPrice}/1k EPS — MDR/SOC 24×7 incluído</td></tr>`;
+  if (hotStore > 0) bkd += LINE(`Armazenamento hot (${hotMo} meses · ${Math.round(hotGB).toLocaleString('pt-BR')} GB)`, hotStore);
+  if (bacenUSD > 0) bkd += LINE('BACEN 4893 — arquivo Glacier 5 anos', bacenUSD);
+
+  if (implMo$  > 0) bkd += LINE(`Implementação amortizada (${implMo} meses)`, implMo$);
+  if (hedgeAdd > 0) bkd += LINE(`Hedge cambial (${pct(hedge)})`, hedgeAdd);
+  if (tenants  > 1) bkd += `<tr class="row-sub"><td colspan="3" class="dim">× ${tenants} tenants</td></tr>`;
+  bkd += LINE('Total bruto da proposta (pré-desconto)', totalTechUSD, 'row-sub');
+  if (discUSD  > 0) bkd += `<tr class="row-disc"><td>Desconto fidelidade (−${pct(discPct)})</td><td class="r">${usd(-discUSD)}</td><td class="r">${brl(-discUSD*USD_BRL)}</td></tr>`;
+  bkd += LINE('Receita líquida (antes de impostos)', afterDisc, 'row-sub');
+
+  // — Impostos
+  bkd += HDR('Impostos');
+  bkd += `<tr class="row-tax"><td>${TAXES[regime].label} (${pct(taxRate)})</td><td class="r">${usd(taxUSD)}</td><td class="r">${brl(taxUSD*USD_BRL)}</td></tr>`;
+  bkd += LINE('TOTAL COBRADO DO CLIENTE / MÊS', grandTotal, 'row-total');
+
+  // — Custo de Infraestrutura
+  bkd += HDR('Custo de Infraestrutura AWS (estimado)');
+  if (isShared) {
+    bkd += `<tr class="row-cost"><td class="dim">Hardware compartilhado (r6i.4xlarge + Kafka + storage) — custo fixo por servidor</td><td class="r">${usd(200)}</td><td class="r">${brl(200*USD_BRL)}</td></tr>`;
+    bkd += `<tr><td class="dim">★ Custo rateado entre múltiplos clientes no mesmo servidor</td><td colspan="2"></td></tr>`;
+  } else {
+    aws.rows.forEach(r => {
+      const perT = r.v * tenants;
+      bkd += `<tr class="row-cost"><td class="dim">${r.n}${tenants>1?' × '+tenants+' tenants':''}</td><td class="r">${usd(perT)}</td><td class="r">${brl(perT*USD_BRL)}</td></tr>`;
+    });
+  }
+  bkd += LINE('Total AWS estimado / mês', awsCostUSD, 'row-sub');
+
+  // — Resultado
+  bkd += HDR('Resultado (Margem Bruta)');
+  const marginRowCls = grossMarginUSD >= 0 ? 'row-margin' : 'row-margin-neg';
+  bkd += `<tr class="${marginRowCls}">
+    <td>Margem bruta (receita líq. − custo AWS)</td>
+    <td class="r">${usd(grossMarginUSD)}</td>
+    <td class="r">${brl(grossMarginBRL)}</td>
+  </tr>`;
+  bkd += `<tr><td class="dim">Margem % sobre receita líquida</td><td class="r dim" colspan="2">${pct(marginPctVal)}</td></tr>`;
+
+  document.getElementById('bkd-body').innerHTML = bkd;
+
+  // ── AWS Estimate table ─────────────────────────────────────────────────────
+  let awsHtml = '';
+  if (isShared) {
+    awsHtml += `<tr><td>Hardware compartilhado (fixo)</td><td class="r">${usd(200)}</td></tr>`;
+    awsHtml += `<tr><td class="dim">★ Rateado entre múltiplos clientes</td><td></td></tr>`;
+  } else {
+    awsHtml = aws.rows.map(r=>`<tr><td>${r.n}</td><td class="r">${usd(r.v)}</td></tr>`).join('');
+    if (tenants > 1) {
+      awsHtml += `<tr class="row-sub"><td>Total AWS × ${tenants} tenants</td><td class="r">${usd(awsCostUSD)}</td></tr>`;
+      awsHtml += `<tr><td class="dim">Em BRL</td><td class="r dim">${brl(awsCostBRL)}</td></tr>`;
+    }
+  }
+  awsHtml += `<tr class="row-sub"><td>Total AWS / mês</td><td class="r">${usd(awsCostUSD)}</td></tr>`;
+  awsHtml += `<tr><td class="dim">Em BRL</td><td class="r dim">${brl(awsCostBRL)}</td></tr>`;
+  document.getElementById('aws-body').innerHTML = awsHtml;
+
+  // ── Competitors ────────────────────────────────────────────────────────────
+  let compHtml = '';
+  COMPS.forEach(c => {
+    const isMe = c.name === 'Cyberbox SIEM';
+    let priceHtml, savBadge = '';
+    if (isMe) {
+      priceHtml = `${brl(grandBRL)}<br><small style="color:var(--muted)">${usd(grandTotal)}</small>`;
+      savBadge  = '<span class="badge bb">sua proposta</span>';
+    } else if (c.ref_usd === 0) {
+      priceHtml = 'Gratuito (infra por conta)';
+      savBadge  = '<span class="badge by">open-source</span>';
+    } else {
+      let est = 0;
+      if      (c.model === 'GB/dia')  est = gbDay        * c.ref_usd * tenants;
+      else if (c.model === 'Host')    est = hosts        * c.ref_usd * tenants;
+      else if (c.model === 'EPS')     est = (eps / 1000) * c.ref_usd * tenants;
+      else                            est = c.ref_usd * tenants;
+      const perTenantNote = tenants > 1 ? `<br><small style="color:var(--muted)">×${tenants} clientes</small>` : '';
+      priceHtml = `${brl(est*USD_BRL)}<br><small style="color:var(--muted)">${usd(est)}</small>${perTenantNote}`;
+      if (est > grandTotal) {
+        const s = ((est - grandTotal)/est*100).toFixed(0);
+        savBadge = `<span class="badge bg">−${s}% vs nós</span>`;
+      } else {
+        const s = ((grandTotal - est)/Math.max(est,1)*100).toFixed(0);
+        savBadge = `<span class="badge br">+${s}% vs nós</span>`;
+      }
+    }
+    const ossB = c.oss === 'Sim'    ? '<span class="badge bg">Sim</span>'     :
+                 c.oss === 'Core'   ? '<span class="badge by">Core</span>'    :
+                 c.oss === 'Parcial'? '<span class="badge by">Parcial</span>' :
+                                     '<span class="badge br">Não</span>';
+    const infB = c.infra === 'Incluso' ? '<span class="badge bg">Sim</span>'  :
+                 c.infra === 'Flex'    ? '<span class="badge by">Flex</span>' :
+                                        '<span class="badge br">Não</span>';
+    compHtml += `<tr class="${isMe?'me':''}">
+      <td>${c.name}</td>
+      <td>${c.model}</td>
+      <td>${priceHtml}<br>${savBadge}</td>
+      <td>${infB}</td>
+      <td>${ossB}</td>
+      <td style="font-size:11px">${c.br}</td>
+    </tr>`;
+  });
+  document.getElementById('comp-body').innerHTML = compHtml;
+
+  // ── Annual / Contract ──────────────────────────────────────────────────────
+  document.getElementById('annual-body').innerHTML = `
+    <div class="result-grid" style="margin-bottom:0">
+      <div class="result-card">
+        <div class="rlabel">Total 12 meses (c/ impostos)</div>
+        <div class="rvalue" style="font-size:18px">${brl(ann12*USD_BRL)}</div>
+        <div class="rsub">${usd(ann12)}</div>
+      </div>
+      <div class="result-card">
+        <div class="rlabel">Contrato 3 anos (25% desc.)</div>
+        <div class="rvalue" style="font-size:18px">${brl(ann36*USD_BRL)}</div>
+        <div class="rsub">${usd(ann36)}</div>
+      </div>
+    </div>`;
+
+  document.getElementById('bacen-hint').style.display = bacen ? 'block' : 'none';
+
+  document.getElementById('footnotes').innerHTML = `
+    ★ Taxa de câmbio: ${brl(USD_BRL).replace('R$ ','R$')} (fonte: <em>${FX_SOURCE}</em>).<br>
+    ★ IVA Dual 2026: fase de testes (neutro fiscalmente — CBS/IBS deduzidos do PIS/COFINS). CBS substitui PIS/COFINS em 2027; ISS extinto em 2029–2032.<br>
+    ★ Simples Nacional Anexo III: alíquota efetiva ~6% (RBT12 até R$180k) a ~17,5% (RBT12 R$4,2M). Fator R ≥ 28% necessário (folha ÷ receita). Inclui IRPJ, CSLL, PIS, COFINS, CPP e ISS.<br>
+    ★ Lucro Presumido: ISS 2% (São Paulo/Curitiba). Municípios com 5% de ISS: adicionar ~3% à carga total.<br>
+    ★ BACEN 4893: Resolução CMN 4.893/2021 — instituições financeiras mantêm logs por 5 anos (60 meses).<br>
+    ★ Estimativas AWS: região ${document.getElementById('region-br').checked ? 'sa-east-1 (São Paulo) — EBS gp3 $0,10/GB/mês' : 'us-east-1 (N. Virginia) — EBS gp3 $0,08/GB/mês · requer adendo LGPD'}. S3 Glacier: $0,004/GB/mês. Reserved Instances reduzem ~30–45%.<br>
+    ★ Concorrentes: estimativas baseadas em preços públicos 2025–2026 para o mesmo volume configurado.
+  `;
+}
+
+function modelLabel(hosts, eps, gbDay) {
+  if (MODEL === 'host') {
+    const h = Math.round(num('host-n'));
+    const hp = Math.max(0.01, parseFloat(document.getElementById('ht-price').value) || 10);
+    return `Base tecnologia: ${h.toLocaleString('pt-BR')} hosts × ${usd(hp)}/host/mês`;
+  }
+  if (MODEL === 'eps') {
+    const sel = document.querySelector('input[name="svc"]:checked');
+    const tp  = parseFloat(sel.dataset.epsPrice || 15);
+    return `Base tecnologia: ${eps.toLocaleString('pt-BR')} EPS × ${usd(tp)}/1k EPS/mês (MDR/SOC incluído)`;
+  }
+  const g = Math.round(num('gb-n'));
+  const gp = Math.max(0.01, parseFloat(document.getElementById('gt-price').value) || 8);
+  return `Base tecnologia: ${g} GB/dia × ${usd(gp)}/GB/dia`;
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+document.getElementById('calc-date').textContent =
+  new Date().toLocaleDateString('pt-BR', {weekday:'long',year:'numeric',month:'long',day:'numeric'});
+
+renderTax();
+calc();
+fetchFX();
+</script>
+</body>
+</html>

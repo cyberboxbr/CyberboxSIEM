@@ -1,0 +1,36 @@
+﻿CyberboxSIEM Concurrent Load Notes (2026-03-05 UTC)
+
+Run 1:
+- Params: duration=30s, concurrency=12, batch=100
+- run_id=eps-f3112ff53579
+- accepted=23400, rejected=0
+- accepted_eps_target_window=780
+- request_latency_p95_ms=1673.61
+
+Run 2:
+- Params: duration=45s, concurrency=20, batch=100
+- run_id=eps-b08e40c211f3
+- accepted=58000, rejected=0
+- accepted_eps_target_window=1288.89
+- request_latency_p95_ms=1603.92
+
+Run 3:
+- Params: duration=20s, concurrency=12, batch=100
+- run_id=eps-31aeec3bc756
+- accepted=15600, rejected=0
+- accepted_eps_target_window=780
+- request_latency_p95_ms=1935.78
+
+Run 4:
+- Params: duration=20s, concurrency=4, batch=50
+- run_id=eps-b4aa3ff28147
+- accepted=5000, rejected=0
+- accepted_eps_target_window=250
+- request_latency_p95_ms=902.18
+
+Persistence observations:
+- run_id=eps-b77ff387eeb6 eventually reached total=24000 in ClickHouse.
+- run_id=eps-f3112ff53579 currently total=12714 and still draining.
+- run_id=eps-b08e40c211f3, eps-31aeec3bc756, eps-b4aa3ff28147 currently total=0 (not reached sink yet).
+- Approx sink throughput while draining backlog: ~50.34 events/sec over 30s sample.
+- Latest ClickHouse event lag: ~480 seconds behind wall clock.

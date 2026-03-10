@@ -1,0 +1,45 @@
+﻿apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: cyberbox-worker-sink
+  namespace: cyberbox
+spec:
+  scaleTargetRef:
+    name: cyberbox-worker-sink
+  pollingInterval: 15
+  cooldownPeriod: 240
+  minReplicaCount: 3
+  maxReplicaCount: 20
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 45
+          selectPolicy: Max
+          policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 60
+            - type: Pods
+              value: 4
+              periodSeconds: 60
+        scaleDown:
+          stabilizationWindowSeconds: 360
+          selectPolicy: Min
+          policies:
+            - type: Percent
+              value: 20
+              periodSeconds: 60
+            - type: Pods
+              value: 2
+              periodSeconds: 60
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: redpanda-bootstrap:9092
+        consumerGroup: cyberbox-worker-prod-clickhouse-sink
+        topic: cyberbox.events.normalized
+        lagThreshold: "25000"
+        activationLagThreshold: "500"
+        offsetResetPolicy: latest
+        allowIdleConsumers: "false"

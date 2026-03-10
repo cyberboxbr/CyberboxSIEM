@@ -1,0 +1,43 @@
+[package]
+name = "cyberbox-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["mock-stream"]
+mock-stream = []
+kafka-native = ["dep:rdkafka"]
+
+[dependencies]
+anyhow.workspace = true
+arc-swap.workspace = true
+axum.workspace = true
+chrono.workspace = true
+dashmap.workspace = true
+futures.workspace = true
+metrics.workspace = true
+metrics-exporter-prometheus.workspace = true
+rdkafka = { workspace = true, optional = true }
+rayon.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+simd-json.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+cyberbox-auth.workspace = true
+cyberbox-core.workspace = true
+cyberbox-detection.workspace = true
+cyberbox-models.workspace = true
+cyberbox-storage.workspace = true
+
+[dev-dependencies]
+http.workspace = true
+serde_json.workspace = true
+tower.workspace = true

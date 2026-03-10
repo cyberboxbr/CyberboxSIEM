@@ -1,0 +1,12 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cyberbox-app-default-deny
+  namespace: cyberbox
+spec:
+  podSelector:
+    matchLabels:
+      security.cyberbox.io/tier: app
+  policyTypes:
+    - Ingress
+    - Egress

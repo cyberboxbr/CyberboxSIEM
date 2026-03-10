@@ -1,0 +1,28 @@
+[package]
+name = "cyberbox-worker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["mock-stream"]
+mock-stream = []
+kafka-native = ["dep:futures", "dep:rdkafka"]
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+chrono.workspace = true
+futures = { workspace = true, optional = true }
+metrics.workspace = true
+metrics-exporter-prometheus.workspace = true
+rdkafka = { workspace = true, optional = true }
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+cyberbox-core.workspace = true
+cyberbox-detection.workspace = true
+cyberbox-models.workspace = true
+cyberbox-storage.workspace = true

@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cyberbox-api
+  namespace: cyberbox
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: cyberbox-api
+  template:
+    metadata:
+      labels:
+        app: cyberbox-api
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/cyberbox/siem-api:latest
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: cyberbox-config
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080

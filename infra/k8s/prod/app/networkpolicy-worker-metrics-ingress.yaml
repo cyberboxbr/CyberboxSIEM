@@ -1,0 +1,18 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cyberbox-worker-metrics-ingress
+  namespace: cyberbox
+spec:
+  podSelector:
+    matchExpressions:
+      - key: worker-role
+        operator: Exists
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 9091

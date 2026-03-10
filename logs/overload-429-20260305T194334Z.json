@@ -1,0 +1,75 @@
+﻿{
+    "run_at_utc":  "2026-03-05T19:43:34.6667785Z",
+    "api_base":  "http://127.0.0.1:8080",
+    "duration_seconds":  45,
+    "concurrency":  96,
+    "batch_size":  200,
+    "strict_profile_restarted":  true,
+    "backpressure_triggered":  true,
+    "eps_report":  {
+                       "run_at_utc":  "2026-03-05T19:43:34.1194080Z",
+                       "api_base":  "http://127.0.0.1:8080",
+                       "run_id":  "eps-f346cf729455",
+                       "duration_seconds":  45,
+                       "concurrency":  96,
+                       "batch_size":  200,
+                       "elapsed_seconds":  389.835,
+                       "requests_total":  14551,
+                       "requests_success":  6194,
+                       "requests_error":  8357,
+                       "requests_http_429":  8357,
+                       "requests_http_5xx":  0,
+                       "events_attempted":  2910200,
+                       "events_accepted":  1238800,
+                       "events_rejected":  1671400,
+                       "attempted_eps":  7465.2,
+                       "accepted_eps":  3177.75,
+                       "rejected_eps":  4287.45,
+                       "attempted_eps_target_window":  64671.11,
+                       "accepted_eps_target_window":  27528.89,
+                       "rejected_eps_target_window":  37142.22,
+                       "api_rejection_loss_pct":  57.4325,
+                       "request_latency_p95_ms":  651.32,
+                       "persisted_events":  null,
+                       "persisted_loss_pct_vs_accepted":  null,
+                       "persistence_probe_attempts":  [
+
+                                                      ],
+                       "sample_errors":  [
+                                             "The remote server returned an error: (429) Too Many Requests.",
+                                             "The remote server returned an error: (429) Too Many Requests.",
+                                             "The remote server returned an error: (429) Too Many Requests.",
+                                             "The remote server returned an error: (429) Too Many Requests.",
+                                             "The remote server returned an error: (429) Too Many Requests.",
+                                             "The remote server returned an error: (429) Too Many Requests.",
+                                             "The remote server returned an error: (429) Too Many Requests.",
+                                             "The remote server returned an error: (429) Too Many Requests.",
+                                             "The remote server returned an error: (429) Too Many Requests.",
+                                             "The remote server returned an error: (429) Too Many Requests."
+                                         ]
+                   },
+    "metrics_before":  {
+                           "api_enqueue_attempt_total":  0,
+                           "api_enqueue_success_total":  0,
+                           "api_queue_full_total":  0,
+                           "api_queue_full_exhausted_total":  0,
+                           "api_enqueue_error_queue_full_total":  0,
+                           "api_delivery_future_drop_full_total":  0
+                       },
+    "metrics_after":  {
+                          "api_enqueue_attempt_total":  1449030,
+                          "api_enqueue_success_total":  1440673,
+                          "api_queue_full_total":  8357,
+                          "api_queue_full_exhausted_total":  8357,
+                          "api_enqueue_error_queue_full_total":  8357,
+                          "api_delivery_future_drop_full_total":  100219
+                      },
+    "metrics_delta":  {
+                          "api_enqueue_attempt_total":  1449030,
+                          "api_queue_full_exhausted_total":  8357,
+                          "api_queue_full_total":  8357,
+                          "api_enqueue_error_queue_full_total":  8357,
+                          "api_enqueue_success_total":  1440673,
+                          "api_delivery_future_drop_full_total":  100219
+                      }
+}

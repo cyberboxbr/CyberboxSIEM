@@ -1,0 +1,45 @@
+﻿apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: cyberbox-worker-normalizer
+  namespace: cyberbox
+spec:
+  scaleTargetRef:
+    name: cyberbox-worker-normalizer
+  pollingInterval: 15
+  cooldownPeriod: 180
+  minReplicaCount: 2
+  maxReplicaCount: 12
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 60
+          selectPolicy: Max
+          policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 60
+            - type: Pods
+              value: 3
+              periodSeconds: 60
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          selectPolicy: Min
+          policies:
+            - type: Percent
+              value: 20
+              periodSeconds: 60
+            - type: Pods
+              value: 1
+              periodSeconds: 60
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: redpanda-bootstrap:9092
+        consumerGroup: cyberbox-worker-prod-normalizer
+        topic: cyberbox.events.raw
+        lagThreshold: "50000"
+        activationLagThreshold: "1000"
+        offsetResetPolicy: latest
+        allowIdleConsumers: "false"

@@ -1,0 +1,23 @@
+﻿{
+    "run_at_utc":  "2026-03-05T18:48:10.7745001Z",
+    "api_base":  "http://127.0.0.1:8080",
+    "rule_id":  "ed689de4-fa8d-4751-a535-31cddea01d54",
+    "small_ingest":  {
+                         "phase":  "small",
+                         "request_count":  5,
+                         "p95_ms":  5.66
+                     },
+    "scale_ingest":  {
+                         "phase":  "scale",
+                         "request_count":  50,
+                         "p95_ms":  4.29
+                     },
+    "detection_latency":  {
+                              "p95_ms":  95.57,
+                              "probes":  20
+                          },
+    "query_latency":  {
+                          "p95_ms":  15.84,
+                          "probes":  50
+                      }
+}

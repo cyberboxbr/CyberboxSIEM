@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo test --workspace)",
+      "WebSearch",
+      "Bash(cargo test)",
+      "Bash(cargo check --message-format=short)",
+      "Bash(cargo test --message-format=short)",
+      "Bash(cargo test --lib)",
+      "Bash(cargo build --release -p cyberbox-collector)",
+      "Bash(taskkill //F //IM cyberbox-collector.exe)",
+      "Read(//c/Code/CyberboxSIEM/**)",
+      "Bash(powershell -File /tmp/throughput_test.ps1 -Count 50000)"
+    ]
+  }
+}

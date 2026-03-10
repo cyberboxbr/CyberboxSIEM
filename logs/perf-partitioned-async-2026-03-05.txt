@@ -1,0 +1,41 @@
+﻿Backend Step: Partitioned Multi-Sink + Async Loadgen (2026-03-05 UTC)
+
+Implemented
+- Topic partition scaling script now enforces:
+  - cyberbox.events.raw = 12 partitions
+  - cyberbox.events.normalized = 12 partitions
+  - cyberbox.alerts = 3 partitions
+- API raw publisher no longer keys by tenant_id (prevents single-partition hotspot).
+- Worker normalized publisher no longer keys by tenant_id.
+- Worker clickhouse sink now supports multiple sink consumers in one group:
+  - clickhouse_sink_worker_count (default 4)
+- Added async Rust load generator app: cyberbox-loadgen.
+
+Validation
+- Topics confirmed at 12/12/3 partitions.
+- Workspace checks pass (including kafka-native).
+- API tests pass.
+
+Load test results (async loadgen, release builds)
+1) run_id=async-873c4fc7f5144eb69ec3acaf893ec62b
+   - duration=30s, concurrency=24, batch=100
+   - events_accepted=859900
+   - accepted_eps_target_window=28663.33
+   - request_latency_p95_ms=148.26
+   - persisted_events=859900 (0% loss)
+
+2) run_id=async-14fab79918704b0491ce8223dabff617
+   - duration=30s, concurrency=48, batch=100
+   - accepted_eps_target_window=20370.00
+   - request_latency_p95_ms=384.62
+
+3) run_id=async-373f855f00d14bb2bcf8fcc5a24159f5
+   - duration=30s, concurrency=16, batch=100
+   - accepted_eps_target_window=11546.67
+   - request_latency_p95_ms=215.50
+
+Current observed best in this step
+- ~28.7k EPS target-window at concurrency 24, batch 100, 0% API reject, 0% persisted loss.
+
+Post-run lag snapshot
+- latest ingest lag sample ~12.09s.

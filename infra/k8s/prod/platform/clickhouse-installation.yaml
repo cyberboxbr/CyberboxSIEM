@@ -1,0 +1,83 @@
+﻿apiVersion: clickhouse.altinity.com/v1
+kind: ClickHouseInstallation
+metadata:
+  name: cyberbox-clickhouse
+  namespace: cyberbox
+spec:
+  defaults:
+    templates:
+      podTemplate: clickhouse-pod-template
+      dataVolumeClaimTemplate: clickhouse-data
+      serviceTemplate: clickhouse-instance-template
+  configuration:
+    users:
+      cyberbox/profile: default
+      cyberbox/quota: default
+      cyberbox/password: change-me
+      default/password: ""
+      default/networks/ip:
+        - ::/0
+    clusters:
+      - name: cyberbox
+        templates:
+          podTemplate: clickhouse-pod-template
+          dataVolumeClaimTemplate: clickhouse-data
+        layout:
+          shardsCount: 1
+          replicasCount: 3
+    zookeeper:
+      nodes:
+        - host: clickhouse-keeper-0.clickhouse-keeper-headless.cyberbox.svc.cluster.local
+          port: 2181
+        - host: clickhouse-keeper-1.clickhouse-keeper-headless.cyberbox.svc.cluster.local
+          port: 2181
+        - host: clickhouse-keeper-2.clickhouse-keeper-headless.cyberbox.svc.cluster.local
+          port: 2181
+  templates:
+    podTemplates:
+      - name: clickhouse-pod-template
+        spec:
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  clickhouse.altinity.com/chi: cyberbox-clickhouse
+            - maxSkew: 1
+              topologyKey: topology.kubernetes.io/zone
+              whenUnsatisfiable: ScheduleAnyway
+              labelSelector:
+                matchLabels:
+                  clickhouse.altinity.com/chi: cyberbox-clickhouse
+          containers:
+            - name: clickhouse
+              image: clickhouse/clickhouse-server:24.8
+              imagePullPolicy: IfNotPresent
+              resources:
+                requests:
+                  cpu: "2"
+                  memory: "4Gi"
+                limits:
+                  cpu: "8"
+                  memory: "16Gi"
+    serviceTemplates:
+      - name: clickhouse-instance-template
+        generateName: clickhouse-{cluster}-{shard}-{replica}
+        spec:
+          ports:
+            - name: http
+              port: 8123
+              targetPort: 8123
+            - name: native
+              port: 9000
+              targetPort: 9000
+          type: ClusterIP
+    volumeClaimTemplates:
+      - name: clickhouse-data
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 500Gi

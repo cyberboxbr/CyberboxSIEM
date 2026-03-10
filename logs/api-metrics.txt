@@ -1,0 +1,57 @@
+﻿# TYPE events_ingested_total counter
+events_ingested_total 1
+
+# TYPE kafka_producer_delivery_future_enqueued_total counter
+kafka_producer_delivery_future_enqueued_total{publisher="api_raw"} 1
+
+# TYPE kafka_producer_enqueue_success_total counter
+kafka_producer_enqueue_success_total{publisher="api_raw"} 1
+
+# TYPE kafka_producer_delivery_error_total counter
+kafka_producer_delivery_error_total{publisher="api_raw",kind="message_timed_out"} 1
+
+# TYPE kafka_producer_enqueue_attempt_total counter
+kafka_producer_enqueue_attempt_total{publisher="api_raw"} 1
+
+# TYPE kafka_producer_delivery_tracker_queue_depth gauge
+kafka_producer_delivery_tracker_queue_depth{publisher="api_raw"} 1
+
+# TYPE kafka_producer_in_flight_count gauge
+kafka_producer_in_flight_count{publisher="api_raw"} 1
+
+# TYPE kafka_producer_delivery_duration_seconds summary
+kafka_producer_delivery_duration_seconds{publisher="api_raw",quantile="0"} 0.000807422
+kafka_producer_delivery_duration_seconds{publisher="api_raw",quantile="0.5"} 0.0008073929924495242
+kafka_producer_delivery_duration_seconds{publisher="api_raw",quantile="0.9"} 0.0008073929924495242
+kafka_producer_delivery_duration_seconds{publisher="api_raw",quantile="0.95"} 0.0008073929924495242
+kafka_producer_delivery_duration_seconds{publisher="api_raw",quantile="0.99"} 0.0008073929924495242
+kafka_producer_delivery_duration_seconds{publisher="api_raw",quantile="0.999"} 0.0008073929924495242
+kafka_producer_delivery_duration_seconds{publisher="api_raw",quantile="1"} 0.000807422
+kafka_producer_delivery_duration_seconds_sum{publisher="api_raw"} 0.000807422
+kafka_producer_delivery_duration_seconds_count{publisher="api_raw"} 1
+
+# TYPE kafka_producer_enqueue_duration_seconds summary
+kafka_producer_enqueue_duration_seconds{publisher="api_raw",quantile="0"} 0.000723093
+kafka_producer_enqueue_duration_seconds{publisher="api_raw",quantile="0.5"} 0.0007231455593940528
+kafka_producer_enqueue_duration_seconds{publisher="api_raw",quantile="0.9"} 0.0007231455593940528
+kafka_producer_enqueue_duration_seconds{publisher="api_raw",quantile="0.95"} 0.0007231455593940528
+kafka_producer_enqueue_duration_seconds{publisher="api_raw",quantile="0.99"} 0.0007231455593940528
+kafka_producer_enqueue_duration_seconds{publisher="api_raw",quantile="0.999"} 0.0007231455593940528
+kafka_producer_enqueue_duration_seconds{publisher="api_raw",quantile="1"} 0.000723093
+kafka_producer_enqueue_duration_seconds_sum{publisher="api_raw"} 0.000723093
+kafka_producer_enqueue_duration_seconds_count{publisher="api_raw"} 1
+
+# TYPE api_request_duration_seconds histogram
+api_request_duration_seconds_bucket{route="ingest_events",le="0.005"} 1
+api_request_duration_seconds_bucket{route="ingest_events",le="0.01"} 1
+api_request_duration_seconds_bucket{route="ingest_events",le="0.025"} 1
+api_request_duration_seconds_bucket{route="ingest_events",le="0.05"} 1
+api_request_duration_seconds_bucket{route="ingest_events",le="0.1"} 1
+api_request_duration_seconds_bucket{route="ingest_events",le="0.5"} 1
+api_request_duration_seconds_bucket{route="ingest_events",le="1"} 1
+api_request_duration_seconds_bucket{route="ingest_events",le="2"} 1
+api_request_duration_seconds_bucket{route="ingest_events",le="+Inf"} 1
+api_request_duration_seconds_sum{route="ingest_events"} 0.000817725
+api_request_duration_seconds_count{route="ingest_events"} 1
+
+

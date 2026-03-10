@@ -1,0 +1,31 @@
+﻿apiVersion: batch/v1
+kind: Job
+metadata:
+  name: redpanda-topic-bootstrap
+  namespace: cyberbox
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app: redpanda-topic-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          image: docker.redpanda.com/redpandadata/redpanda:v24.3.3
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              set -euo pipefail
+              BROKERS="redpanda-bootstrap:9092"
+              until rpk cluster info -X brokers="${BROKERS}" >/dev/null 2>&1; do
+                echo "waiting for redpanda bootstrap"
+                sleep 3
+              done
+
+              rpk topic create cyberbox.events.raw --partitions 24 --replicas 3 --config min.insync.replicas=2 -X brokers="${BROKERS}" || true
+              rpk topic create cyberbox.events.normalized --partitions 48 --replicas 3 --config min.insync.replicas=2 -X brokers="${BROKERS}" || true
+              rpk topic create cyberbox.alerts --partitions 12 --replicas 3 --config min.insync.replicas=2 -X brokers="${BROKERS}" || true

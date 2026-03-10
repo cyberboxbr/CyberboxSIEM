@@ -1,0 +1,43 @@
+﻿Performance Optimization Pass (2026-03-05 UTC)
+
+Primary backend changes
+- API raw Kafka publish: blocking delivery await -> queued send_result.
+- Worker normalized Kafka publish: blocking delivery await -> queued send_result.
+- ClickHouse sink: single-event writes -> batched buffered flush with retry.
+- New sink config:
+  - clickhouse_sink_batch_size=1000
+  - clickhouse_sink_flush_interval_ms=200
+  - clickhouse_sink_max_retries=3
+- Producer queue bounds tightened to avoid runaway memory:
+  - queue.buffering.max.messages=50000
+  - queue.buffering.max.kbytes=262144
+- Runtime commands switched to release in justfile api/worker.
+
+Representative before (pre-change)
+- duration=20s, concurrency=12, batch=100
+- accepted_eps_target_window ~= 780
+- request_latency_p95_ms ~= 1935.78
+- sink lag observed ~= 480s
+
+Representative after (post-change + release)
+- run_id=eps-d4715151d6b6
+  - duration=30s, concurrency=12, batch=100
+  - accepted_eps_target_window=14626.67
+  - request_latency_p95_ms=156.22
+  - persisted_events=438800/438800 (0% loss)
+
+- run_id=eps-3b33ffa6bd88
+  - duration=30s, concurrency=12, batch=100
+  - accepted_eps_target_window=11006.67
+  - request_latency_p95_ms=195.67
+  - persisted_events=330200/330200 (0% loss)
+
+- latest run_id=eps-660eee208c64
+  - duration=20s, concurrency=12, batch=100
+  - accepted_eps_target_window=40495
+  - request_latency_p95_ms=42.84
+  - persisted_events=809900/809900 (0% loss)
+
+Resource/lag snapshot after latest run
+- cyberbox-api private memory ~= 4.02GB (down from ~14.57GB observed in earlier unbounded queue pass)
+- latest sink lag sample ~= 39.34s

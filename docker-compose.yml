@@ -1,0 +1,171 @@
+version: "3.9"
+
+# ─── Volumes ──────────────────────────────────────────────────────────────────
+volumes:
+  clickhouse_data: {}
+  redpanda_data: {}
+
+# ─── Networks ─────────────────────────────────────────────────────────────────
+networks:
+  cyberbox: {}
+
+services:
+
+  # ── Redpanda (Kafka-compatible, single-node) ─────────────────────────────────
+  redpanda:
+    image: redpandadata/redpanda:v24.2.5
+    command:
+      - redpanda
+      - start
+      - --smp 1
+      - --memory 512M
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --schema-registry-addr 0.0.0.0:8081
+      - --pandaproxy-addr 0.0.0.0:8082
+    ports:
+      - "19092:19092"   # External Kafka (host access)
+      - "8081:8081"     # Schema registry
+      - "8082:8082"     # Pandaproxy
+      - "9644:9644"     # Admin API
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    networks:
+      - cyberbox
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster info || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redpanda Console (UI) ─────────────────────────────────────────────────────
+  redpanda-console:
+    image: redpandadata/console:v2.7.2
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    ports:
+      - "8085:8080"
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      REDPANDA_ADMINAPI_ENABLED: "true"
+      REDPANDA_ADMINAPI_URLS: http://redpanda:9644
+    networks:
+      - cyberbox
+
+  # ── ClickHouse ────────────────────────────────────────────────────────────────
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    ports:
+      - "8123:8123"   # HTTP
+      - "9000:9000"   # Native TCP
+    environment:
+      CLICKHOUSE_DB: cyberbox
+      CLICKHOUSE_USER: cyberbox
+      CLICKHOUSE_PASSWORD: cyberbox
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    networks:
+      - cyberbox
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+
+  # ── CyberboxSIEM API ──────────────────────────────────────────────────────────
+  cyberbox-api:
+    build:
+      context: .
+      dockerfile: apps/cyberbox-api/Dockerfile
+      target: runtime
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      RUST_LOG: "cyberbox_api=info,tower_http=info"
+      # ── Kafka / Redpanda ──
+      CYBERBOX__REDPANDA_BROKERS: redpanda:9092
+      CYBERBOX__KAFKA_PUBLISH_RAW_ENABLED: "true"
+      CYBERBOX__KAFKA_RAW_TOPIC: cyberbox.events.raw
+      CYBERBOX__KAFKA_NORMALIZED_TOPIC: cyberbox.events.normalized
+      # ── ClickHouse ──
+      CYBERBOX__CLICKHOUSE_URL: http://clickhouse:8123
+      CYBERBOX__CLICKHOUSE_USER: cyberbox
+      CYBERBOX__CLICKHOUSE_PASSWORD: cyberbox
+      CYBERBOX__CLICKHOUSE_DATABASE: cyberbox
+      CYBERBOX__CLICKHOUSE_SEARCH_ENABLED: "true"
+      CYBERBOX__CLICKHOUSE_SINK_ENABLED: "true"
+      # ── Auth (disable for dev) ──
+      CYBERBOX__AUTH_DISABLED: "true"
+      # ── State persistence ──
+      CYBERBOX__STATE_DIR: /data
+      # ── GeoIP enrichment (mount your own mmdb) ──
+      # CYBERBOX__GEOIP_ENABLED: "true"
+      # CYBERBOX__GEOIP_DB_PATH: /geoip/GeoLite2-City.mmdb
+      # ── OpenTelemetry (point at Jaeger / Grafana Tempo) ──
+      # CYBERBOX__OTLP_ENDPOINT: http://jaeger:4317
+    volumes:
+      - ./data:/data
+    networks:
+      - cyberbox
+    restart: unless-stopped
+
+  # ── CyberboxSIEM Collector (Syslog UDP + TCP) ────────────────────────────────
+  cyberbox-collector:
+    build:
+      context: .
+      dockerfile: apps/cyberbox-collector/Dockerfile
+      target: runtime
+    depends_on:
+      cyberbox-api:
+        condition: service_started
+    ports:
+      - "514:514/udp"    # Syslog UDP
+      - "601:601/tcp"    # Syslog TCP
+    environment:
+      RUST_LOG: "cyberbox_collector=info"
+      COLLECTOR_API_URL: http://cyberbox-api:8080
+      COLLECTOR_TENANT_ID: default
+      COLLECTOR_UDP_BIND: "0.0.0.0:514"
+      COLLECTOR_TCP_BIND: "0.0.0.0:601"
+      COLLECTOR_BATCH_SIZE: "500"
+      COLLECTOR_FLUSH_MS: "1000"
+    networks:
+      - cyberbox
+    restart: unless-stopped
+
+  # ── CyberboxSIEM Worker ───────────────────────────────────────────────────────
+  cyberbox-worker:
+    build:
+      context: .
+      dockerfile: apps/cyberbox-worker/Dockerfile
+      target: runtime
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      RUST_LOG: "cyberbox_worker=info"
+      CYBERBOX__REDPANDA_BROKERS: redpanda:9092
+      CYBERBOX__KAFKA_NORMALIZED_TOPIC: cyberbox.events.normalized
+      CYBERBOX__CLICKHOUSE_URL: http://clickhouse:8123
+      CYBERBOX__CLICKHOUSE_USER: cyberbox
+      CYBERBOX__CLICKHOUSE_PASSWORD: cyberbox
+      CYBERBOX__CLICKHOUSE_DATABASE: cyberbox
+      CYBERBOX__CLICKHOUSE_SEARCH_ENABLED: "true"
+    networks:
+      - cyberbox
+    restart: unless-stopped

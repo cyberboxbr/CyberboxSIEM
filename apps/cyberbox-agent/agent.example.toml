@@ -1,0 +1,72 @@
+# ─── Cyberbox Agent Configuration ────────────────────────────────────────────
+#
+# Copy to agent.toml and edit before running:
+#   cyberbox-agent run --config /etc/cyberbox/agent.toml
+
+# ── Collector connection ──────────────────────────────────────────────────────
+[collector]
+# Hostname or IP of the machine running cyberbox-collector
+host = "collector.example.com"
+
+# Port to connect on.  Defaults:
+#   7514 = collector JSON TCP input (COLLECTOR_JSON_TCP_BIND)
+#   601  = collector syslog TCP input (COLLECTOR_TCP_BIND)
+port = 7514
+
+# Output format:
+#   "json"   — NDJSON (one JSON object per line) — recommended for CyberboxSIEM
+#   "syslog" — RFC 3164 syslog lines — use with any syslog receiver
+protocol = "json"
+
+# TLS — requires cyberbox-agent built with --features tls
+# tls    = true
+# tls_ca = "/etc/cyberbox/ca.pem"   # optional: pin a specific CA
+
+# Enrollment token — sent as auth handshake on each new connection so the
+# collector can identify this agent.  Can also be set via CYBERBOX_AGENT_TOKEN
+# environment variable (env var takes precedence).
+# token = "change-me-secret-token"
+
+# Reconnect: exponential backoff capped at this many seconds
+backoff_max_secs = 30
+
+# In-memory ring buffer size (events) while collector is unreachable.
+# Oldest events are dropped when the buffer is full.
+buffer_size = 10000
+
+# ── Agent identity ────────────────────────────────────────────────────────────
+[agent]
+# Tenant this agent belongs to (must match COLLECTOR_TENANT_ID or API tenant)
+tenant_id = "default"
+
+# Override the hostname reported in events (default: auto-detected)
+# hostname = "prod-web-01"
+
+# App-name reported in syslog-mode messages
+app_name = "cyberbox-agent"
+
+# ── Sources ───────────────────────────────────────────────────────────────────
+# Add one [[source]] block per source type.  Multiple blocks of the same type
+# are allowed (e.g. two separate [[source]] file blocks for different paths).
+
+# ── File tail ─────────────────────────────────────────────────────────────────
+[[source]]
+type = "file"
+paths = [
+    "/var/log/auth.log",
+    "/var/log/syslog",
+]
+# Poll interval in milliseconds
+poll_ms = 500
+# Read-position bookmark file (persisted across restarts)
+bookmark_path = "/var/lib/cyberbox/agent.bookmark.json"
+
+# ── Windows Event Log (Windows only) ─────────────────────────────────────────
+# [[source]]
+# type     = "wineventlog"
+# channels = ["Security", "System", "Application"]
+
+# ── Journald (Linux only) ─────────────────────────────────────────────────────
+# [[source]]
+# type  = "journald"
+# units = []            # empty = all units; or ["sshd", "nginx", "docker"]

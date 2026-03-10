@@ -1,0 +1,18 @@
+/target
+/target-tests
+/.cargo
+/.idea
+/.vscode
+**/*.rs.bk
+*.log
+.env
+.env.*
+node_modules
+dist
+coverage
+web/cyberbox-ui/.vite
+web/cyberbox-ui/node_modules
+infra/docker/data# Large data files
+*.mmdb
+*.pdb
+*.rlib

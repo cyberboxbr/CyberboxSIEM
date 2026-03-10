@@ -1,0 +1,68 @@
+[workspace]
+members = [
+  "apps/cyberbox-api",
+  "apps/cyberbox-collector",
+  "apps/collector-bench",
+  "apps/cyberbox-agent",
+  "apps/cyberbox-loadgen",
+  "apps/cyberbox-worker",
+  "crates/cyberbox-models",
+  "crates/cyberbox-core",
+  "crates/cyberbox-storage",
+  "crates/cyberbox-detection",
+  "crates/cyberbox-auth",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "Apache-2.0"
+version = "0.1.0"
+rust-version = "1.85"
+
+[workspace.dependencies]
+anyhow = "1"
+serde_yaml = "0.9"
+async-trait = "0.1"
+axum = { version = "0.7", features = ["macros", "json", "ws"] }
+opentelemetry = "0.26"
+opentelemetry_sdk = { version = "0.26", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.26", features = ["grpc-tonic", "trace"] }
+tracing-opentelemetry = "0.27"
+chrono = { version = "0.4", features = ["serde", "clock"] }
+clickhouse = "0.13"
+config = "0.15"
+dashmap = "6"
+futures = "0.3"
+http = "1"
+metrics = "0.24"
+metrics-exporter-prometheus = "0.16"
+once_cell = "1"
+rdkafka = { version = "0.37", features = ["cmake-build", "tokio"] }
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+toml = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "cors", "request-id", "decompression-gzip"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "json", "registry"] }
+uuid = { version = "1", features = ["serde", "v4"] }
+url = "2"
+maxminddb = "0.24"
+jsonwebtoken = "9"
+
+cyberbox-auth = { path = "crates/cyberbox-auth" }
+cyberbox-core = { path = "crates/cyberbox-core" }
+cyberbox-detection = { path = "crates/cyberbox-detection" }
+cyberbox-models = { path = "crates/cyberbox-models" }
+cyberbox-storage = { path = "crates/cyberbox-storage" }
+criterion = { version = "0.5", features = ["html_reports"] }
+rayon = "1"
+arc-swap = "1"
+simd-json = { version = "0.14", features = ["serde_impl"] }

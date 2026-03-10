@@ -1,0 +1,78 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cyberbox-worker-stream-detect
+  namespace: cyberbox
+  labels:
+    app: cyberbox-worker-stream-detect
+    worker-role: stream-detect
+    app.kubernetes.io/part-of: cyberbox-siem
+    security.cyberbox.io/tier: app
+spec:
+  replicas: 3
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: cyberbox-worker-stream-detect
+  template:
+    metadata:
+      labels:
+        app: cyberbox-worker-stream-detect
+        worker-role: stream-detect
+        app.kubernetes.io/part-of: cyberbox-siem
+        security.cyberbox.io/tier: app
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9091"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: cyberbox-worker
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: cyberbox-worker-stream-detect
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: cyberbox-worker-stream-detect
+      containers:
+        - name: worker
+          image: ghcr.io/cyberbox/siem-worker:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: metrics
+              containerPort: 9091
+          env:
+            - name: CYBERBOX__WORKER_ROLE
+              value: stream-detect
+            - name: CYBERBOX__CLICKHOUSE_SINK_ENABLED
+              value: "false"
+          envFrom:
+            - configMapRef:
+                name: cyberbox-config
+            - secretRef:
+                name: cyberbox-runtime-secrets
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "1Gi"
+            limits:
+              cpu: "6"
+              memory: "6Gi"
+          livenessProbe:
+            tcpSocket:
+              port: metrics
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10

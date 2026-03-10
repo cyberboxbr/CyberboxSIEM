@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redpanda
+  namespace: cyberbox
+  labels:
+    app.kubernetes.io/part-of: cyberbox-siem
+spec:
+  serviceName: redpanda-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app: redpanda
+  template:
+    metadata:
+      labels:
+        app: redpanda
+        app.kubernetes.io/part-of: cyberbox-siem
+    spec:
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: redpanda
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: redpanda
+      containers:
+        - name: redpanda
+          image: docker.redpanda.com/redpandadata/redpanda:v24.3.3
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              NODE_ID="${HOSTNAME##*-}"
+              if [ "${NODE_ID}" = "0" ]; then
+                SEEDS=""
+              else
+                SEEDS="--seeds redpanda-0.redpanda-headless.cyberbox.svc.cluster.local:33145"
+              fi
+
+              exec redpanda start \
+                --check=false \
+                --smp 2 \
+                --memory 4G \
+                --reserve-memory 0M \
+                --rack "${HOSTNAME}" \
+                --node-id "${NODE_ID}" \
+                --set redpanda.auto_create_topics_enabled=false \
+                --set redpanda.default_topic_replications=3 \
+                --set redpanda.enable_rack_awareness=true \
+                --set redpanda.transaction_coordinator_replication=3 \
+                --kafka-addr internal://0.0.0.0:9092 \
+                --advertise-kafka-addr internal://${HOSTNAME}.redpanda-headless.cyberbox.svc.cluster.local:9092 \
+                --rpc-addr 0.0.0.0:33145 \
+                --advertise-rpc-addr ${HOSTNAME}.redpanda-headless.cyberbox.svc.cluster.local:33145 \
+                ${SEEDS}
+          ports:
+            - containerPort: 9092
+              name: kafka
+            - containerPort: 33145
+              name: rpc
+          resources:
+            requests:
+              cpu: "1"
+              memory: "4Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/redpanda/data
+          readinessProbe:
+            tcpSocket:
+              port: kafka
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: kafka
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 200Gi

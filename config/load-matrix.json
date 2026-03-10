@@ -1,0 +1,206 @@
+﻿{
+  "version": 1,
+  "description": "Repeatable load matrix for tenant mix and retention profile baselines.",
+  "scenarios": [
+    {
+      "name": "single-tenant-hot-24h",
+      "duration_seconds": 120,
+      "batch_size": 100,
+      "concurrency_total": 16,
+      "target_eps_total": 15000,
+      "retention_profile": {
+        "name": "hot-24h",
+        "event_age_min_seconds": 0,
+        "event_age_max_seconds": 86400
+      },
+      "tenant_mix": [
+        {
+          "tenant_id": "tenant-a",
+          "weight_pct": 100
+        }
+      ]
+    },
+    {
+      "name": "balanced-5-tenant-hot-7d",
+      "duration_seconds": 180,
+      "batch_size": 100,
+      "concurrency_total": 30,
+      "target_eps_total": 20000,
+      "retention_profile": {
+        "name": "hot-7d",
+        "event_age_min_seconds": 0,
+        "event_age_max_seconds": 604800
+      },
+      "tenant_mix": [
+        {
+          "tenant_id": "tenant-a",
+          "weight_pct": 20
+        },
+        {
+          "tenant_id": "tenant-b",
+          "weight_pct": 20
+        },
+        {
+          "tenant_id": "tenant-c",
+          "weight_pct": 20
+        },
+        {
+          "tenant_id": "tenant-d",
+          "weight_pct": 20
+        },
+        {
+          "tenant_id": "tenant-e",
+          "weight_pct": 20
+        }
+      ]
+    },
+    {
+      "name": "enterprise-10-tenant-hot-30d",
+      "duration_seconds": 240,
+      "batch_size": 120,
+      "concurrency_total": 48,
+      "target_eps_total": 35000,
+      "retention_profile": {
+        "name": "hot-30d",
+        "event_age_min_seconds": 0,
+        "event_age_max_seconds": 2592000
+      },
+      "tenant_mix": [
+        {
+          "tenant_id": "tenant-a",
+          "weight_pct": 25
+        },
+        {
+          "tenant_id": "tenant-b",
+          "weight_pct": 15
+        },
+        {
+          "tenant_id": "tenant-c",
+          "weight_pct": 12
+        },
+        {
+          "tenant_id": "tenant-d",
+          "weight_pct": 10
+        },
+        {
+          "tenant_id": "tenant-e",
+          "weight_pct": 10
+        },
+        {
+          "tenant_id": "tenant-f",
+          "weight_pct": 8
+        },
+        {
+          "tenant_id": "tenant-g",
+          "weight_pct": 7
+        },
+        {
+          "tenant_id": "tenant-h",
+          "weight_pct": 5
+        },
+        {
+          "tenant_id": "tenant-i",
+          "weight_pct": 4
+        },
+        {
+          "tenant_id": "tenant-j",
+          "weight_pct": 4
+        }
+      ]
+    },
+    {
+      "name": "archive-heavy-20-tenant-180d-window",
+      "duration_seconds": 300,
+      "batch_size": 120,
+      "concurrency_total": 64,
+      "target_eps_total": 45000,
+      "retention_profile": {
+        "name": "cold-archive-180d-window",
+        "event_age_min_seconds": 2592000,
+        "event_age_max_seconds": 15552000
+      },
+      "tenant_mix": [
+        {
+          "tenant_id": "tenant-a",
+          "weight_pct": 15
+        },
+        {
+          "tenant_id": "tenant-b",
+          "weight_pct": 10
+        },
+        {
+          "tenant_id": "tenant-c",
+          "weight_pct": 8
+        },
+        {
+          "tenant_id": "tenant-d",
+          "weight_pct": 7
+        },
+        {
+          "tenant_id": "tenant-e",
+          "weight_pct": 6
+        },
+        {
+          "tenant_id": "tenant-f",
+          "weight_pct": 6
+        },
+        {
+          "tenant_id": "tenant-g",
+          "weight_pct": 5
+        },
+        {
+          "tenant_id": "tenant-h",
+          "weight_pct": 5
+        },
+        {
+          "tenant_id": "tenant-i",
+          "weight_pct": 5
+        },
+        {
+          "tenant_id": "tenant-j",
+          "weight_pct": 5
+        },
+        {
+          "tenant_id": "tenant-k",
+          "weight_pct": 4
+        },
+        {
+          "tenant_id": "tenant-l",
+          "weight_pct": 4
+        },
+        {
+          "tenant_id": "tenant-m",
+          "weight_pct": 4
+        },
+        {
+          "tenant_id": "tenant-n",
+          "weight_pct": 3
+        },
+        {
+          "tenant_id": "tenant-o",
+          "weight_pct": 3
+        },
+        {
+          "tenant_id": "tenant-p",
+          "weight_pct": 3
+        },
+        {
+          "tenant_id": "tenant-q",
+          "weight_pct": 2
+        },
+        {
+          "tenant_id": "tenant-r",
+          "weight_pct": 2
+        },
+        {
+          "tenant_id": "tenant-s",
+          "weight_pct": 2
+        },
+        {
+          "tenant_id": "tenant-t",
+          "weight_pct": 1
+        }
+      ]
+    }
+  ]
+}

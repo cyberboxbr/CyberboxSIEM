@@ -1,0 +1,27 @@
+[package]
+name = "cyberbox-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+dashmap.workspace = true
+maxminddb.workspace = true
+axum.workspace = true
+chrono.workspace = true
+config.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+reqwest.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+opentelemetry.workspace = true
+opentelemetry_sdk.workspace = true
+opentelemetry-otlp.workspace = true
+tracing-opentelemetry.workspace = true
+uuid.workspace = true
+
+cyberbox-models.workspace = true

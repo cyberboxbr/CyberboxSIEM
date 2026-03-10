@@ -1,0 +1,130 @@
+name: Release cyberbox-agent
+
+# Triggered by version tags: git tag v0.2.0 && git push --tags
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # required to create GitHub Releases
+
+# ── Build matrix ──────────────────────────────────────────────────────────────
+#
+#  Target                          Runner          Notes
+#  x86_64-pc-windows-msvc          windows-latest  native, includes WEL support
+#  x86_64-unknown-linux-musl       ubuntu-latest   static binary, no glibc dep
+#  aarch64-unknown-linux-musl      ubuntu-latest   cross-compiled via `cross`
+
+jobs:
+  build:
+    name: Build · ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target:     x86_64-pc-windows-msvc
+            os:         windows-latest
+            binary:     cyberbox-agent.exe
+            artifact:   cyberbox-agent-windows-x86_64.exe
+            use_cross:  false
+
+          - target:     x86_64-unknown-linux-musl
+            os:         ubuntu-latest
+            binary:     cyberbox-agent
+            artifact:   cyberbox-agent-linux-x86_64
+            use_cross:  false
+
+          - target:     aarch64-unknown-linux-musl
+            os:         ubuntu-latest
+            binary:     cyberbox-agent
+            artifact:   cyberbox-agent-linux-aarch64
+            use_cross:  true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # ── Linux x86 musl ──────────────────────────────────────────────────────
+      - name: Install musl-tools (x86 musl)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get install -y musl-tools
+
+      # ── ARM cross-compilation ────────────────────────────────────────────────
+      - name: Install cross (ARM)
+        if: matrix.use_cross == true
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      # ── Build ────────────────────────────────────────────────────────────────
+      - name: Build (native)
+        if: matrix.use_cross == false
+        run: cargo build --release --package cyberbox-agent --target ${{ matrix.target }}
+
+      - name: Build (cross)
+        if: matrix.use_cross == true
+        run: cross build --release --package cyberbox-agent --target ${{ matrix.target }}
+
+      # ── Collect artifact ──────────────────────────────────────────────────────
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/${{ matrix.binary }} \
+             dist/${{ matrix.artifact }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+
+  # ── Create GitHub Release ────────────────────────────────────────────────────
+  release:
+    name: GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+          merge-multiple: true
+
+      - name: List dist
+        run: ls -lh dist/
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            ## cyberbox-agent ${{ github.ref_name }}
+
+            Lightweight log-forwarding agent for CyberboxSIEM.
+
+            ### Downloads
+            | Platform | File |
+            |---|---|
+            | Windows x86_64 | `cyberbox-agent-windows-x86_64.exe` |
+            | Linux x86_64 (static musl) | `cyberbox-agent-linux-x86_64` |
+            | Linux ARM64 (static musl) | `cyberbox-agent-linux-aarch64` |
+
+            ### Quick start
+            ```bash
+            # Linux
+            chmod +x cyberbox-agent-linux-x86_64
+            ./cyberbox-agent-linux-x86_64 validate --config agent.toml
+
+            # Install as systemd service
+            sudo ./cyberbox-agent-linux-x86_64 install --config /etc/cyberbox/agent.toml
+            ```
+
+            See [agent.example.toml](https://github.com/${{ github.repository }}/blob/main/apps/cyberbox-agent/agent.example.toml) for full configuration reference.

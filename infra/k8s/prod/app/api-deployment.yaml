@@ -1,0 +1,73 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cyberbox-api
+  namespace: cyberbox
+  labels:
+    app: cyberbox-api
+    app.kubernetes.io/part-of: cyberbox-siem
+    security.cyberbox.io/tier: app
+spec:
+  replicas: 4
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: cyberbox-api
+  template:
+    metadata:
+      labels:
+        app: cyberbox-api
+        app.kubernetes.io/part-of: cyberbox-siem
+        security.cyberbox.io/tier: app
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: cyberbox-api
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: cyberbox-api
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: cyberbox-api
+      containers:
+        - name: api
+          image: ghcr.io/cyberbox/siem-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: cyberbox-config
+            - secretRef:
+                name: cyberbox-runtime-secrets
+          resources:
+            requests:
+              cpu: "750m"
+              memory: "1Gi"
+            limits:
+              cpu: "4"
+              memory: "4Gi"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
