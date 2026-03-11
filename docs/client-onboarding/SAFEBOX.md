@@ -253,7 +253,7 @@ Crie o seguinte script PowerShell e salve como `Deploy-CyberboxAgent.ps1` em um 
 # Colocar em: \\SEU-DC\netlogon\cyberbox\Deploy-CyberboxAgent.ps1
 
 $ServiceName  = "CyberboxAgent"
-$MsiPath      = "\\SEU-DC\netlogon\cyberbox\cyberbox-agent-0.1.1.msi"
+$MsiPath      = "\\SEU-DC\netlogon\cyberbox\cyberbox-agent-0.1.2.msi"
 $ConfigDir    = "C:\ProgramData\Cyberbox"
 $ConfigPath   = "$ConfigDir\agent.toml"
 $LogPath      = "C:\Windows\Temp\cyberbox-deploy.log"
@@ -405,7 +405,7 @@ Para máquinas fora do domínio ou instalação individual.
 
 **Download do instalador MSI:**
 ```
-https://github.com/cyberboxbr/CyberboxSIEM/releases/latest/download/cyberbox-agent-0.1.1.msi
+https://github.com/cyberboxbr/CyberboxSIEM/releases/latest/download/cyberbox-agent-0.1.2.msi
 ```
 
 **Ou download do executável standalone:**
@@ -416,10 +416,10 @@ https://github.com/cyberboxbr/CyberboxSIEM/releases/latest/download/cyberbox-age
 **Passo 1 — Instalar o MSI:**
 ```powershell
 # Instalação silenciosa
-msiexec /i cyberbox-agent-0.1.1.msi /qn
+msiexec /i cyberbox-agent-0.1.2.msi /qn
 
 # Ou com log de instalação para diagnóstico
-msiexec /i cyberbox-agent-0.1.1.msi /qn /l*v C:\Temp\cyberbox-install.log
+msiexec /i cyberbox-agent-0.1.2.msi /qn /l*v C:\Temp\cyberbox-install.log
 ```
 
 O MSI instala automaticamente:
