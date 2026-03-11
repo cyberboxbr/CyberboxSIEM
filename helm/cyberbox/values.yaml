@@ -15,6 +15,9 @@ api:
   replicaCount: 2
   image:
     repository: ""  # defaults to global.image.registry/cyberbox-api
+  service:
+    type: ClusterIP
+    nodePort: ""  # set when type=NodePort (e.g. 30080)
   resources:
     requests:
       cpu: 500m
@@ -67,6 +70,11 @@ collector:
     limits:
       cpu: "1"
       memory: 1Gi
+  service:
+    type: ClusterIP
+    nodePorts:
+      udp: ""  # set when type=NodePort (e.g. 30514) — syslog UDP
+      tcp: ""  # set when type=NodePort (e.g. 30601) — syslog TCP
   ports:
     udp: 514
     tcp: 601
@@ -111,6 +119,9 @@ ui:
   replicaCount: 1
   image:
     repository: ""  # defaults to global.image.registry/cyberbox-ui
+  service:
+    type: ClusterIP
+    nodePort: ""  # set when type=NodePort (e.g. 30300)
   resources:
     requests:
       cpu: 64m

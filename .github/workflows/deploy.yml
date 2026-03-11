@@ -105,7 +105,7 @@ jobs:
     needs: build-push
     environment:
       name: ${{ inputs.environment || 'production' }}
-      url: https://cyberbox.yourdomain.com
+      url: https://siem.cyberboxsecurity.com.br
     steps:
       - uses: actions/checkout@v4
 
@@ -151,6 +151,13 @@ jobs:
             --set config.clickhouse.enabled=false \
             --set api.replicaCount=1 \
             --set worker.replicaCount=1 \
+            --set api.service.type=NodePort \
+            --set api.service.nodePort=30080 \
+            --set ui.service.type=NodePort \
+            --set ui.service.nodePort=30300 \
+            --set collector.service.type=NodePort \
+            --set collector.service.nodePorts.udp=30514 \
+            --set collector.service.nodePorts.tcp=30601 \
             --wait \
             --timeout 10m \
             --atomic

@@ -7,16 +7,22 @@ metadata:
     {{- include "cyberbox.labels" . | nindent 4 }}
     {{- include "cyberbox.selectorLabels" (dict "root" . "component" "collector") | nindent 4 }}
 spec:
-  type: ClusterIP
+  type: {{ .Values.collector.service.type | default "ClusterIP" }}
   ports:
     - name: syslog-udp
       port: {{ .Values.collector.ports.udp }}
       targetPort: syslog-udp
       protocol: UDP
+      {{- if and (eq .Values.collector.service.type "NodePort") .Values.collector.service.nodePorts.udp }}
+      nodePort: {{ .Values.collector.service.nodePorts.udp }}
+      {{- end }}
     - name: syslog-tcp
       port: {{ .Values.collector.ports.tcp }}
       targetPort: syslog-tcp
       protocol: TCP
+      {{- if and (eq .Values.collector.service.type "NodePort") .Values.collector.service.nodePorts.tcp }}
+      nodePort: {{ .Values.collector.service.nodePorts.tcp }}
+      {{- end }}
   selector:
     {{- include "cyberbox.selectorLabels" (dict "root" . "component" "collector") | nindent 4 }}
 {{- end }}
