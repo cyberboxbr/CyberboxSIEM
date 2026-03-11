@@ -148,16 +148,23 @@ jobs:
           else
             echo "Release status: $STATUS — proceeding with upgrade"
           fi
-          # Remove any ConfigMaps not owned by Helm that would block upgrade
+          # Remove orphaned ConfigMaps not owned by Helm
           for cm in cyberbox-nginx-conf; do
             OWNER=$(kubectl get configmap "$cm" -n ${{ env.HELM_NAMESPACE }} \
               -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}' 2>/dev/null || echo "")
-            if [ -n "$OWNER" ] && [ "$OWNER" != "Helm" ]; then
-              echo "Deleting orphaned ConfigMap $cm (not managed by Helm)"
-              kubectl delete configmap "$cm" -n ${{ env.HELM_NAMESPACE }} --ignore-not-found
-            elif [ -z "$OWNER" ]; then
+            if [ "$OWNER" != "Helm" ]; then
               echo "Deleting unowned ConfigMap $cm"
               kubectl delete configmap "$cm" -n ${{ env.HELM_NAMESPACE }} --ignore-not-found
+            fi
+          done
+          # Delete Services so Helm can recreate them with the correct type (ClusterIP→NodePort)
+          # Kubernetes does not allow in-place service type changes via patch
+          for svc in cyberbox-api cyberbox-ui cyberbox-collector; do
+            CURRENT_TYPE=$(kubectl get service "$svc" -n ${{ env.HELM_NAMESPACE }} \
+              -o jsonpath='{.spec.type}' 2>/dev/null || echo "")
+            if [ "$CURRENT_TYPE" = "ClusterIP" ]; then
+              echo "Deleting ClusterIP service $svc so Helm can recreate as NodePort"
+              kubectl delete service "$svc" -n ${{ env.HELM_NAMESPACE }} --ignore-not-found
             fi
           done
 
