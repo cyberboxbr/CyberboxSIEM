@@ -113,6 +113,7 @@ struct Config {
     // Heartbeat
     heartbeat_secs: u64,
     // Windows Event Log
+    #[allow(dead_code)] // used on Windows only
     wel_channels: Vec<String>,
     // Multiline
     ml_pattern: Option<String>,
