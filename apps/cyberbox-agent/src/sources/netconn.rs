@@ -37,7 +37,6 @@ use std::time::Duration;
 use chrono::Utc;
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, watch};
-use tracing::debug;
 
 // -- Connection key for dedup -------------------------------------------------
 
@@ -90,7 +89,7 @@ pub async fn run(
                     0x01 => "connection_open", // ESTABLISHED
                     _ => continue,             // skip transient states
                 };
-                let ev = build_event(kind, &conn, &tenant_id, &hostname);
+                let ev = build_event(kind, conn, &tenant_id, &hostname);
                 if tx.send(ev).await.is_err() {
                     return;
                 }

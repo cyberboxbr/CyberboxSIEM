@@ -107,6 +107,7 @@ pub enum SourceConfig {
     /// Windows Event Log channels (Windows only)
     Wineventlog {
         #[serde(default = "default_wel_channels")]
+        #[allow(dead_code)] // used on Windows only
         channels: Vec<String>,
     },
     /// Linux systemd journal (via `journalctl`)

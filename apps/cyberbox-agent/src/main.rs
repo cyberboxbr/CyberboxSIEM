@@ -32,7 +32,9 @@
 //! syslog TCP port (`COLLECTOR_TCP_BIND`).  Reconnects automatically on
 //! failure and persists events to a disk-backed queue (sled).
 
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
+#[cfg(windows)]
+use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
 use serde_json::Value;
@@ -48,7 +50,9 @@ mod updater;
 
 use config::{AgentConfig, SourceConfig};
 
+#[allow(dead_code)] // used in platform-specific install/uninstall functions
 const SERVICE_NAME: &str = "CyberboxAgent";
+#[allow(dead_code)]
 const SERVICE_DISPLAY: &str = "Cyberbox SIEM Agent";
 const CHANNEL_CAPACITY: usize = 10_000;
 
@@ -551,14 +555,17 @@ fn default_queue_path() -> PathBuf {
         }
     }
     #[cfg(target_os = "linux")]
+    return PathBuf::from("/var/lib/cyberbox/queue");
+
+    // Fallback: next to the executable (used on Windows when ProgramData is unset,
+    // and on non-Linux/non-Windows platforms)
+    #[cfg(not(target_os = "linux"))]
     {
-        return PathBuf::from("/var/lib/cyberbox/queue");
+        std::env::current_exe()
+            .ok()
+            .and_then(|e| e.parent().map(|p| p.join("cyberbox-queue")))
+            .unwrap_or_else(|| PathBuf::from("cyberbox-queue"))
     }
-    // Fallback: next to the executable
-    std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent().map(|p| p.join("cyberbox-queue")))
-        .unwrap_or_else(|| PathBuf::from("cyberbox-queue"))
 }
 
 fn detect_hostname() -> String {

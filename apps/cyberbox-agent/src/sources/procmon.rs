@@ -232,7 +232,7 @@ fn resolve_uid(uid: u32) -> String {
                     let parts: Vec<&str> = line.splitn(4, ':').collect();
                     parts.get(2).and_then(|s| s.parse::<u32>().ok()) == Some(uid)
                 })
-                .map(|line| line.splitn(2, ':').next().unwrap_or("").to_string())
+                .map(|line| line.split(':').next().unwrap_or("").to_string())
         })
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| format!("uid:{uid}"))

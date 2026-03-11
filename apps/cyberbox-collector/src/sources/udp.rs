@@ -146,7 +146,7 @@ pub async fn run(
                 error!(err = %e, "UDP reader task panicked");
             }
         }
-        return Ok(());
+        Ok(())
     }
 
     // ── Non-Linux: shared Arc<UdpSocket> across N reader tasks ─────────────────
