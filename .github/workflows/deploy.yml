@@ -129,6 +129,17 @@ jobs:
       - name: Create namespace
         run: kubectl create namespace ${{ env.HELM_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
 
+      - name: Clean up failed release
+        run: |
+          # If previous release is in failed state, uninstall so upgrade --install works cleanly
+          STATUS=$(helm status ${{ env.HELM_RELEASE }} -n ${{ env.HELM_NAMESPACE }} --output json 2>/dev/null | jq -r '.info.status' 2>/dev/null || echo "not_found")
+          if [ "$STATUS" = "failed" ] || [ "$STATUS" = "pending-install" ] || [ "$STATUS" = "pending-upgrade" ]; then
+            echo "Previous release in '$STATUS' state — uninstalling for clean deploy"
+            helm uninstall ${{ env.HELM_RELEASE }} -n ${{ env.HELM_NAMESPACE }} --wait || true
+          else
+            echo "Release status: $STATUS — proceeding with upgrade"
+          fi
+
       - name: Deploy with Helm
         run: |
           helm upgrade --install ${{ env.HELM_RELEASE }} ./helm/cyberbox \
@@ -141,7 +152,8 @@ jobs:
             --set api.replicaCount=1 \
             --set worker.replicaCount=1 \
             --wait \
-            --timeout 10m
+            --timeout 10m \
+            --atomic
 
       - name: Debug on failure
         if: failure()

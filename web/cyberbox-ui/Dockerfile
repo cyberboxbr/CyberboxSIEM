@@ -24,14 +24,11 @@ ENV BACKEND_URL=http://cyberbox-api:8080
 # Copy built assets
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Copy nginx config template
-COPY nginx.conf /etc/nginx/templates/nginx.conf.template
+# Copy nginx config as template (envsubst resolves ${BACKEND_URL} at startup)
+COPY nginx.conf /etc/nginx/nginx.conf.template
 
-# nginx:alpine-slim ships docker-entrypoint.d scripts that run envsubst on
-# /etc/nginx/templates/*.template → /etc/nginx/*.conf automatically, which
-# resolves ${BACKEND_URL} at container start.
+# Replace the default entrypoint to envsubst our full nginx.conf then start
+# (the default entrypoint only templates conf.d/ which can't have top-level directives)
+CMD ["/bin/sh", "-c", "envsubst '${BACKEND_URL}' < /etc/nginx/nginx.conf.template > /tmp/nginx.conf && nginx -c /tmp/nginx.conf -g 'daemon off;'"]
 
 EXPOSE 3000
-
-# Override default CMD to use our config (generated from template)
-CMD ["nginx", "-g", "daemon off;"]
