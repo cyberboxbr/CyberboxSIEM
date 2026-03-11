@@ -16,7 +16,7 @@ RUN npm run build
 # ---------------------------------------------------------------------------
 # Stage 2 — Runtime
 # ---------------------------------------------------------------------------
-FROM nginx:alpine-slim
+FROM nginxinc/nginx-unprivileged:alpine-slim
 
 # Default backend URL (override at runtime via env)
 ENV BACKEND_URL=http://cyberbox-api:8080
