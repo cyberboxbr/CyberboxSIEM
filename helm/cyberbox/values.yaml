@@ -70,6 +70,15 @@ collector:
   ports:
     udp: 514
     tcp: 601
+  # NLB — public syslog-TLS endpoint for client firewalls/routers
+  nlb:
+    enabled: false
+    syslogTlsPort: 6514
+    certificateArn: ""       # ACM cert ARN for TLS termination at NLB
+    eipAllocations: ""       # comma-separated EIP allocation IDs for static IPs
+    exposePlainTcp: false    # also expose plain TCP 601 (only for VPN clients)
+    exposeAgentPort: false   # expose 443 for agent HTTPS push
+    annotations: {}
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -139,7 +148,8 @@ config:
 ingress:
   enabled: false
   className: "alb"
-  host: "cyberbox.example.com"
+  host: "siem.cyberboxsecurity.com.br"
+  certificateArn: ""  # ACM cert ARN — if set, ALB terminates TLS (no K8s secret needed)
   annotations: {}
   tls: false
   tlsSecretName: "cyberbox-tls"

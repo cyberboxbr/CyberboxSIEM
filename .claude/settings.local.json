@@ -10,7 +10,24 @@
       "Bash(cargo build --release -p cyberbox-collector)",
       "Bash(taskkill //F //IM cyberbox-collector.exe)",
       "Read(//c/Code/CyberboxSIEM/**)",
-      "Bash(powershell -File /tmp/throughput_test.ps1 -Count 50000)"
+      "Bash(powershell -File /tmp/throughput_test.ps1 -Count 50000)",
+      "WebFetch(domain:themesbrand.com)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vite:*)",
+      "Bash(npm install:*)",
+      "Bash(gh run:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(gh api:*)",
+      "Bash(aws ec2:*)",
+      "Bash(for vol:*)",
+      "Bash(do)",
+      "Bash(echo \"Deleted $vol\")",
+      "Bash(echo \"Already gone: $vol\")",
+      "Bash(done)"
     ]
   }
 }

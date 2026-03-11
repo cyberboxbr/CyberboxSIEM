@@ -5,15 +5,26 @@ metadata:
   name: {{ include "cyberbox.fullname" . }}
   labels:
     {{- include "cyberbox.labels" . | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
   annotations:
+    # AWS ALB Ingress Controller
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+    alb.ingress.kubernetes.io/healthcheck-port: "8080"
+    alb.ingress.kubernetes.io/group.name: cyberbox
+    {{- if .Values.ingress.certificateArn }}
+    alb.ingress.kubernetes.io/certificate-arn: {{ .Values.ingress.certificateArn | quote }}
+    {{- end }}
+    {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- end }}
 spec:
   {{- if .Values.ingress.className }}
   ingressClassName: {{ .Values.ingress.className | quote }}
   {{- end }}
-  {{- if .Values.ingress.tls }}
+  {{- if and .Values.ingress.tls (not .Values.ingress.certificateArn) }}
   tls:
     - hosts:
         - {{ .Values.ingress.host | quote }}

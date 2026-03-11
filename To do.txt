@@ -1,19 +1,11 @@
-1. Performance Tuning — What to Do Next
-Current baseline: ~207k EPS, ~1.6 µs/event, p99 < 6 ms on a dev laptop.
+Alert notifications — Slack, email, Teams webhooks when alerts fire. Essential for a SOC — no one watches a dashboard 24/7.
 
-High-impact (would double throughput)
-Area	Problem	Fix
-Threshold/suppression overhead	~800 ns added per evaluate() for 2 DashMap lookups even on non-firing rules	Move threshold/suppression into the alert-path only (after match is confirmed), not the hot eval loop
-Rayon for small batches	par_iter has spawn overhead that dominates when batch < 10 events	Switch to sequential eval for batches ≤ 20; rayon only for large batches
-Field pre-extraction	Currently extracts all rule fields per batch (good), but JSON pointer resolution still allocates	Pre-intern field name → index map; store events as flat Vec<(key_id, value)>
-simd-json	serde_json is scalar; replace with simd_json crate for event deserialisation	~3x faster JSON parse for ingest path
-Sharded aggregation counters	DashMap for aggregate state = one bucket per (rule_id, group_by_value) → contention under parallel rules	Replace with flurry::HashMap (lock-free) or per-shard Mutex<HashMap>
-Medium-impact (good for production hardening)
-Kafka partition → rule-set sharding: assign each Kafka partition its own RuleExecutor instance — zero cross-thread contention for aggregation
-ClickHouse async flush tuning: current batch_size=1000, flush_interval_ms=1000 is conservative; batch_size=50000 / flush_interval_ms=500 would saturate ClickHouse's async insert engine at full EPS
-Connection pool for ClickHouse: reqwest::Client already reuses connections, but adding tower::ServiceBuilder::concurrency_limit() prevents thundering-herd on ClickHouse during burst
-Event dedup cache eviction: current O(n) retain() on every ingest — use a circular-buffer TTL cache instead
-Low-priority / scaling out
-Horizontal API pods behind an AWS ALB — the service is fully stateless (broadcast channel is per-pod; use Redis Pub/Sub to fan-out across pods)
-Graviton3 (c7g): ~15% better price-performance than x86 c6i for the ingest hot path
-ClickHouse ReplicatedMergeTree: already supported via --replicated-tables-enabled; add a 3-node cluster for 99.99% durability
+Dashboard real endpoints — the KPIs (risk trend, MTTD, alert spark) are still hardcoded placeholders. Wire them to real API aggregation queries.
+
+RBAC in the UI — hide pages/actions based on user roles (admin sees everything, analyst sees alerts/cases/search, viewer is read-only).
+
+Reporting — scheduled PDF/CSV exports (incident summary, LGPD compliance, weekly SOC report).
+
+Log retention policies — ClickHouse TTL for hot/warm/cold storage tiers.
+
+Alert enrichment — auto-enrich alerts with VirusTotal, AbuseIPDB, Shodan lookups.

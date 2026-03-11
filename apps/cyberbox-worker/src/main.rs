@@ -80,7 +80,9 @@ async fn main() -> anyhow::Result<()> {
     });
 
     let compiler = SigmaCompiler;
-    let _ = compiler.compile("title: baseline\ndetection:\n  selection:\n    EventType: test\n  condition: selection")?;
+    let _ = compiler.compile(
+        "title: baseline\ndetection:\n  selection:\n    EventType: test\n  condition: selection",
+    )?;
 
     #[cfg(feature = "kafka-native")]
     {

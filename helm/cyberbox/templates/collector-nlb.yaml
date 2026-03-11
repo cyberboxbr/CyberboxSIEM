@@ -1,0 +1,58 @@
+{{- if and .Values.collector.enabled .Values.collector.nlb.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cyberbox.fullname" . }}-collector-nlb
+  labels:
+    {{- include "cyberbox.labels" . | nindent 4 }}
+    {{- include "cyberbox.selectorLabels" (dict "root" . "component" "collector") | nindent 4 }}
+  annotations:
+    # AWS Network Load Balancer
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+    service.beta.kubernetes.io/aws-load-balancer-name: {{ include "cyberbox.fullname" . }}-syslog
+    # Cross-zone for even distribution
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+    # Health check on syslog-tcp port
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: TCP
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: {{ .Values.collector.ports.tcp | quote }}
+    {{- if .Values.collector.nlb.certificateArn }}
+    # TLS termination at NLB (syslog-TLS on 6514 → plain TCP 601 inside cluster)
+    service.beta.kubernetes.io/aws-load-balancer-ssl-cert: {{ .Values.collector.nlb.certificateArn | quote }}
+    service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "syslog-tls"
+    {{- end }}
+    {{- if .Values.collector.nlb.eipAllocations }}
+    # Static Elastic IPs for the NLB (clients whitelist these)
+    service.beta.kubernetes.io/aws-load-balancer-eip-allocations: {{ .Values.collector.nlb.eipAllocations | quote }}
+    {{- end }}
+    {{- with .Values.collector.nlb.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  type: LoadBalancer
+  loadBalancerClass: service.k8s.aws/nlb
+  externalTrafficPolicy: Local
+  ports:
+    # Syslog-TLS (6514) — TLS terminated at NLB, forwarded as plain TCP to collector port
+    - name: syslog-tls
+      port: {{ .Values.collector.nlb.syslogTlsPort }}
+      targetPort: syslog-tcp
+      protocol: TCP
+    # Plain syslog TCP (optional, for VPN/internal clients)
+    {{- if .Values.collector.nlb.exposePlainTcp }}
+    - name: syslog-tcp
+      port: {{ .Values.collector.ports.tcp }}
+      targetPort: syslog-tcp
+      protocol: TCP
+    {{- end }}
+    # Agent HTTPS ingest (agents push over HTTPS to collector)
+    {{- if .Values.collector.nlb.exposeAgentPort }}
+    - name: agent-https
+      port: 443
+      targetPort: syslog-tcp
+      protocol: TCP
+    {{- end }}
+  selector:
+    {{- include "cyberbox.selectorLabels" (dict "root" . "component" "collector") | nindent 4 }}
+{{- end }}
