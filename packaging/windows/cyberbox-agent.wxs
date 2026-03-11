@@ -77,13 +77,12 @@
 
     <!-- Default config file in ProgramData -->
     <ComponentGroup Id="ConfigComponents" Directory="DATADIR">
-      <Component Id="DefaultConfig" Bitness="always64">
+      <!-- NeverOverwrite: don't clobber user edits on upgrade (WiX v4: Condition as attribute) -->
+      <Component Id="DefaultConfig" Bitness="always64" Condition="NOT Installed">
         <File Id="AgentToml"
               Source="$(var.ConfigPath)"
               Name="agent.toml"
               KeyPath="yes" />
-        <!-- NeverOverwrite: don't clobber user edits on upgrade -->
-        <Condition>NOT Installed</Condition>
       </Component>
     </ComponentGroup>
 
