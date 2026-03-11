@@ -1587,10 +1587,20 @@ impl RuleExecutor {
             .map(|tags| parse_mitre_from_tags(&tags))
             .unwrap_or_default();
 
+        // Extract human-readable title from the compiled plan (Sigma `title:` field).
+        let rule_title = rule
+            .compiled_plan
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+
         Some(AlertRecord {
             alert_id: Uuid::new_v4(),
             tenant_id: rule.tenant_id.clone(),
             rule_id: rule.rule_id,
+            severity: rule.severity.clone(),
+            rule_title,
             first_seen: now,
             last_seen: now,
             status: AlertStatus::Open,

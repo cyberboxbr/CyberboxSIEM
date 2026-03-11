@@ -46,6 +46,23 @@ function DashboardRoute() {
   return <Dashboard onRefresh={async () => {}} />;
 }
 
+// ── Role guard — shows "access denied" when the user lacks a role ───────────
+
+function RequireRole({ allow, children }: { allow: 'admin' | 'analyst'; children: JSX.Element }) {
+  const { isAdmin, isAnalyst } = useAuth();
+  const allowed = allow === 'admin' ? isAdmin : (isAdmin || isAnalyst);
+  if (!allowed) {
+    return (
+      <div style={{ padding: '64px 32px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
+        <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>Access Denied</div>
+        <div style={{ fontSize: 14 }}>You do not have permission to view this page.</div>
+      </div>
+    );
+  }
+  return children;
+}
+
 // ── Auth gate — shows sign-in page when not authenticated ───────────────────
 
 function AuthGate() {
@@ -95,16 +112,16 @@ function AppShell() {
             <Route path="/alerts/:alertId" element={<AlertDetailRoute />} />
             <Route path="/cases" element={<Cases />} />
             <Route path="/cases/:caseId" element={<CaseDetail />} />
-            <Route path="/rules" element={<RuleEditor />} />
-            <Route path="/coverage" element={<MitreCoverage />} />
-            <Route path="/lookups" element={<LookupTables />} />
+            <Route path="/rules" element={<RequireRole allow="analyst"><RuleEditor /></RequireRole>} />
+            <Route path="/coverage" element={<RequireRole allow="analyst"><MitreCoverage /></RequireRole>} />
+            <Route path="/lookups" element={<RequireRole allow="analyst"><LookupTables /></RequireRole>} />
             <Route path="/search" element={<Search />} />
-            <Route path="/threat-intel" element={<ThreatIntel />} />
-            <Route path="/agents" element={<AgentFleet />} />
-            <Route path="/admin/rbac" element={<Rbac />} />
-            <Route path="/admin/audit" element={<AuditLogs />} />
-            <Route path="/admin/lgpd" element={<LgpdCompliance />} />
-            <Route path="/admin/system" element={<SystemHealth />} />
+            <Route path="/threat-intel" element={<RequireRole allow="analyst"><ThreatIntel /></RequireRole>} />
+            <Route path="/agents" element={<RequireRole allow="analyst"><AgentFleet /></RequireRole>} />
+            <Route path="/admin/rbac" element={<RequireRole allow="admin"><Rbac /></RequireRole>} />
+            <Route path="/admin/audit" element={<RequireRole allow="admin"><AuditLogs /></RequireRole>} />
+            <Route path="/admin/lgpd" element={<RequireRole allow="admin"><LgpdCompliance /></RequireRole>} />
+            <Route path="/admin/system" element={<RequireRole allow="admin"><SystemHealth /></RequireRole>} />
           </Routes>
         </div>
       </div>

@@ -87,6 +87,7 @@ interface NavItem {
   end?: boolean;
   children?: { label: string; to: string }[];
   adminOnly?: boolean;
+  analystOnly?: boolean;
   dividerAfter?: boolean;
 }
 
@@ -97,6 +98,7 @@ const NAV_ITEMS: NavItem[] = [
   {
     label: 'Detection',
     icon: 'shield',
+    analystOnly: true,
     dividerAfter: true,
     children: [
       { label: 'Rules', to: '/rules' },
@@ -105,8 +107,8 @@ const NAV_ITEMS: NavItem[] = [
     ],
   },
   { label: 'Search', icon: 'search', to: '/search' },
-  { label: 'Threat Intel', icon: 'globe', to: '/threat-intel' },
-  { label: 'Agents', icon: 'server', to: '/agents' },
+  { label: 'Threat Intel', icon: 'globe', to: '/threat-intel', analystOnly: true },
+  { label: 'Agents', icon: 'server', to: '/agents', analystOnly: true },
   {
     label: 'Administration',
     icon: 'settings',
@@ -267,7 +269,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
-  const { isAdmin } = useAuth();
+  const { isAdmin, isAnalyst } = useAuth();
   const location = useLocation();
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     Detection: true,
@@ -306,6 +308,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       <nav style={S.nav}>
         {NAV_ITEMS.map((item) => {
           if (item.adminOnly && !isAdmin) return null;
+          if (item.analystOnly && !isAnalyst && !isAdmin) return null;
           const active = isGroupActive(item);
           const hasChildren = item.children && item.children.length > 0;
           const groupOpen = openGroups[item.label] ?? false;

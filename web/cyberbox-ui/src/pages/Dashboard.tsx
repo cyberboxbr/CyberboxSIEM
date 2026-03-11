@@ -13,7 +13,9 @@ import {
   YAxis,
 } from 'recharts';
 import {
+  getAllAlerts,
   searchRecent,
+  type AlertRecord,
 } from '../api/client';
 
 /* ── Dashboard placeholder data (until real API endpoints exist) ────────── */
@@ -51,27 +53,37 @@ const MTTR_TREND: MttPoint[] = Array.from({ length: 24 }, (_, i) => ({
 }));
 const MTTR_CURRENT = +(MTTR_TREND.slice(-3).reduce((s, p) => s + p.value, 0) / 3).toFixed(2);
 
-const OPEN_ALERTS_COUNT = 149;
-const CRITICAL_HIGH_COUNT = 7;
+/* ── Helpers: build sparkline buckets from alert first_seen timestamps ── */
 
-const OPEN_ALERTS_TREND: AlertSparkPoint[] = [
-  { day: 'Mon', value: 182 }, { day: 'Tue', value: 170 }, { day: 'Wed', value: 165 },
-  { day: 'Thu', value: 158 }, { day: 'Fri', value: 162 }, { day: 'Sat', value: 155 },
-  { day: 'Sun', value: 150 }, { day: 'Now', value: 149 },
-];
-const CRITICAL_HIGH_TREND: AlertSparkPoint[] = [
-  { day: 'Mon', value: 4 }, { day: 'Tue', value: 5 }, { day: 'Wed', value: 6 },
-  { day: 'Thu', value: 5 }, { day: 'Fri', value: 8 }, { day: 'Sat', value: 6 },
-  { day: 'Sun', value: 7 }, { day: 'Now', value: 7 },
-];
+function buildAlertSparkline(alerts: AlertRecord[]): AlertSparkPoint[] {
+  const now = new Date();
+  return Array.from({ length: 8 }, (_, i) => {
+    const bucketStart = new Date(now);
+    bucketStart.setDate(bucketStart.getDate() - (7 - i));
+    bucketStart.setHours(0, 0, 0, 0);
+    const bucketEnd = i < 7
+      ? new Date(bucketStart.getTime() + 24 * 60 * 60 * 1000)
+      : now;
+    const label = i < 7
+      ? bucketStart.toLocaleDateString([], { weekday: 'short' })
+      : 'Now';
+    const value = alerts.filter(a => {
+      const t = new Date(a.first_seen);
+      return t >= bucketStart && t < bucketEnd;
+    }).length;
+    return { day: label, value };
+  });
+}
 
-const TOP_ALERTS: TopAlertRow[] = [
-  { severity: 'critical', alert_name: 'Multi-Stage Supply Chain Attack', target_asset: 'WS-FINANCE-01', asset_os: 'windows', vendor: 'CyberboxSIEM', assigned_to: 'Nina T' },
-  { severity: 'critical', alert_name: 'A Malicious Scheduled Task Was Created', target_asset: 'SRV-DC-02.corp.local', asset_os: 'windows-server', vendor: 'CyberboxSIEM', assigned_to: null },
-  { severity: 'critical', alert_name: 'Ransomware Encryption Detected', target_asset: 'SRV-APP-10', asset_os: 'linux-server', vendor: 'CyberboxSIEM', assigned_to: null },
-  { severity: 'critical', alert_name: 'Lateral Movement: Ransomware Patterns', target_asset: 'WS-HR-08', asset_os: 'windows', vendor: 'CyberboxSIEM', assigned_to: 'Nina T' },
-  { severity: 'high', alert_name: 'API Abuse For Data Theft', target_asset: 'VPN-GW-01', asset_os: 'docker', vendor: 'CyberboxSIEM', assigned_to: null },
-];
+function osFromString(os?: string): AssetOs {
+  if (!os) return 'linux';
+  const lower = os.toLowerCase();
+  if (lower.includes('windows server')) return 'windows-server';
+  if (lower.includes('windows')) return 'windows';
+  if (lower.includes('docker') || lower.includes('container')) return 'docker';
+  if (lower.includes('server')) return 'linux-server';
+  return 'linux';
+}
 
 /* ── Props ───────────────────────────────────────── */
 
@@ -220,6 +232,11 @@ export function Dashboard({ onRefresh }: DashboardProps) {
   const [severityFilters, setSeverityFilters] = useState<Set<string>>(new Set());
   const [assetFilters, setAssetFilters] = useState<Set<string>>(new Set());
   const [eventVolume, setEventVolume] = useState<EventVolumePoint[]>([]);
+  const [openAlertsCount, setOpenAlertsCount] = useState<number>(0);
+  const [critHighCount, setCritHighCount] = useState<number>(0);
+  const [openAlertsTrend, setOpenAlertsTrend] = useState<AlertSparkPoint[]>([]);
+  const [critHighTrend, setCritHighTrend] = useState<AlertSparkPoint[]>([]);
+  const [topAlerts, setTopAlerts] = useState<TopAlertRow[]>([]);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [refreshing, setRefreshing] = useState(false);
 
@@ -229,14 +246,40 @@ export function Dashboard({ onRefresh }: DashboardProps) {
   );
 
   const filteredTopAlerts = useMemo(() => {
-    return TOP_ALERTS.filter(row => {
+    return topAlerts.filter(row => {
       if (severityFilters.size > 0 && !severityFilters.has(row.severity)) return false;
       if (assetFilters.size > 0 && !assetFilters.has(row.target_asset)) return false;
       return true;
     });
-  }, [severityFilters, assetFilters]);
+  }, [topAlerts, severityFilters, assetFilters]);
 
   const loadDashboardData = async () => {
+    // Fetch open alerts for KPIs, sparklines, and top table
+    try {
+      const openAlerts = await getAllAlerts({ status: 'open' });
+      const critHigh = openAlerts.filter(a => a.severity === 'critical' || a.severity === 'high');
+
+      setOpenAlertsCount(openAlerts.length);
+      setCritHighCount(critHigh.length);
+      setOpenAlertsTrend(buildAlertSparkline(openAlerts));
+      setCritHighTrend(buildAlertSparkline(critHigh));
+
+      const sevOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+      const top5 = [...openAlerts]
+        .sort((a, b) => (sevOrder[a.severity] ?? 4) - (sevOrder[b.severity] ?? 4))
+        .slice(0, 5)
+        .map(a => ({
+          severity: a.severity as TopAlertRow['severity'],
+          alert_name: a.rule_title || `Rule ${a.rule_id.slice(0, 8)}`,
+          target_asset: a.agent_meta?.hostname ?? '—',
+          asset_os: osFromString(a.agent_meta?.os),
+          vendor: 'CyberboxSIEM',
+          assigned_to: a.assignee ?? null,
+        }));
+      setTopAlerts(top5);
+    } catch { /* degrades gracefully */ }
+
+    // Fetch event volume rollup (best-effort, ClickHouse only)
     try {
       const volumeResult = await searchRecent(
         'SELECT bucket_hour, sum(event_count) as total FROM events_hot_hourly_rollup WHERE bucket_hour >= now() - INTERVAL 24 HOUR GROUP BY bucket_hour ORDER BY bucket_hour',
@@ -532,12 +575,11 @@ export function Dashboard({ onRefresh }: DashboardProps) {
             <div className="panel dash-kpi-card">
               <span className="kpi-label">OPEN ALERTS</span>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 2 }}>
-                <span className="dash-big-number">{OPEN_ALERTS_COUNT}</span>
-                <span className="dash-delta dash-delta--good">↓ 30%</span>
+                <span className="dash-big-number">{openAlertsCount}</span>
               </div>
               <div style={{ marginTop: 8, height: 48 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={OPEN_ALERTS_TREND} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+                  <AreaChart data={openAlertsTrend} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="openAlertsFill" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="var(--accent-violet)" stopOpacity={0.35} />
@@ -552,12 +594,11 @@ export function Dashboard({ onRefresh }: DashboardProps) {
             <div className="panel dash-kpi-card">
               <span className="kpi-label">CRITICAL / HIGH ALERTS</span>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 2 }}>
-                <span className="dash-big-number">{CRITICAL_HIGH_COUNT}</span>
-                <span className="dash-delta dash-delta--bad">↑ 10%</span>
+                <span className="dash-big-number">{critHighCount}</span>
               </div>
               <div style={{ marginTop: 8, height: 48 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={CRITICAL_HIGH_TREND} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+                  <AreaChart data={critHighTrend} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="critHighFill" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="var(--sev-critical)" stopOpacity={0.35} />
@@ -574,35 +615,41 @@ export function Dashboard({ onRefresh }: DashboardProps) {
           {/* ── Top unmitigated alerts ──────────────── */}
           <div className="panel dash-table-panel">
             <h2 className="panel-title">Top 5 unmitigated alerts by severity</h2>
-            <table className="dash-table">
-              <thead>
-                <tr>
-                  <th>Severity</th>
-                  <th>Alert name</th>
-                  <th>Target Asset</th>
-                  <th>Assigned to</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredTopAlerts.map((row, i) => (
-                  <tr key={i}>
-                    <td>
-                      <span className={`dash-sev-badge dash-sev-badge--${row.severity}`}>
-                        {row.severity.charAt(0).toUpperCase() + row.severity.slice(1)}
-                      </span>
-                    </td>
-                    <td className="dash-alert-name">{row.alert_name}</td>
-                    <td>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        {osIcons[row.asset_os] ?? null}
-                        {row.target_asset}
-                      </span>
-                    </td>
-                    <td>{row.assigned_to ?? '–'}</td>
+            {filteredTopAlerts.length === 0 ? (
+              <div className="chart-empty" style={{ padding: '32px 0' }}>
+                {topAlerts.length === 0 ? 'No open alerts — environment is clean.' : 'No alerts match the active filters.'}
+              </div>
+            ) : (
+              <table className="dash-table">
+                <thead>
+                  <tr>
+                    <th>Severity</th>
+                    <th>Alert name</th>
+                    <th>Target Asset</th>
+                    <th>Assigned to</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {filteredTopAlerts.map((row, i) => (
+                    <tr key={i}>
+                      <td>
+                        <span className={`dash-sev-badge dash-sev-badge--${row.severity}`}>
+                          {row.severity.charAt(0).toUpperCase() + row.severity.slice(1)}
+                        </span>
+                      </td>
+                      <td className="dash-alert-name">{row.alert_name}</td>
+                      <td>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          {osIcons[row.asset_os] ?? null}
+                          {row.target_asset}
+                        </span>
+                      </td>
+                      <td>{row.assigned_to ?? '–'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </>
       )}

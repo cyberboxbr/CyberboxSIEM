@@ -270,6 +270,8 @@ export interface AlertRecord {
   alert_id: string;
   tenant_id: string;
   rule_id: string;
+  severity: Severity;
+  rule_title: string;
   first_seen: string;
   last_seen: string;
   status: AlertStatus;

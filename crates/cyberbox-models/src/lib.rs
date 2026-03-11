@@ -66,10 +66,11 @@ pub struct RuleScheduleConfig {
     pub lookback_seconds: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Severity {
     Low,
+    #[default]
     Medium,
     High,
     Critical,
@@ -165,6 +166,12 @@ pub struct AlertRecord {
     pub alert_id: Uuid,
     pub tenant_id: String,
     pub rule_id: Uuid,
+    /// Severity inherited from the triggering rule at fire time.
+    #[serde(default)]
+    pub severity: Severity,
+    /// Human-readable title from the Sigma rule's `title:` field.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub rule_title: String,
     pub first_seen: DateTime<Utc>,
     pub last_seen: DateTime<Utc>,
     pub status: AlertStatus,
