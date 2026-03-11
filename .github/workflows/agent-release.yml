@@ -17,8 +17,19 @@ permissions:
 #  aarch64-unknown-linux-musl      ubuntu-latest   cross-compiled via `cross`
 
 jobs:
+  # ── Extract version from tag (v0.1.0 → 0.1.0) ────────────────────────────────
+  setup:
+    name: Setup
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
   build:
     name: Build · ${{ matrix.target }}
+    needs: setup
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -85,10 +96,56 @@ jobs:
           name: ${{ matrix.artifact }}
           path: dist/${{ matrix.artifact }}
 
+  # ── Build MSI installer (Windows only) ───────────────────────────────────────
+  build-msi:
+    name: Build · Windows MSI installer
+    needs: setup
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build Windows binary
+        run: cargo build --release --package cyberbox-agent --target x86_64-pc-windows-msvc
+
+      - name: Install WiX Toolset v4
+        run: dotnet tool install --global wix
+
+      - name: Extract version from tag
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+
+      - name: Build MSI
+        shell: pwsh
+        run: |
+          wix build packaging/windows/cyberbox-agent.wxs `
+            -d Version=${{ needs.setup.outputs.version }} `
+            -d BinaryPath=target/x86_64-pc-windows-msvc/release/cyberbox-agent.exe `
+            -d ConfigPath=apps/cyberbox-agent/agent.example.toml `
+            -d IconPath=web/cyberbox-ui/public/cyberboxlogo.png `
+            -o packaging/windows/cyberbox-agent-${{ needs.setup.outputs.version }}.msi
+
+      - name: Stage MSI artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp packaging/windows/cyberbox-agent-${{ needs.setup.outputs.version }}.msi \
+             dist/cyberbox-agent-${{ needs.setup.outputs.version }}.msi
+
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyberbox-agent-msi
+          path: dist/cyberbox-agent-${{ needs.setup.outputs.version }}.msi
+
   # ── Create GitHub Release ────────────────────────────────────────────────────
   release:
     name: GitHub Release
-    needs: build
+    needs: [setup, build, build-msi]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -100,6 +157,9 @@ jobs:
       - name: List dist
         run: ls -lh dist/
 
+      - name: Extract version from tag
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
@@ -108,23 +168,26 @@ jobs:
           body: |
             ## cyberbox-agent ${{ github.ref_name }}
 
-            Lightweight log-forwarding agent for CyberboxSIEM.
+            Agente leve de encaminhamento de logs para CyberboxSIEM.
 
             ### Downloads
-            | Platform | File |
+
+            | Plataforma | Arquivo |
             |---|---|
-            | Windows x86_64 | `cyberbox-agent-windows-x86_64.exe` |
-            | Linux x86_64 (static musl) | `cyberbox-agent-linux-x86_64` |
-            | Linux ARM64 (static musl) | `cyberbox-agent-linux-aarch64` |
+            | Windows x86_64 — Instalador MSI (recomendado, GPO) | `cyberbox-agent-${{ needs.setup.outputs.version }}.msi` |
+            | Windows x86_64 — Binário standalone | `cyberbox-agent-windows-x86_64.exe` |
+            | Linux x86_64 (musl estático) | `cyberbox-agent-linux-x86_64` |
+            | Linux ARM64 (musl estático) | `cyberbox-agent-linux-aarch64` |
 
-            ### Quick start
-            ```bash
-            # Linux
-            chmod +x cyberbox-agent-linux-x86_64
-            ./cyberbox-agent-linux-x86_64 validate --config agent.toml
-
-            # Install as systemd service
-            sudo ./cyberbox-agent-linux-x86_64 install --config /etc/cyberbox/agent.toml
+            ### Instalação rápida Windows (MSI silencioso)
+            ```powershell
+            msiexec /i cyberbox-agent-${{ needs.setup.outputs.version }}.msi /qn
             ```
 
-            See [agent.example.toml](https://github.com/${{ github.repository }}/blob/main/apps/cyberbox-agent/agent.example.toml) for full configuration reference.
+            ### Instalação rápida Linux
+            ```bash
+            chmod +x cyberbox-agent-linux-x86_64
+            sudo mv cyberbox-agent-linux-x86_64 /usr/local/bin/cyberbox-agent
+            ```
+
+            Veja [agent.example.toml](https://github.com/${{ github.repository }}/blob/main/apps/cyberbox-agent/agent.example.toml) para referência completa de configuração.
