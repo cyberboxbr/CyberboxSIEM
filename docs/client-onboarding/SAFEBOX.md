@@ -1,55 +1,55 @@
-# CyberboxSIEM — SAFEBOX Onboarding Guide
+# CyberboxSIEM — Guia de Integração SAFEBOX
 
-**Prepared by:** CyberboxSecurity
-**Client:** SAFEBOX
-**Date:** 2026-03-11
-
----
-
-## Overview
-
-This guide configures a secure, encrypted site-to-site VPN between SAFEBOX's network and CyberboxSIEM, and shows how to forward logs from all sources — servers, firewalls, and endpoints — through that tunnel.
-
-All traffic travels over **WireGuard VPN only**. Nothing is exposed to the public internet.
-
-```
-SAFEBOX network
-  └── OPNsense firewall (WireGuard client, IP 10.10.0.10)
-        └── [Encrypted tunnel → 18.205.126.224:51820]
-              └── CyberboxSIEM (WireGuard server, IP 10.10.0.1)
-                    └── Collector → Detection engine → Alerts → SIEM dashboard
-```
-
-**Key IPs (once tunnel is up):**
-- CyberboxSIEM collector: `10.10.0.1` — all logs go here
-- SAFEBOX VPN endpoint: `10.10.0.10`
+**Preparado por:** CyberboxSecurity
+**Cliente:** SAFEBOX
+**Data:** 2026-03-11
 
 ---
 
-## Part 1 — Site-to-Site VPN (OPNsense WireGuard)
+## Visão Geral
 
-### 1.1 — Enable WireGuard
+Este guia configura uma VPN site-a-site segura e criptografada entre a rede da SAFEBOX e o CyberboxSIEM, e mostra como encaminhar logs de todas as fontes — servidores, firewalls e endpoints — através desse túnel.
 
-Go to **VPN → WireGuard → Settings** → check **Enable WireGuard** → Save.
+Todo o tráfego trafega **exclusivamente pela VPN WireGuard**. Nada é exposto à internet pública.
 
-### 1.2 — Create the Local Instance (your OPNsense side)
+```
+Rede SAFEBOX
+  └── Firewall OPNsense (cliente WireGuard, IP 10.10.0.10)
+        └── [Túnel criptografado → 18.205.126.224:51820]
+              └── CyberboxSIEM (servidor WireGuard, IP 10.10.0.1)
+                    └── Coletor → Motor de detecção → Alertas → Dashboard SIEM
+```
 
-Go to **VPN → WireGuard → Local** → Add:
+**IPs principais (após o túnel estar ativo):**
+- Coletor CyberboxSIEM: `10.10.0.1` — todos os logs vão para cá
+- Endpoint VPN da SAFEBOX: `10.10.0.10`
 
-| Field | Value |
+---
+
+## Parte 1 — VPN Site-a-Site (OPNsense WireGuard)
+
+### 1.1 — Habilitar o WireGuard
+
+Acesse **VPN → WireGuard → Settings** → marque **Enable WireGuard** → Salvar.
+
+### 1.2 — Criar a Instância Local (lado da SAFEBOX)
+
+Acesse **VPN → WireGuard → Local** → Adicionar:
+
+| Campo | Valor |
 |---|---|
 | Name | `cyberbox-tunnel` |
 | Listen Port | `51820` |
 | Tunnel Address | `10.10.0.10/32` |
 | **Private Key** | `OAEFIB8A/51+x1thkBMRB2rUzS/sx4dz5v7/0gO0nFU=` |
 
-> **Keep the private key secret. Do not share it.**
+> **Mantenha a chave privada em segredo. Não a compartilhe.**
 
-### 1.3 — Add the CyberboxSIEM Peer
+### 1.3 — Adicionar o Peer CyberboxSIEM
 
-Go to **VPN → WireGuard → Peers** → Add:
+Acesse **VPN → WireGuard → Peers** → Adicionar:
 
-| Field | Value |
+| Campo | Valor |
 |---|---|
 | Name | `cyberboxsiem` |
 | Public Key | `75tzmi7npAZjX4GK2/pmiJjAL0h8nbT8MkqgMjoRPl8=` |
@@ -58,89 +58,89 @@ Go to **VPN → WireGuard → Peers** → Add:
 | Allowed IPs | `10.10.0.1/32` |
 | Keepalive Interval | `25` |
 
-`Allowed IPs = 10.10.0.1/32` routes only traffic destined for the CyberboxSIEM collector through the tunnel — everything else continues to use your normal internet connection.
+`Allowed IPs = 10.10.0.1/32` faz com que apenas o tráfego destinado ao coletor CyberboxSIEM passe pelo túnel — todo o restante continua usando sua conexão de internet normal.
 
-### 1.4 — Assign the Interface
+### 1.4 — Atribuir a Interface
 
-1. **Interfaces → Assignments** → find the new WireGuard instance → assign it → Save
-2. Enable the interface, description: `CYBERBOX`
-3. Under the CYBERBOX interface settings: **Enable**, IPv4 = None (WireGuard manages addressing)
+1. **Interfaces → Assignments** → localize a nova instância WireGuard → atribua → Salvar
+2. Habilite a interface, descrição: `CYBERBOX`
+3. Nas configurações da interface CYBERBOX: **Enable**, IPv4 = None (o WireGuard gerencia o endereçamento)
 
-### 1.5 — Add a Static Route
+### 1.5 — Adicionar Rota Estática
 
-**System → Routes → Configuration** → Add:
+**System → Routes → Configuration** → Adicionar:
 
-| Field | Value |
+| Campo | Valor |
 |---|---|
 | Network | `10.10.0.0/24` |
-| Gateway | CYBERBOX (WireGuard interface) |
+| Gateway | CYBERBOX (interface WireGuard) |
 
-This allows all your internal devices to reach `10.10.0.1` through the tunnel by routing via OPNsense.
+Isso permite que todos os dispositivos internos alcancem `10.10.0.1` através do túnel via OPNsense.
 
-### 1.6 — Firewall Rule — allow outbound to collector
+### 1.6 — Regra de Firewall — permitir syslog de saída
 
-**Firewall → Rules → LAN** → Add:
+**Firewall → Rules → LAN** → Adicionar:
 
-| Field | Value |
+| Campo | Valor |
 |---|---|
 | Action | Pass |
 | Direction | out |
 | Protocol | TCP/UDP |
 | Source | LAN net |
 | Destination | `10.10.0.1` |
-| Destination port | `514` (syslog UDP) and `601` (syslog TCP) |
-| Description | Allow syslog to CyberboxSIEM |
+| Destination port | `514` (syslog UDP) e `601` (syslog TCP) |
+| Description | Permitir syslog ao CyberboxSIEM |
 
-### 1.7 — Verify the Tunnel
+### 1.7 — Verificar o Túnel
 
-In OPNsense shell (**System → Shell**):
+No shell do OPNsense (**System → Shell**):
 ```sh
 wg show
 ```
 
-You should see the `cyberboxsiem` peer. After the first packet, `latest handshake` will show a recent timestamp.
+Você deve ver o peer `cyberboxsiem` listado. Após o primeiro pacote, o campo `latest handshake` exibirá um timestamp recente.
 
-Test connectivity:
+Teste de conectividade:
 ```sh
 ping 10.10.0.1
 ```
 
 ---
 
-## Part 2 — Forwarding Firewall Logs (OPNsense)
+## Parte 2 — Encaminhamento de Logs do Firewall (OPNsense)
 
-**System → Settings → Logging → Remote** → Add:
+**System → Settings → Logging → Remote** → Adicionar:
 
-| Field | Value |
+| Campo | Valor |
 |---|---|
-| Enable | checked |
+| Enable | marcado |
 | Transport | UDP |
 | Hostname | `10.10.0.1` |
 | Port | `514` |
 | Log Level | Informational |
-| Facilities | Firewall, Auth, Security (or All) |
+| Facilities | Firewall, Auth, Security (ou All) |
 
-This forwards OPNsense firewall blocks, auth events, and DHCP logs to CyberboxSIEM in real time.
+Isso encaminha em tempo real os bloqueios do firewall, eventos de autenticação e logs DHCP do OPNsense para o CyberboxSIEM.
 
 ---
 
-## Part 3 — Windows Server Log Forwarding
+## Parte 3 — Encaminhamento de Logs — Servidores Windows
 
-### Option A — CyberboxSIEM Agent (Recommended)
+### Opção A — Agente CyberboxSIEM (Recomendado)
 
-The agent runs as a Windows service, tailing Windows Event Log and Sysmon events and forwarding them over the VPN tunnel.
+O agente roda como serviço Windows, lendo o Windows Event Log e eventos do Sysmon e os encaminhando pelo túnel VPN.
 
 **Download:** [cyberbox-agent-windows-x86_64.exe](https://github.com/cyberboxbr/CyberboxSIEM/releases/latest/download/cyberbox-agent-windows-x86_64.exe)
 
-**Step 1 — Create the config directory and file:**
+**Passo 1 — Criar o diretório e arquivo de configuração:**
 ```powershell
 New-Item -ItemType Directory -Force -Path "C:\ProgramData\cyberbox"
 ```
 
-Create `C:\ProgramData\cyberbox\agent.toml`:
+Crie o arquivo `C:\ProgramData\cyberbox\agent.toml`:
 
 ```toml
-# CyberboxSIEM collector (reachable via WireGuard VPN)
+# Coletor CyberboxSIEM (acessível via VPN WireGuard)
 [collector]
 host     = "10.10.0.1"
 port     = 601
@@ -151,23 +151,23 @@ buffer_size = 10000
 [agent]
 tenant_id = "safebox"
 
-# Windows Event Log — Security, System, Application
+# Windows Event Log — Segurança, Sistema, Aplicação
 [[source]]
 type     = "wineventlog"
 channels = ["Security", "System", "Application"]
 
-# Sysmon — uncomment if Sysmon is installed (recommended)
+# Sysmon — descomente se o Sysmon estiver instalado (recomendado)
 # [[source]]
 # type = "sysmon"
 ```
 
-**Step 2 — Install and start as a Windows service:**
+**Passo 2 — Instalar e iniciar como serviço Windows:**
 ```powershell
-# Copy binary to program files
+# Copiar o binário para Arquivos de Programas
 New-Item -ItemType Directory -Force -Path "C:\Program Files\Cyberbox"
 Copy-Item .\cyberbox-agent-windows-x86_64.exe "C:\Program Files\Cyberbox\cyberbox-agent.exe"
 
-# Create the service
+# Criar o serviço
 sc.exe create CyberboxAgent `
   binPath= "`"C:\Program Files\Cyberbox\cyberbox-agent.exe`" run --config `"C:\ProgramData\cyberbox\agent.toml`"" `
   start= auto `
@@ -176,20 +176,20 @@ sc.exe create CyberboxAgent `
 sc.exe start CyberboxAgent
 ```
 
-**Step 3 — (Optional but recommended) Install Sysmon** for detailed process/network telemetry:
+**Passo 3 — (Opcional, mas recomendado) Instalar o Sysmon** para telemetria detalhada de processos e rede:
 ```powershell
-# Download Sysmon + community config
+# Baixar Sysmon + configuração da comunidade
 Invoke-WebRequest https://download.sysinternals.com/files/Sysmon.zip -OutFile Sysmon.zip
 Expand-Archive Sysmon.zip
 Invoke-WebRequest https://raw.githubusercontent.com/SwiftOnSecurity/sysmon-config/master/sysmonconfig-export.xml -OutFile sysmonconfig.xml
 .\Sysmon\sysmon64.exe -accepteula -i sysmonconfig.xml
 ```
 
-Then uncomment the `[[source]] type = "sysmon"` block in agent.toml and restart the service.
+Em seguida, descomente o bloco `[[source]] type = "sysmon"` no agent.toml e reinicie o serviço.
 
-### Option B — NXLog Community Edition
+### Opção B — NXLog Community Edition
 
-Download from [nxlog.co](https://nxlog.co/products/nxlog-community-edition/download) and add to `nxlog.conf`:
+Baixe em [nxlog.co](https://nxlog.co/products/nxlog-community-edition/download) e adicione ao `nxlog.conf`:
 
 ```xml
 <Input eventlog>
@@ -213,30 +213,30 @@ Download from [nxlog.co](https://nxlog.co/products/nxlog-community-edition/downl
 </Route>
 ```
 
-Restart the NXLog service after saving.
+Reinicie o serviço NXLog após salvar.
 
 ---
 
-## Part 4 — Linux Server Log Forwarding
+## Parte 4 — Encaminhamento de Logs — Servidores Linux
 
-### Option A — CyberboxSIEM Agent (Recommended)
+### Opção A — Agente CyberboxSIEM (Recomendado)
 
 ```bash
-# x86_64 servers
+# Servidores x86_64
 curl -Lo /usr/local/bin/cyberbox-agent \
   https://github.com/cyberboxbr/CyberboxSIEM/releases/latest/download/cyberbox-agent-linux-x86_64
 chmod +x /usr/local/bin/cyberbox-agent
 
-# ARM64 servers (Raspberry Pi, ARM-based)
+# Servidores ARM64 (Raspberry Pi, servidores ARM)
 curl -Lo /usr/local/bin/cyberbox-agent \
   https://github.com/cyberboxbr/CyberboxSIEM/releases/latest/download/cyberbox-agent-linux-aarch64
 chmod +x /usr/local/bin/cyberbox-agent
 ```
 
-Create `/etc/cyberbox/agent.toml`:
+Crie o arquivo `/etc/cyberbox/agent.toml`:
 
 ```toml
-# CyberboxSIEM collector (reachable via WireGuard VPN)
+# Coletor CyberboxSIEM (acessível via VPN WireGuard)
 [collector]
 host     = "10.10.0.1"
 port     = 601
@@ -247,24 +247,24 @@ buffer_size = 10000
 [agent]
 tenant_id = "safebox"
 
-# Journald (systemd logs — auth, ssh, sudo, kernel, etc.)
+# Journald (logs do systemd — auth, ssh, sudo, kernel, etc.)
 [[source]]
 type  = "journald"
 
-# Auth and syslog files
+# Arquivos de log de autenticação e sistema
 [[source]]
 type          = "file"
 paths         = ["/var/log/auth.log", "/var/log/syslog", "/var/log/kern.log"]
 poll_ms       = 500
 bookmark_path = "/var/lib/cyberbox/agent.bookmark.json"
 
-# Process monitoring via /proc — uncomment to enable
+# Monitoramento de processos via /proc — descomente para habilitar
 # [[source]]
 # type    = "procmon"
 # poll_ms = 1000
 ```
 
-Install as a systemd service:
+Instalar como serviço systemd:
 
 ```bash
 sudo mkdir -p /etc/cyberbox /var/lib/cyberbox
@@ -289,15 +289,15 @@ sudo systemctl enable --now cyberbox-agent
 sudo systemctl status cyberbox-agent
 ```
 
-### Option B — rsyslog
+### Opção B — rsyslog
 
-Add to `/etc/rsyslog.d/cyberbox.conf`:
+Adicione em `/etc/rsyslog.d/cyberbox.conf`:
 
 ```
-# UDP (fire-and-forget)
+# UDP (sem confirmação de entrega)
 *.* @10.10.0.1:514
 
-# TCP (reliable, recommended)
+# TCP (confiável, recomendado)
 *.* @@10.10.0.1:601
 ```
 
@@ -305,7 +305,7 @@ Add to `/etc/rsyslog.d/cyberbox.conf`:
 sudo systemctl restart rsyslog
 ```
 
-### Option C — syslog-ng
+### Opção C — syslog-ng
 
 ```
 destination d_cyberbox {
@@ -317,13 +317,13 @@ log { source(s_src); destination(d_cyberbox); };
 
 ---
 
-## Part 5 — Endpoint Agent
+## Parte 5 — Agente em Endpoints
 
-Deploy the same agent binary on workstations for visibility into process creation, network connections, and file changes.
+Instale o mesmo binário do agente nas estações de trabalho para visibilidade de criação de processos, conexões de rede e alterações de arquivos.
 
-**Windows endpoints** — same install steps as Part 3, with Sysmon enabled.
+**Endpoints Windows** — mesmos passos da Parte 3, com Sysmon habilitado.
 
-**Linux endpoints** — same install steps as Part 4, with `procmon` and `netconn` sources uncommented:
+**Endpoints Linux** — mesmos passos da Parte 4, com as fontes `procmon` e `netconn` descomentadas:
 
 ```toml
 [[source]]
@@ -337,33 +337,33 @@ poll_ms = 5000
 
 ---
 
-## Part 6 — Verify Log Ingestion
+## Parte 6 — Verificar a Ingestão de Logs
 
-Once the tunnel is up and at least one source is sending, open the dashboard:
+Com o túnel ativo e pelo menos uma fonte enviando, acesse o dashboard:
 
-**URL:** `https://siem.cyberboxsecurity.com.br` *(VPN required — connect WireGuard first)*
+**URL:** `https://siem.cyberboxsecurity.com.br` *(requer VPN — conecte o WireGuard primeiro)*
 
-Go to **Search → Raw search** and run `*` — events should appear within seconds.
+Vá em **Search → Raw search** e execute `*` — os eventos devem aparecer em segundos.
 
-Filter by source IP or hostname to confirm your specific devices are sending.
+Filtre por IP de origem ou hostname para confirmar que seus dispositivos específicos estão enviando.
 
 ---
 
-## Summary
+## Resumo
 
-| Source | Method | Collector address |
+| Fonte | Método | Endereço do coletor |
 |---|---|---|
-| OPNsense firewall | Remote syslog UDP | `10.10.0.1:514` |
-| Windows servers/endpoints | CyberboxAgent (WEL + Sysmon) | `10.10.0.1:601` TCP |
-| Linux servers/endpoints | CyberboxAgent (journald + file) | `10.10.0.1:601` TCP |
-| Any device | rsyslog / syslog-ng / NXLog | `10.10.0.1:514` UDP or `601` TCP |
+| Firewall OPNsense | Syslog remoto UDP | `10.10.0.1:514` |
+| Servidores/endpoints Windows | CyberboxAgent (WEL + Sysmon) | `10.10.0.1:601` TCP |
+| Servidores/endpoints Linux | CyberboxAgent (journald + arquivo) | `10.10.0.1:601` TCP |
+| Qualquer dispositivo | rsyslog / syslog-ng / NXLog | `10.10.0.1:514` UDP ou `601` TCP |
 
 ---
 
-## Support
+## Suporte
 
-Contact CyberboxSecurity for:
-- Dashboard credentials
-- Additional WireGuard peers (more sites or users)
-- Custom detection rules
-- Sysmon configuration tuning
+Entre em contato com a CyberboxSecurity para:
+- Credenciais de acesso ao dashboard
+- Peers WireGuard adicionais (mais sites ou usuários)
+- Regras de detecção personalizadas
+- Ajuste de configuração do Sysmon
