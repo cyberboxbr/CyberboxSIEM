@@ -125,7 +125,7 @@ This forwards OPNsense firewall, auth, and system logs to CyberboxSIEM in real t
 
 The agent is a lightweight binary that tails Windows Event Logs, Sysmon events, and forwards them directly over the VPN.
 
-**Download:** Contact CyberboxSecurity for the Windows agent installer (`.msi`).
+**Download:** [cyberbox-agent-windows-x86_64.exe](https://github.com/cyberboxbr/CyberboxSIEM/releases/latest/download/cyberbox-agent-windows-x86_64.exe)
 
 **Configuration** — create `C:\ProgramData\cyberbox\agent.toml`:
 
@@ -193,9 +193,15 @@ Suitable for environments with many servers. Contact CyberboxSecurity for WEC se
 ### Option A — CyberboxSIEM Agent (Recommended)
 
 ```bash
-# Install (replace with actual download URL from CyberboxSecurity)
-curl -Lo cyberbox-agent.deb https://releases.cyberboxsecurity.com.br/agent/latest/cyberbox-agent_amd64.deb
-sudo dpkg -i cyberbox-agent.deb
+# Linux x86_64
+curl -Lo cyberbox-agent https://github.com/cyberboxbr/CyberboxSIEM/releases/latest/download/cyberbox-agent-linux-x86_64
+chmod +x cyberbox-agent
+sudo mv cyberbox-agent /usr/local/bin/cyberbox-agent
+
+# Linux ARM64
+curl -Lo cyberbox-agent https://github.com/cyberboxbr/CyberboxSIEM/releases/latest/download/cyberbox-agent-linux-aarch64
+chmod +x cyberbox-agent
+sudo mv cyberbox-agent /usr/local/bin/cyberbox-agent
 ```
 
 Config at `/etc/cyberbox/agent.toml`:
