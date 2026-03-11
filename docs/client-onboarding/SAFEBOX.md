@@ -245,15 +245,15 @@ O MSI instala um `agent.toml` padrão em `C:\ProgramData\Cyberbox\agent.toml`. P
 
 **Opção 1 — GPO com Script de Inicialização (Recomendado)**
 
-Crie o seguinte script PowerShell e salve como `Deploy-CyberboxAgent.ps1` em um compartilhamento de rede acessível por todos os computadores (ex.: `\\dc01\netlogon\cyberbox\`):
+Crie o seguinte script PowerShell e salve como `Deploy-CyberboxAgent.ps1` em um compartilhamento de rede acessível por todos os computadores (ex.: `\\SEU-DC\netlogon\cyberbox\`):
 
 ```powershell
 # Deploy-CyberboxAgent.ps1
 # Script GPO de inicialização — implanta o agente CyberboxSIEM silenciosamente
-# Colocar em: \\dc01\netlogon\cyberbox\Deploy-CyberboxAgent.ps1
+# Colocar em: \\SEU-DC\netlogon\cyberbox\Deploy-CyberboxAgent.ps1
 
 $ServiceName  = "CyberboxAgent"
-$MsiPath      = "\\dc01\netlogon\cyberbox\cyberbox-agent-0.1.0.msi"
+$MsiPath      = "\\SEU-DC\netlogon\cyberbox\cyberbox-agent-0.1.1.msi"
 $ConfigDir    = "C:\ProgramData\Cyberbox"
 $ConfigPath   = "$ConfigDir\agent.toml"
 $LogPath      = "C:\Windows\Temp\cyberbox-deploy.log"
@@ -347,7 +347,7 @@ Write-Log "=== Deploy concluído ==="
 5. Clique duas vezes em **Startup** → **Add**
 6. Em **Script Name**, insira o caminho UNC do script:
    ```
-   \\dc01\netlogon\cyberbox\Deploy-CyberboxAgent.ps1
+   \\SEU-DC\netlogon\cyberbox\Deploy-CyberboxAgent.ps1
    ```
 7. Clique em **OK** → **OK**
 8. Certifique-se que o GPO está vinculado à OU correta
@@ -405,7 +405,7 @@ Para máquinas fora do domínio ou instalação individual.
 
 **Download do instalador MSI:**
 ```
-https://github.com/cyberboxbr/CyberboxSIEM/releases/latest/download/cyberbox-agent-0.1.0.msi
+https://github.com/cyberboxbr/CyberboxSIEM/releases/latest/download/cyberbox-agent-0.1.1.msi
 ```
 
 **Ou download do executável standalone:**
@@ -416,10 +416,10 @@ https://github.com/cyberboxbr/CyberboxSIEM/releases/latest/download/cyberbox-age
 **Passo 1 — Instalar o MSI:**
 ```powershell
 # Instalação silenciosa
-msiexec /i cyberbox-agent-0.1.0.msi /qn
+msiexec /i cyberbox-agent-0.1.1.msi /qn
 
 # Ou com log de instalação para diagnóstico
-msiexec /i cyberbox-agent-0.1.0.msi /qn /l*v C:\Temp\cyberbox-install.log
+msiexec /i cyberbox-agent-0.1.1.msi /qn /l*v C:\Temp\cyberbox-install.log
 ```
 
 O MSI instala automaticamente:
@@ -797,8 +797,8 @@ Adicione ao script `Deploy-CyberboxAgent.ps1` (Parte 3, Opção A):
 
 ```powershell
 # --- Instalar Sysmon via GPO ---
-$SysmonPath = "\\dc01\netlogon\cyberbox\sysmon64.exe"
-$SysmonConfig = "\\dc01\netlogon\cyberbox\sysmonconfig.xml"
+$SysmonPath = "\\SEU-DC\netlogon\cyberbox\sysmon64.exe"
+$SysmonConfig = "\\SEU-DC\netlogon\cyberbox\sysmonconfig.xml"
 
 if (-not (Get-Service Sysmon64 -ErrorAction SilentlyContinue)) {
     Write-Log "Instalando Sysmon..."
@@ -809,7 +809,7 @@ if (-not (Get-Service Sysmon64 -ErrorAction SilentlyContinue)) {
 }
 ```
 
-> Copie `sysmon64.exe` e `sysmonconfig.xml` para o mesmo compartilhamento de rede do MSI (`\\dc01\netlogon\cyberbox\`).
+> Copie `sysmon64.exe` e `sysmonconfig.xml` para o mesmo compartilhamento de rede do MSI (`\\SEU-DC\netlogon\cyberbox\`).
 
 ### Eventos capturados pelo Sysmon
 
