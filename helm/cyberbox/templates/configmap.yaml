@@ -17,5 +17,7 @@ data:
   CYBERBOX__CLICKHOUSE_DATABASE: {{ .Values.config.clickhouse.database | quote }}
   ## Auth
   CYBERBOX__AUTH_DISABLED: {{ .Values.config.auth.disabled | quote }}
+  CYBERBOX__OIDC_ISSUER: {{ .Values.config.auth.oidcIssuer | default "" | quote }}
+  CYBERBOX__OIDC_AUDIENCE: {{ .Values.config.auth.oidcAudience | default "" | quote }}
   ## Rate limiting
   CYBERBOX__EPS_LIMIT_PER_TENANT: {{ .Values.config.epsLimit | quote }}

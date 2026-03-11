@@ -150,7 +150,9 @@ config:
     port: 8123
     database: "cyberbox"
   auth:
-    disabled: true
+    disabled: false
+    oidcIssuer: "https://login.microsoftonline.com/a8014c28-79d4-4695-8890-0ed0bf766668/v2.0"
+    oidcAudience: "api://3fd8922e-d137-4d50-b160-b552ceda18c1"
   epsLimit: 10000
 
 # ---------------------------------------------------------------------------

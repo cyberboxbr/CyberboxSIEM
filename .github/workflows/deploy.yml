@@ -53,18 +53,26 @@ jobs:
           - component: cyberbox-api
             dockerfile: apps/cyberbox-api/Dockerfile
             context: .
+            build_args: ""
           - component: cyberbox-worker
             dockerfile: apps/cyberbox-worker/Dockerfile
             context: .
+            build_args: ""
           - component: cyberbox-collector
             dockerfile: apps/cyberbox-collector/Dockerfile
             context: .
+            build_args: ""
           - component: cyberbox-agent
             dockerfile: packaging/docker/Dockerfile
             context: .
+            build_args: ""
           - component: cyberbox-ui
             dockerfile: web/cyberbox-ui/Dockerfile
             context: web/cyberbox-ui
+            build_args: |
+              VITE_AZURE_CLIENT_ID=3fd8922e-d137-4d50-b160-b552ceda18c1
+              VITE_AZURE_TENANT_ID=a8014c28-79d4-4695-8890-0ed0bf766668
+              VITE_AZURE_REDIRECT_URI=https://siem.cyberboxsecurity.com.br
     steps:
       - uses: actions/checkout@v4
 
@@ -97,6 +105,7 @@ jobs:
             ${{ env.ECR_REGISTRY }}/${{ matrix.component }}:${{ env.IMAGE_TAG }}
             ${{ env.ECR_REGISTRY }}/${{ matrix.component }}:latest
           platforms: linux/amd64
+          build-args: ${{ matrix.build_args }}
 
   # ── Step 3: Deploy to EKS via Helm ────────────────────────────────────────
   deploy:
