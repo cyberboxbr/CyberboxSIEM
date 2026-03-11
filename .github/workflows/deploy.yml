@@ -136,6 +136,10 @@ jobs:
             --set global.image.registry=${{ env.ECR_REGISTRY }} \
             --set global.image.tag=${{ env.IMAGE_TAG }} \
             --set global.image.pullPolicy=IfNotPresent \
+            --set config.kafka.enabled=false \
+            --set config.clickhouse.enabled=false \
+            --set api.replicaCount=1 \
+            --set worker.replicaCount=1 \
             --wait \
             --timeout 10m \
             --atomic

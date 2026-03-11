@@ -50,7 +50,7 @@ spec:
             {{- toYaml .Values.worker.resources | nindent 12 }}
           securityContext:
             runAsNonRoot: true
-            readOnlyRootFilesystem: true
+            readOnlyRootFilesystem: false
             allowPrivilegeEscalation: false
             capabilities:
               drop:
