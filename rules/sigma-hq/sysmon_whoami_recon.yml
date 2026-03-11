@@ -1,0 +1,42 @@
+title: System Recon via Whoami and Discovery Commands
+id: f6e8a1b5-7c0d-4f2a-1e5b-4d9c0f6a8b10
+status: stable
+description: |
+  Detects system reconnaissance activity using whoami and other discovery
+  commands often seen in post-exploitation. Multiple recon commands run in
+  quick succession is a strong signal of adversarial behavior. Sysmon EventID 1.
+references:
+  - https://attack.mitre.org/techniques/T1033/
+  - https://attack.mitre.org/techniques/T1082/
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection:
+    event_type: ProcessCreate
+    Image|endswith:
+      - '\whoami.exe'
+      - '\net.exe'
+      - '\net1.exe'
+      - '\ipconfig.exe'
+      - '\systeminfo.exe'
+      - '\nltest.exe'
+      - '\quser.exe'
+      - '\arp.exe'
+  selection_recon_parent:
+    ParentImage|endswith:
+      - '\powershell.exe'
+      - '\cmd.exe'
+      - '\wscript.exe'
+      - '\cscript.exe'
+      - '\mshta.exe'
+  condition: selection and selection_recon_parent
+level: medium
+tags:
+  - attack.discovery
+  - attack.t1033
+  - attack.t1082
+falsepositives:
+  - IT helpdesk troubleshooting scripts
+  - System inventory tools
+  - Monitoring agents

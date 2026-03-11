@@ -1,0 +1,40 @@
+title: Registry Run Keys Modified for Persistence
+id: f6a7b8c9-d0e1-4f2a-3b4c-5d6e7f8a9b16
+status: stable
+description: |
+  Detects modifications to Windows Registry Run keys commonly used for
+  persistence. Attackers add entries to ensure their malware executes
+  on system startup or user logon. Sysmon EventID 13.
+references:
+  - https://attack.mitre.org/techniques/T1547/001/
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection:
+    event_type: RegistryEvent
+    EventType: SetValue
+    TargetObject|contains:
+      - '\Software\Microsoft\Windows\CurrentVersion\Run'
+      - '\Software\Microsoft\Windows\CurrentVersion\RunOnce'
+      - '\Software\Microsoft\Windows NT\CurrentVersion\Winlogon'
+      - '\SYSTEM\CurrentControlSet\Services'
+  selection_suspicious_value:
+    Details|contains:
+      - 'AppData\Local\Temp'
+      - 'AppData\Roaming'
+      - '\Users\Public'
+      - 'powershell'
+      - 'cmd.exe /c'
+      - 'wscript'
+      - 'mshta'
+      - 'regsvr32'
+      - 'rundll32'
+  condition: selection and selection_suspicious_value
+level: high
+tags:
+  - attack.persistence
+  - attack.t1547.001
+falsepositives:
+  - Legitimate software installers adding autostart entries
+  - Software update mechanisms

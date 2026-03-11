@@ -1,0 +1,38 @@
+title: Kerberoasting — Service Ticket Enumeration
+id: a3b4c5d6-e7f8-4a9b-0c1d-2e3f4a5b6c23
+status: stable
+description: |
+  Detects Kerberoasting activity: requesting Kerberos service tickets for
+  offline cracking of service account passwords. Indicators include Rubeus,
+  Invoke-Kerberoast, and GetUserSPNs execution. Sysmon EventID 1.
+references:
+  - https://attack.mitre.org/techniques/T1558/003/
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection_rubeus:
+    event_type: ProcessCreate
+    CommandLine|contains:
+      - 'Rubeus.exe'
+      - 'rubeus kerberoast'
+      - 'Invoke-Kerberoast'
+      - 'GetUserSPNs'
+      - 'tgsreq'
+  selection_powershell:
+    event_type: ProcessCreate
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+    CommandLine|contains:
+      - 'Invoke-Kerberoast'
+      - 'Get-DomainSPNTicket'
+      - 'Request-SPNTicket'
+  condition: selection_rubeus or selection_powershell
+level: critical
+tags:
+  - attack.credential_access
+  - attack.t1558.003
+falsepositives:
+  - Authorized penetration testing
+  - Red team exercises

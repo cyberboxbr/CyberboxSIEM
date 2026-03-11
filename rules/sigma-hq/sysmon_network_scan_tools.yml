@@ -1,0 +1,41 @@
+title: Network Scanning and Enumeration Tools
+id: c9d0e1f2-a3b4-4c5d-6e7f-8a9b0c1d2e19
+status: stable
+description: |
+  Detects execution of common network scanning and enumeration tools used
+  by attackers for network discovery after initial access. Sysmon EventID 1.
+references:
+  - https://attack.mitre.org/techniques/T1046/
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection:
+    event_type: ProcessCreate
+    Image|endswith:
+      - '\nmap.exe'
+      - '\masscan.exe'
+      - '\zmap.exe'
+      - '\netscan.exe'
+      - '\advanced_ip_scanner.exe'
+      - '\angry_ip_scanner.exe'
+      - '\superscan.exe'
+      - '\portscan.exe'
+  selection_native:
+    event_type: ProcessCreate
+    Image|endswith: '\powershell.exe'
+    CommandLine|contains:
+      - 'Test-NetConnection'
+      - 'Test-Connection'
+      - 'PortScan'
+      - '1..1024'
+      - 'foreach ($port'
+  condition: selection or selection_native
+level: medium
+tags:
+  - attack.discovery
+  - attack.t1046
+falsepositives:
+  - Authorized network administrators performing network inventories
+  - Network monitoring tools
+  - IT asset management platforms

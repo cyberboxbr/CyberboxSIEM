@@ -1,0 +1,42 @@
+title: Suspicious Scheduled Task Creation
+id: d4c6e9f3-5a8b-4d0e-9c3f-2b7a8d4e6f08
+status: stable
+description: |
+  Detects creation of scheduled tasks via schtasks.exe or PowerShell with
+  suspicious indicators such as run-at-startup, hidden windows, encoded commands,
+  or execution from temp/user directories. Sysmon EventID 1.
+references:
+  - https://attack.mitre.org/techniques/T1053/005/
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection_schtasks:
+    event_type: ProcessCreate
+    Image|endswith: '\schtasks.exe'
+    CommandLine|contains: '/create'
+  selection_suspicious:
+    CommandLine|contains:
+      - '/sc onlogon'
+      - '/sc onstart'
+      - '/rl highest'
+      - '/ru system'
+      - '-enc '
+      - '-EncodedCommand'
+      - 'AppData\Local\Temp'
+      - 'AppData\Roaming'
+      - '\Windows\Temp'
+      - 'powershell'
+      - 'cmd /c'
+      - 'wscript'
+      - 'cscript'
+      - 'mshta'
+  condition: selection_schtasks and selection_suspicious
+level: high
+tags:
+  - attack.persistence
+  - attack.t1053.005
+  - attack.privilege_escalation
+falsepositives:
+  - Software installers with update tasks
+  - Legitimate system administration scripts

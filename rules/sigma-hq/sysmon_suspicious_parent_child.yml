@@ -1,0 +1,54 @@
+title: Suspicious Parent-Child Process Relationships
+id: d0e1f2a3-b4c5-4d6e-7f8a-9b0c1d2e3f20
+status: stable
+description: |
+  Detects unusual parent-child process relationships indicative of process
+  hollowing, code injection, or execution via macro/script engines. These
+  patterns are rarely seen in legitimate software usage. Sysmon EventID 1.
+references:
+  - https://attack.mitre.org/techniques/T1055/012/
+  - https://attack.mitre.org/techniques/T1059/
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection_office_spawn:
+    event_type: ProcessCreate
+    ParentImage|endswith:
+      - '\winword.exe'
+      - '\excel.exe'
+      - '\powerpnt.exe'
+      - '\outlook.exe'
+      - '\onenote.exe'
+    Image|endswith:
+      - '\cmd.exe'
+      - '\powershell.exe'
+      - '\pwsh.exe'
+      - '\wscript.exe'
+      - '\cscript.exe'
+      - '\mshta.exe'
+      - '\regsvr32.exe'
+      - '\rundll32.exe'
+      - '\certutil.exe'
+  selection_browser_spawn:
+    event_type: ProcessCreate
+    ParentImage|endswith:
+      - '\chrome.exe'
+      - '\firefox.exe'
+      - '\msedge.exe'
+      - '\iexplore.exe'
+    Image|endswith:
+      - '\powershell.exe'
+      - '\cmd.exe'
+      - '\wscript.exe'
+  condition: selection_office_spawn or selection_browser_spawn
+level: high
+tags:
+  - attack.execution
+  - attack.t1059
+  - attack.defense_evasion
+  - attack.t1055.012
+falsepositives:
+  - Outlook rules running scripts (rare, but should be documented)
+  - PDF readers with script support
+  - Browser-based enterprise applications using shell integration

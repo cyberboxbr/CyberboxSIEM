@@ -1772,10 +1772,22 @@ fn parse_alert_row(row: &Value) -> Result<AlertRecord, CyberboxError> {
         .get("close_note")
         .and_then(|v| v.as_str().map(ToOwned::to_owned));
 
+    let severity = row
+        .get("severity")
+        .and_then(|v| v.as_str())
+        .and_then(|s| serde_json::from_value(Value::String(s.to_string())).ok())
+        .unwrap_or_default();
+    let rule_title = row
+        .get("rule_title")
+        .and_then(|v| v.as_str().map(ToOwned::to_owned))
+        .unwrap_or_default();
+
     Ok(AlertRecord {
         alert_id,
         tenant_id,
         rule_id,
+        severity,
+        rule_title,
         first_seen,
         last_seen,
         status,

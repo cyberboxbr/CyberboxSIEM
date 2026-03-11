@@ -1,0 +1,43 @@
+title: Suspicious Rundll32 Execution
+id: e5d7f0a4-6b9c-4e1f-0d4a-3c8b9e5f7a09
+status: stable
+description: |
+  Detects suspicious Rundll32.exe execution patterns used to execute DLLs
+  from unusual locations, execute JavaScript, or proxy execution via
+  shell32.dll and other LOL techniques. Sysmon EventID 1.
+references:
+  - https://attack.mitre.org/techniques/T1218/011/
+  - https://lolbas-project.github.io/lolbas/Binaries/Rundll32/
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection:
+    event_type: ProcessCreate
+    Image|endswith: '\rundll32.exe'
+  selection_suspicious_args:
+    CommandLine|contains:
+      - 'javascript:'
+      - 'vbscript:'
+      - 'shell32.dll,ShellExec_RunDLL'
+      - 'url.dll,FileProtocolHandler'
+      - 'zipfldr.dll'
+      - 'advpack.dll,LaunchINFSection'
+      - 'ieadvpack.dll'
+      - 'syssetup.dll'
+      - 'setupapi.dll'
+      - 'AppData\Local\Temp'
+      - '\Users\Public'
+      - 'C:\Windows\Temp'
+  filter_known_good:
+    CommandLine|contains:
+      - 'C:\Windows\system32\NdfMsgBase.dll'
+      - 'C:\Windows\system32\dfshim.dll'
+  condition: selection and selection_suspicious_args and not filter_known_good
+level: high
+tags:
+  - attack.defense_evasion
+  - attack.t1218.011
+falsepositives:
+  - Software using rundll32 for legitimate DLL execution
+  - Some printer and control panel applets

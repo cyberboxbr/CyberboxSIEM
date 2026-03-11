@@ -1,0 +1,37 @@
+title: Suspicious Local User Account Creation
+id: a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c11
+status: stable
+description: |
+  Detects creation of local user accounts via net.exe or PowerShell.
+  Attackers create accounts for persistence or as a foothold for lateral
+  movement. Sysmon EventID 1.
+references:
+  - https://attack.mitre.org/techniques/T1136/001/
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection_net:
+    event_type: ProcessCreate
+    Image|endswith:
+      - '\net.exe'
+      - '\net1.exe'
+    CommandLine|contains: 'user'
+    CommandLine|contains: '/add'
+  selection_powershell:
+    event_type: ProcessCreate
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+    CommandLine|contains:
+      - 'New-LocalUser'
+      - 'Add-LocalGroupMember'
+      - 'net user'
+  condition: selection_net or selection_powershell
+level: high
+tags:
+  - attack.persistence
+  - attack.t1136.001
+falsepositives:
+  - Legitimate user provisioning by IT administrators
+  - Software installers creating service accounts

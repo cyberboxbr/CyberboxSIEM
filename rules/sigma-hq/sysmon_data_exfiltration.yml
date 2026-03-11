@@ -1,0 +1,50 @@
+title: Data Exfiltration via Cloud Storage or Transfer Services
+id: c5d6e7f8-a9b0-4c1d-2e3f-4a5b6c7d8e25
+status: stable
+description: |
+  Detects connections or command-line usage of cloud storage and file transfer
+  services commonly abused for data exfiltration: Mega, WeTransfer, Dropbox,
+  rclone, or similar tools. Sysmon EventID 1 and 3.
+references:
+  - https://attack.mitre.org/techniques/T1567/002/
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection_rclone:
+    event_type: ProcessCreate
+    Image|endswith:
+      - '\rclone.exe'
+      - '\rclone'
+    CommandLine|contains:
+      - 'copy'
+      - 'sync'
+      - 'mega'
+      - 's3'
+      - 'dropbox'
+      - 'gdrive'
+  selection_megasync:
+    event_type: ProcessCreate
+    Image|endswith:
+      - '\MEGAcmd.exe'
+      - '\MEGASync.exe'
+    CommandLine|contains: 'put'
+  selection_network:
+    event_type: NetworkConnect
+    Initiated: 'true'
+    DestinationHostname|contains:
+      - 'mega.nz'
+      - 'wetransfer.com'
+      - 'gofile.io'
+      - 'anonfiles.com'
+      - 'filedropper.com'
+      - 'sendspace.com'
+  condition: selection_rclone or selection_megasync or selection_network
+level: high
+tags:
+  - attack.exfiltration
+  - attack.t1567.002
+  - attack.t1567
+falsepositives:
+  - Authorized backup jobs using cloud storage providers
+  - Remote workers syncing documents via approved cloud storage

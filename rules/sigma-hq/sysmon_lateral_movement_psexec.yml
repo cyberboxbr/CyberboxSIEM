@@ -1,0 +1,48 @@
+title: Lateral Movement via PsExec or Remote Execution Tools
+id: c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e13
+status: stable
+description: |
+  Detects lateral movement using PsExec, WMI, or remote PowerShell
+  — common techniques attackers use to move through the network after
+  gaining initial access. Sysmon EventID 1.
+references:
+  - https://attack.mitre.org/techniques/T1570/
+  - https://attack.mitre.org/techniques/T1021/006/
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection_psexec:
+    event_type: ProcessCreate
+    Image|endswith:
+      - '\psexec.exe'
+      - '\psexec64.exe'
+    CommandLine|contains:
+      - ' -s '
+      - ' -u '
+      - '\\\\*\\'
+  selection_wmi:
+    event_type: ProcessCreate
+    Image|endswith: '\wmic.exe'
+    CommandLine|contains:
+      - '/node:'
+      - 'process call create'
+  selection_remote_ps:
+    event_type: ProcessCreate
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+    CommandLine|contains:
+      - 'Enter-PSSession'
+      - 'Invoke-Command'
+      - 'New-PSSession'
+      - '-ComputerName'
+  condition: selection_psexec or selection_wmi or selection_remote_ps
+level: high
+tags:
+  - attack.lateral_movement
+  - attack.t1570
+  - attack.t1021.006
+falsepositives:
+  - Authorized system administrators using remote management tools
+  - IT monitoring and management platforms (SCCM, Ansible)

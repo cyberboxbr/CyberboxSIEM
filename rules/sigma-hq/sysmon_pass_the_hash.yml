@@ -1,0 +1,42 @@
+title: Pass-the-Hash Attack Indicators
+id: b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d12
+status: stable
+description: |
+  Detects indicators of Pass-the-Hash attacks including Mimikatz sekurlsa::pth,
+  Invoke-Mimikatz, and tools that use NTLM hash authentication to create
+  processes under different credentials. Sysmon EventID 1.
+references:
+  - https://attack.mitre.org/techniques/T1550/002/
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection_mimikatz:
+    event_type: ProcessCreate
+    CommandLine|contains:
+      - 'sekurlsa::pth'
+      - 'sekurlsa::logonpasswords'
+      - 'lsadump::sam'
+      - 'lsadump::dcsync'
+      - 'kerberos::ptt'
+      - 'Invoke-Mimikatz'
+      - 'DumpCreds'
+  selection_pth_tools:
+    event_type: ProcessCreate
+    Image|endswith:
+      - '\psexec.exe'
+      - '\psexec64.exe'
+      - '\wmiexec.exe'
+      - '\crackmapexec.exe'
+    CommandLine|contains:
+      - '-hashes'
+      - '/pth'
+  condition: selection_mimikatz or selection_pth_tools
+level: critical
+tags:
+  - attack.credential_access
+  - attack.t1550.002
+  - attack.lateral_movement
+falsepositives:
+  - Authorized penetration testing activities
+  - Red team exercises (must be documented)

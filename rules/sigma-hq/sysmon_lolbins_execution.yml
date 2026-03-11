@@ -1,0 +1,46 @@
+title: Living Off The Land Binaries (LOLBins)
+id: a7c4a71e-8f2e-4b3d-9c1f-6e8a7d4c2b01
+status: stable
+description: |
+  Detects execution of known Windows living-off-the-land binaries commonly
+  abused by attackers to execute arbitrary code, bypass AppLocker, or download
+  payloads. Based on LOLBAS project catalogue. Sysmon EventID 1.
+references:
+  - https://lolbas-project.github.io/
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection:
+    event_type: ProcessCreate
+    Image|endswith:
+      - '\regsvr32.exe'
+      - '\mshta.exe'
+      - '\wscript.exe'
+      - '\cscript.exe'
+      - '\certutil.exe'
+      - '\bitsadmin.exe'
+      - '\runscripthelper.exe'
+      - '\forfiles.exe'
+      - '\msiexec.exe'
+      - '\installutil.exe'
+      - '\regasm.exe'
+      - '\regsvcs.exe'
+      - '\odbcconf.exe'
+      - '\ieexec.exe'
+      - '\presentationhost.exe'
+  filter_legitimate:
+    CommandLine|contains:
+      - 'C:\Windows\System32\Speech'
+      - 'C:\Windows\System32\WindowsPowerShell'
+  condition: selection and not filter_legitimate
+level: medium
+tags:
+  - attack.defense_evasion
+  - attack.t1218
+  - attack.execution
+  - attack.t1059
+falsepositives:
+  - Software installers using msiexec
+  - Legitimate script execution via wscript/cscript
+  - COM component registration via regsvr32

@@ -1,0 +1,33 @@
+title: Process Injection via CreateRemoteThread
+id: a7b8c9d0-e1f2-4a3b-4c5d-6e7f8a9b0c17
+status: stable
+description: |
+  Detects process injection techniques using CreateRemoteThread, a common
+  API call used to inject code into other processes. This includes shellcode
+  injection, DLL injection, and process hollowing. Sysmon EventID 8.
+references:
+  - https://attack.mitre.org/techniques/T1055/
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection:
+    event_type: CreateRemoteThread
+  filter_legitimate_targets:
+    TargetImage|endswith:
+      - '\svchost.exe'
+      - '\services.exe'
+  filter_known_good_sources:
+    SourceImage|endswith:
+      - '\MsMpEng.exe'
+      - '\mbam.exe'
+      - '\avgnt.exe'
+  condition: selection and not filter_legitimate_targets and not filter_known_good_sources
+level: high
+tags:
+  - attack.defense_evasion
+  - attack.t1055
+  - attack.privilege_escalation
+falsepositives:
+  - AV/EDR products that use process injection for protection
+  - Debugging tools used by developers

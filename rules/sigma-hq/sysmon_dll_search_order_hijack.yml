@@ -1,0 +1,35 @@
+title: DLL Search Order Hijacking
+id: e5f6a7b8-c9d0-4e1f-2a3b-4c5d6e7f8a15
+status: stable
+description: |
+  Detects potential DLL search order hijacking by monitoring for DLL loads
+  from user-writable directories or unexpected locations adjacent to
+  legitimate executables. Sysmon EventID 7.
+references:
+  - https://attack.mitre.org/techniques/T1574/001/
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection:
+    event_type: ImageLoad
+    Signed: 'false'
+  selection_user_dirs:
+    ImageLoaded|contains:
+      - '\AppData\Local\Temp\'
+      - '\AppData\Roaming\'
+      - '\Users\Public\'
+      - '\Windows\Temp\'
+      - '\ProgramData\'
+  filter_known_good:
+    ImageLoaded|contains:
+      - '\AppData\Local\Temp\~DF'
+  condition: selection and selection_user_dirs and not filter_known_good
+level: medium
+tags:
+  - attack.defense_evasion
+  - attack.persistence
+  - attack.t1574.001
+falsepositives:
+  - Software that legitimately loads DLLs from user profile directories
+  - Portable applications

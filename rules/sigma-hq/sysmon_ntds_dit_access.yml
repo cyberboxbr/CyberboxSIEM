@@ -1,0 +1,38 @@
+title: NTDS.dit Active Directory Database Access
+id: b8c9d0e1-f2a3-4b4c-5d6e-7f8a9b0c1d18
+status: stable
+description: |
+  Detects access to NTDS.dit, the Active Directory database that contains
+  all user credentials. Attackers use tools like ntdsutil, vssadmin, or
+  Volume Shadow Copy to extract domain credential hashes. Sysmon EventID 1.
+references:
+  - https://attack.mitre.org/techniques/T1003/003/
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection_ntdsutil:
+    event_type: ProcessCreate
+    Image|endswith: '\ntdsutil.exe'
+    CommandLine|contains:
+      - 'ac i ntds'
+      - 'ifm'
+      - 'create full'
+  selection_vss_ntds:
+    event_type: ProcessCreate
+    CommandLine|contains:
+      - 'ntds.dit'
+  selection_copy:
+    event_type: ProcessCreate
+    CommandLine|contains:
+      - 'HarddiskVolumeShadowCopy'
+    CommandLine|contains:
+      - '\Windows\NTDS'
+  condition: selection_ntdsutil or selection_vss_ntds or selection_copy
+level: critical
+tags:
+  - attack.credential_access
+  - attack.t1003.003
+falsepositives:
+  - Authorized domain controller backup operations
+  - Active Directory migration tools

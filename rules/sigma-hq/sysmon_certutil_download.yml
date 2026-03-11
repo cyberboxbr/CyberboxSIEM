@@ -1,0 +1,37 @@
+title: Suspicious CertUtil Download or Encode Activity
+id: b9a4f2c7-3e1d-4a8b-9f6e-2c5d7a3b8e04
+status: stable
+description: |
+  Detects CertUtil.exe used to download files from the internet or encode/decode
+  payloads — a common technique for payload staging and defense evasion.
+  Sysmon EventID 1 (ProcessCreate).
+references:
+  - https://attack.mitre.org/techniques/T1105/
+  - https://lolbas-project.github.io/lolbas/Binaries/Certutil/
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection:
+    event_type: ProcessCreate
+    Image|endswith: '\certutil.exe'
+  selection_flags:
+    CommandLine|contains:
+      - '-urlcache'
+      - '-URLcache'
+      - '-decode'
+      - '-encode'
+      - '-decodehex'
+      - 'http://'
+      - 'https://'
+      - 'ftp://'
+  condition: selection and selection_flags
+level: high
+tags:
+  - attack.command_and_control
+  - attack.t1105
+  - attack.defense_evasion
+  - attack.t1140
+falsepositives:
+  - Certificate management by IT administrators
+  - PKI automation scripts

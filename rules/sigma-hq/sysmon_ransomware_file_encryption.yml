@@ -1,0 +1,43 @@
+title: Ransomware File Encryption Behaviour
+id: e1f2a3b4-c5d6-4e7f-8a9b-0c1d2e3f4a21
+status: stable
+description: |
+  Detects file renaming patterns consistent with ransomware encryption activity:
+  appending known ransomware extensions to files or mass file operations
+  from suspicious processes. Sysmon EventID 11 (FileCreate).
+references:
+  - https://attack.mitre.org/techniques/T1486/
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection:
+    event_type: FileCreate
+    TargetFilename|endswith:
+      - '.locked'
+      - '.encrypted'
+      - '.crypted'
+      - '.crypt'
+      - '.enc'
+      - '.ransom'
+      - '.wncry'
+      - '.wncryt'
+      - '.locky'
+      - '.cerber'
+      - '.zepto'
+      - '.odin'
+      - '.thor'
+      - '.aesir'
+      - '.zzzzz'
+      - '.lol!'
+      - '.fun'
+      - '.darkness'
+      - '.bitcoin'
+  condition: selection
+level: critical
+tags:
+  - attack.impact
+  - attack.t1486
+falsepositives:
+  - Legitimate encryption software (rare with these specific extensions)
+  - Security testing with ransomware simulators

@@ -1,0 +1,44 @@
+title: Security Tool Tampering — AV / EDR Disabled
+id: b4c5d6e7-f8a9-4b0c-1d2e-3f4a5b6c7d24
+status: stable
+description: |
+  Detects attempts to disable, stop, or uninstall security tools such as
+  Windows Defender, antivirus products, or EDR agents — a key defense evasion
+  step performed before deploying ransomware or other malware. Sysmon EventID 1.
+references:
+  - https://attack.mitre.org/techniques/T1562/001/
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection_defender:
+    event_type: ProcessCreate
+    CommandLine|contains:
+      - 'Set-MpPreference -DisableRealtimeMonitoring'
+      - 'Set-MpPreference -DisableIOAVProtection'
+      - 'Set-MpPreference -DisableBehaviorMonitoring'
+      - 'Set-MpPreference -DisableAntiSpyware'
+      - 'Add-MpPreference -ExclusionPath'
+      - 'Add-MpPreference -ExclusionExtension'
+  selection_sc:
+    event_type: ProcessCreate
+    Image|endswith: '\sc.exe'
+    CommandLine|contains:
+      - 'stop WinDefend'
+      - 'delete WinDefend'
+      - 'config WinDefend'
+      - 'stop MsMpSvc'
+  selection_reg:
+    event_type: ProcessCreate
+    CommandLine|contains:
+      - 'DisableAntiSpyware'
+      - 'DisableRealtimeMonitoring'
+      - 'SOFTWARE\Policies\Microsoft\Windows Defender'
+  condition: selection_defender or selection_sc or selection_reg
+level: critical
+tags:
+  - attack.defense_evasion
+  - attack.t1562.001
+falsepositives:
+  - Authorized security testing
+  - Specific application compatibility configurations (must be documented)
