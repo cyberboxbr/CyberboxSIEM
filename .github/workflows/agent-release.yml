@@ -133,14 +133,18 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
+          # Versioned copy: cyberbox-agent-0.1.2.msi
           cp packaging/windows/cyberbox-agent-${{ needs.setup.outputs.version }}.msi \
              dist/cyberbox-agent-${{ needs.setup.outputs.version }}.msi
+          # Stable-name copy: cyberbox-agent-windows.msi (always /latest/download/)
+          cp packaging/windows/cyberbox-agent-${{ needs.setup.outputs.version }}.msi \
+             dist/cyberbox-agent-windows.msi
 
       - name: Upload MSI artifact
         uses: actions/upload-artifact@v4
         with:
           name: cyberbox-agent-msi
-          path: dist/cyberbox-agent-${{ needs.setup.outputs.version }}.msi
+          path: dist/cyberbox-agent-*.msi
 
   # ── Create GitHub Release ────────────────────────────────────────────────────
   release:
