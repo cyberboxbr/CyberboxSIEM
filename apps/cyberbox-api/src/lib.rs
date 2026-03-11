@@ -9,15 +9,15 @@ pub mod syslog_receiver;
 
 use std::sync::Arc;
 
-use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::Extension;
+use axum::Router;
 use cyberbox_auth::{AuthBypass, JwtValidator};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use tower_http::{
     cors::CorsLayer,
     decompression::RequestDecompressionLayer,
-    request_id::{MakeRequestId, RequestId, SetRequestIdLayer, PropagateRequestIdLayer},
+    request_id::{MakeRequestId, PropagateRequestIdLayer, RequestId, SetRequestIdLayer},
     trace::TraceLayer,
 };
 use uuid::Uuid;

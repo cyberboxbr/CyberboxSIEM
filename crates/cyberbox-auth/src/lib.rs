@@ -229,9 +229,7 @@ impl JwtValidator {
     fn try_validate(&self, raw_token: &str, kid: &str) -> Result<AuthContext, CyberboxError> {
         let (n, e) = {
             let keys = self.keys.read().unwrap();
-            keys.get(kid)
-                .cloned()
-                .ok_or(CyberboxError::Unauthorized)?
+            keys.get(kid).cloned().ok_or(CyberboxError::Unauthorized)?
         };
 
         let decoding_key = DecodingKey::from_rsa_components(&n, &e).map_err(|e| {
@@ -254,13 +252,7 @@ impl JwtValidator {
 
     /// Fetch JWKS and replace the in-memory key cache atomically.
     pub async fn refresh_keys(&self) -> anyhow::Result<()> {
-        let jwks: JwkSet = self
-            .http
-            .get(&self.jwks_uri)
-            .send()
-            .await?
-            .json()
-            .await?;
+        let jwks: JwkSet = self.http.get(&self.jwks_uri).send().await?.json().await?;
 
         let mut map = self.keys.write().unwrap();
         map.clear();
@@ -302,11 +294,7 @@ fn claims_to_auth_context(claims: OidcClaims) -> AuthContext {
         .unwrap_or_else(|| "default".to_string());
 
     // Role resolution: Azure AD top-level roles > Keycloak realm_access > Viewer
-    let mut parsed_roles: Vec<Role> = claims
-        .roles
-        .iter()
-        .filter_map(|r| Role::parse(r))
-        .collect();
+    let mut parsed_roles: Vec<Role> = claims.roles.iter().filter_map(|r| Role::parse(r)).collect();
 
     // Merge Keycloak realm_access roles if present
     if let Some(ra) = claims.realm_access {

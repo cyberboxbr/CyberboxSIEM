@@ -37,27 +37,34 @@ pub fn is_newer(current: &str, latest: &str) -> bool {
 /// Target triple for the current platform's release asset name.
 fn target_asset() -> &'static str {
     #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-    { "cyberbox-agent-x86_64-pc-windows-msvc.exe" }
+    {
+        "cyberbox-agent-x86_64-pc-windows-msvc.exe"
+    }
 
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    { "cyberbox-agent-x86_64-unknown-linux-musl" }
+    {
+        "cyberbox-agent-x86_64-unknown-linux-musl"
+    }
 
     #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-    { "cyberbox-agent-aarch64-unknown-linux-musl" }
+    {
+        "cyberbox-agent-aarch64-unknown-linux-musl"
+    }
 
     #[cfg(not(any(
         all(target_os = "windows", target_arch = "x86_64"),
         all(target_os = "linux", target_arch = "x86_64"),
         all(target_os = "linux", target_arch = "aarch64"),
     )))]
-    { "cyberbox-agent-unknown" }
+    {
+        "cyberbox-agent-unknown"
+    }
 }
 
 /// Build the download URL for a specific version.
 fn download_url(version: &str) -> String {
-    let base = std::env::var("CYBERBOX_AGENT_UPDATE_URL").unwrap_or_else(|_| {
-        format!("https://github.com/{DEFAULT_REPO}/releases/download")
-    });
+    let base = std::env::var("CYBERBOX_AGENT_UPDATE_URL")
+        .unwrap_or_else(|_| format!("https://github.com/{DEFAULT_REPO}/releases/download"));
     let tag = if version.starts_with('v') {
         version.to_string()
     } else {
@@ -73,7 +80,11 @@ pub async fn self_update(latest_version: &str) -> anyhow::Result<bool> {
         return Ok(false);
     }
 
-    info!(current, latest = latest_version, "newer agent version available -- downloading");
+    info!(
+        current,
+        latest = latest_version,
+        "newer agent version available -- downloading"
+    );
 
     let url = download_url(latest_version);
     let client = reqwest::Client::builder()
@@ -88,7 +99,10 @@ pub async fn self_update(latest_version: &str) -> anyhow::Result<bool> {
 
     let bytes = resp.bytes().await?;
     if bytes.len() < 1024 {
-        warn!(len = bytes.len(), "downloaded binary too small -- aborting update");
+        warn!(
+            len = bytes.len(),
+            "downloaded binary too small -- aborting update"
+        );
         return Ok(false);
     }
 
@@ -117,7 +131,10 @@ fn apply_linux(exe: &std::path::Path, bytes: &[u8], version: &str) -> anyhow::Re
 
     // Atomic rename over the running binary
     std::fs::rename(&tmp, exe)?;
-    info!(version, "agent binary updated -- service manager will restart");
+    info!(
+        version,
+        "agent binary updated -- service manager will restart"
+    );
     Ok(())
 }
 
@@ -132,7 +149,10 @@ fn apply_windows(exe: &std::path::Path, bytes: &[u8], version: &str) -> anyhow::
     std::fs::rename(exe, &old)?;
     std::fs::write(exe, bytes)?;
 
-    info!(version, "agent binary updated -- restart the service to apply");
+    info!(
+        version,
+        "agent binary updated -- restart the service to apply"
+    );
     Ok(())
 }
 

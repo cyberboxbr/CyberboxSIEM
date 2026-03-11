@@ -32,28 +32,28 @@ use tracing::{debug, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct FileFingerprint {
-    sha256:     String,
-    size:       u64,
+    sha256: String,
+    size: u64,
     mtime_secs: i64,
     /// Unix permission bits (lower 12 bits of st_mode); 0 on Windows.
-    mode:       u32,
+    mode: u32,
     /// uid on Linux, 0 on Windows.
-    uid:        u32,
+    uid: u32,
     /// gid on Linux, 0 on Windows.
-    gid:        u32,
+    gid: u32,
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 pub async fn run(
-    paths:         Vec<PathBuf>,
+    paths: Vec<PathBuf>,
     scan_interval_secs: u64,
-    recursive:     bool,
+    recursive: bool,
     baseline_path: PathBuf,
-    tenant_id:     String,
-    hostname:      String,
-    tx:            mpsc::Sender<Value>,
-    mut shutdown:  watch::Receiver<bool>,
+    tenant_id: String,
+    hostname: String,
+    tx: mpsc::Sender<Value>,
+    mut shutdown: watch::Receiver<bool>,
 ) {
     let mut baseline = load_baseline(&baseline_path);
     let interval = Duration::from_secs(scan_interval_secs.max(1));
@@ -98,24 +98,35 @@ pub async fn run(
 
                 if hash_changed || (old_fp.size != new_fp.size) {
                     let ev = build_event(
-                        "modified", path, new_fp, Some(old_fp),
-                        &tenant_id, &hostname,
+                        "modified",
+                        path,
+                        new_fp,
+                        Some(old_fp),
+                        &tenant_id,
+                        &hostname,
                     );
-                    if tx.send(ev).await.is_err() { return; }
+                    if tx.send(ev).await.is_err() {
+                        return;
+                    }
                 } else if perm_changed {
                     let ev = build_event(
-                        "permission_changed", path, new_fp, Some(old_fp),
-                        &tenant_id, &hostname,
+                        "permission_changed",
+                        path,
+                        new_fp,
+                        Some(old_fp),
+                        &tenant_id,
+                        &hostname,
                     );
-                    if tx.send(ev).await.is_err() { return; }
+                    if tx.send(ev).await.is_err() {
+                        return;
+                    }
                 }
             } else {
                 // New file
-                let ev = build_event(
-                    "created", path, new_fp, None,
-                    &tenant_id, &hostname,
-                );
-                if tx.send(ev).await.is_err() { return; }
+                let ev = build_event("created", path, new_fp, None, &tenant_id, &hostname);
+                if tx.send(ev).await.is_err() {
+                    return;
+                }
             }
         }
 
@@ -134,7 +145,9 @@ pub async fn run(
                         "old_size":   old_fp.size,
                     }
                 });
-                if tx.send(ev).await.is_err() { return; }
+                if tx.send(ev).await.is_err() {
+                    return;
+                }
             }
         }
 
@@ -146,12 +159,12 @@ pub async fn run(
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn build_event(
-    kind:     &str,
-    path:     &str,
-    new_fp:   &FileFingerprint,
-    old_fp:   Option<&FileFingerprint>,
+    kind: &str,
+    path: &str,
+    new_fp: &FileFingerprint,
+    old_fp: Option<&FileFingerprint>,
     tenant_id: &str,
-    hostname:  &str,
+    hostname: &str,
 ) -> Value {
     let mut payload = json!({
         "hostname":   hostname,
@@ -167,8 +180,8 @@ fn build_event(
 
     if let Some(old) = old_fp {
         payload["old_sha256"] = json!(old.sha256);
-        payload["old_size"]   = json!(old.size);
-        payload["old_mode"]   = json!(old.mode);
+        payload["old_size"] = json!(old.size);
+        payload["old_mode"] = json!(old.mode);
     }
 
     json!({

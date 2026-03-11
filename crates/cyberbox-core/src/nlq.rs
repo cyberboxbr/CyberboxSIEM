@@ -177,9 +177,24 @@ fn strip_code_fences(s: &str) -> &str {
 /// on the `sql` field and always injects the `tenant_id` predicate server-side.
 pub fn sanitise_where(raw: &str) -> String {
     const DANGEROUS: &[&str] = &[
-        "drop", "insert", "update", "delete", "create", "alter",
-        "truncate", "exec", "execute", "--", "/*", "*/", ";",
-        "xp_", "sp_", "union", "information_schema", "sleep(",
+        "drop",
+        "insert",
+        "update",
+        "delete",
+        "create",
+        "alter",
+        "truncate",
+        "exec",
+        "execute",
+        "--",
+        "/*",
+        "*/",
+        ";",
+        "xp_",
+        "sp_",
+        "union",
+        "information_schema",
+        "sleep(",
     ];
     let lower = raw.to_ascii_lowercase();
     for token in DANGEROUS {
@@ -291,8 +306,9 @@ pub async fn explain_alert(
 ) -> anyhow::Result<AlertExplanation> {
     let text = call_claude(EXPLAIN_SYSTEM_PROMPT, alert_context, 512, api_key, client).await?;
     let json_str = strip_code_fences(&text);
-    let explanation: AlertExplanation = serde_json::from_str(json_str.trim())
-        .map_err(|e| anyhow::anyhow!("Claude returned non-JSON explanation: {e}\nraw: {json_str}"))?;
+    let explanation: AlertExplanation = serde_json::from_str(json_str.trim()).map_err(|e| {
+        anyhow::anyhow!("Claude returned non-JSON explanation: {e}\nraw: {json_str}")
+    })?;
     Ok(explanation)
 }
 
@@ -348,8 +364,9 @@ pub async fn tune_rule(
     );
     let text = call_claude(TUNE_SYSTEM_PROMPT, &user_msg, 1024, api_key, client).await?;
     let json_str = strip_code_fences(&text);
-    let response: TuneRuleResponse = serde_json::from_str(json_str.trim())
-        .map_err(|e| anyhow::anyhow!("Claude returned non-JSON tune response: {e}\nraw: {json_str}"))?;
+    let response: TuneRuleResponse = serde_json::from_str(json_str.trim()).map_err(|e| {
+        anyhow::anyhow!("Claude returned non-JSON tune response: {e}\nraw: {json_str}")
+    })?;
     Ok(response)
 }
 
@@ -366,7 +383,10 @@ async fn call_claude(
         model: MODEL,
         max_tokens,
         system,
-        messages: vec![ClaudeMsg { role: "user", content: user_msg }],
+        messages: vec![ClaudeMsg {
+            role: "user",
+            content: user_msg,
+        }],
     };
     let resp = client
         .post(ANTHROPIC_MESSAGES_URL)
@@ -378,7 +398,12 @@ async fn call_claude(
         .error_for_status()?
         .json::<ClaudeResponse>()
         .await?;
-    Ok(resp.content.into_iter().next().map(|c| c.text).unwrap_or_default())
+    Ok(resp
+        .content
+        .into_iter()
+        .next()
+        .map(|c| c.text)
+        .unwrap_or_default())
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -406,7 +431,10 @@ mod tests {
 
     #[test]
     fn sanitise_blocks_union() {
-        assert_eq!(sanitise_where("1=1 UNION SELECT password FROM users"), "1=1");
+        assert_eq!(
+            sanitise_where("1=1 UNION SELECT password FROM users"),
+            "1=1"
+        );
     }
 
     #[test]

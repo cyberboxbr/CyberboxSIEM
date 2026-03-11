@@ -13,18 +13,18 @@ use tokio::sync::watch;
 use tracing::{error, info, warn};
 
 pub struct RegistrationConfig {
-    pub api_url:        String,
-    pub token:          Option<String>,
+    pub api_url: String,
+    pub token: Option<String>,
     pub heartbeat_secs: u64,
     /// Used as a stable agent identifier (UUID or hostname-based string)
-    pub agent_id:       String,
-    pub hostname:       String,
-    pub tenant_id:      String,
-    pub version:        String,
+    pub agent_id: String,
+    pub hostname: String,
+    pub tenant_id: String,
+    pub version: String,
     /// Path of the active agent.toml — used to write pending config updates.
-    pub config_path:    std::path::PathBuf,
+    pub config_path: std::path::PathBuf,
     /// Notify main loop that config has been updated and should be reloaded.
-    pub reload_tx:      Option<watch::Sender<bool>>,
+    pub reload_tx: Option<watch::Sender<bool>>,
 }
 
 pub async fn run(cfg: RegistrationConfig, mut shutdown: watch::Receiver<bool>) {
@@ -36,7 +36,10 @@ pub async fn run(cfg: RegistrationConfig, mut shutdown: watch::Receiver<bool>) {
     let os = std::env::consts::OS.to_string();
 
     // ── Register ──────────────────────────────────────────────────────────────
-    let reg_url = format!("{}/api/v1/agents/register", cfg.api_url.trim_end_matches('/'));
+    let reg_url = format!(
+        "{}/api/v1/agents/register",
+        cfg.api_url.trim_end_matches('/')
+    );
     let body = json!({
         "agent_id":  cfg.agent_id,
         "tenant_id": cfg.tenant_id,
@@ -94,11 +97,14 @@ pub async fn run(cfg: RegistrationConfig, mut shutdown: watch::Receiver<bool>) {
                     // Self-update check
                     if let Some(ver) = body.get("latest_version").and_then(|v| v.as_str()) {
                         if crate::updater::is_newer(env!("CARGO_PKG_VERSION"), ver) {
-                            info!(latest = ver, "newer version available -- attempting self-update");
+                            info!(
+                                latest = ver,
+                                "newer version available -- attempting self-update"
+                            );
                             match crate::updater::self_update(ver).await {
-                                Ok(true)  => info!(ver, "self-update complete -- restart to apply"),
+                                Ok(true) => info!(ver, "self-update complete -- restart to apply"),
                                 Ok(false) => {}
-                                Err(e)    => warn!(%e, "self-update failed"),
+                                Err(e) => warn!(%e, "self-update failed"),
                             }
                         }
                     }
@@ -111,9 +117,9 @@ pub async fn run(cfg: RegistrationConfig, mut shutdown: watch::Receiver<bool>) {
 /// Write a pending config to disk and signal a live reload if the watch
 /// channel is available.
 fn apply_pending_config(
-    toml_str:    &str,
+    toml_str: &str,
     config_path: &std::path::Path,
-    reload_tx:   &Option<watch::Sender<bool>>,
+    reload_tx: &Option<watch::Sender<bool>>,
 ) {
     match std::fs::write(config_path, toml_str) {
         Ok(()) => {

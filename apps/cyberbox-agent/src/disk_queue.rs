@@ -12,15 +12,15 @@ use tracing::{info, warn};
 
 pub struct DiskQueue {
     tree: sled::Tree,
-    db:   sled::Db,
-    max:  usize,
-    seq:  u64,
+    db: sled::Db,
+    max: usize,
+    seq: u64,
 }
 
 impl DiskQueue {
     /// Open (or create) a queue backed by a sled database at `path`.
     pub fn open(path: &std::path::Path, max_size: usize) -> anyhow::Result<Self> {
-        let db   = sled::open(path)?;
+        let db = sled::open(path)?;
         let tree = db.open_tree("event_queue")?;
 
         // Resume sequence counter from last key
@@ -36,7 +36,12 @@ impl DiskQueue {
             info!(pending = len, "disk queue opened with persisted events");
         }
 
-        Ok(Self { tree, db, max: max_size, seq })
+        Ok(Self {
+            tree,
+            db,
+            max: max_size,
+            seq,
+        })
     }
 
     /// Push an event to the back of the queue, evicting the oldest if full.

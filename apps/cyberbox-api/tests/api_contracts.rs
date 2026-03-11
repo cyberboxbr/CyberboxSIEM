@@ -244,7 +244,13 @@ async fn ingest_event_generates_alert_for_matching_rule() {
         .await
         .expect("body should decode");
     let parsed: Value = serde_json::from_slice(&body).expect("json should parse");
-    assert!(parsed["alerts"].as_array().expect("alerts should be array").len() >= 1);
+    assert!(
+        parsed["alerts"]
+            .as_array()
+            .expect("alerts should be array")
+            .len()
+            >= 1
+    );
 }
 
 #[tokio::test]
@@ -647,7 +653,9 @@ async fn alert_close_sets_resolution_and_audit_trail() {
         )
         .await
         .expect("list alerts");
-    let body = axum::body::to_bytes(list_resp.into_body(), 1024 * 1024).await.expect("body");
+    let body = axum::body::to_bytes(list_resp.into_body(), 1024 * 1024)
+        .await
+        .expect("body");
     let page: Value = serde_json::from_slice(&body).expect("json");
     let alerts = page["alerts"].as_array().expect("alerts array");
     assert!(!alerts.is_empty(), "alert must exist before close");
@@ -671,11 +679,25 @@ async fn alert_close_sets_resolution_and_audit_trail() {
         .expect("close response");
     assert_eq!(close_resp.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(close_resp.into_body(), 1024 * 1024).await.expect("body");
+    let body = axum::body::to_bytes(close_resp.into_body(), 1024 * 1024)
+        .await
+        .expect("body");
     let closed: Value = serde_json::from_slice(&body).expect("json");
-    assert_eq!(closed["status"].as_str(), Some("closed"), "status must be closed");
-    assert_eq!(closed["resolution"].as_str(), Some("false_positive"), "resolution must be set");
-    assert_eq!(closed["close_note"].as_str(), Some("noise from test env"), "note must be stored");
+    assert_eq!(
+        closed["status"].as_str(),
+        Some("closed"),
+        "status must be closed"
+    );
+    assert_eq!(
+        closed["resolution"].as_str(),
+        Some("false_positive"),
+        "resolution must be set"
+    );
+    assert_eq!(
+        closed["close_note"].as_str(),
+        Some("noise from test env"),
+        "note must be stored"
+    );
 
     // Verify audit log captures alert.close action.
     let audit_resp = app
@@ -689,10 +711,14 @@ async fn alert_close_sets_resolution_and_audit_trail() {
         )
         .await
         .expect("audit response");
-    let body = axum::body::to_bytes(audit_resp.into_body(), 1024 * 1024).await.expect("body");
+    let body = axum::body::to_bytes(audit_resp.into_body(), 1024 * 1024)
+        .await
+        .expect("body");
     let audit: Value = serde_json::from_slice(&body).expect("json");
     let entries = audit["entries"].as_array().expect("entries");
-    let close_entry = entries.iter().find(|e| e["action"].as_str() == Some("alert.close"));
+    let close_entry = entries
+        .iter()
+        .find(|e| e["action"].as_str() == Some("alert.close"));
     assert!(close_entry.is_some(), "alert.close audit entry must exist");
 }
 
@@ -722,7 +748,9 @@ async fn dry_run_returns_match_result_without_persisting() {
         .await
         .expect("response");
     assert_eq!(resp.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(resp.into_body(), 64 * 1024).await.expect("body");
+    let body = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+        .await
+        .expect("body");
     let result: Value = serde_json::from_slice(&body).expect("json");
     assert_eq!(result["compile_result"].as_str(), Some("ok"));
     assert_eq!(result["matched"].as_bool(), Some(true));
@@ -738,9 +766,15 @@ async fn dry_run_returns_match_result_without_persisting() {
         )
         .await
         .expect("response");
-    let body = axum::body::to_bytes(rules_resp.into_body(), 64 * 1024).await.expect("body");
+    let body = axum::body::to_bytes(rules_resp.into_body(), 64 * 1024)
+        .await
+        .expect("body");
     let rules: Value = serde_json::from_slice(&body).expect("json");
-    assert_eq!(rules.as_array().map(|v| v.len()).unwrap_or(0), 0, "dry-run must not persist the rule");
+    assert_eq!(
+        rules.as_array().map(|v| v.len()).unwrap_or(0),
+        0,
+        "dry-run must not persist the rule"
+    );
 }
 
 #[tokio::test]
@@ -765,7 +799,9 @@ async fn dry_run_returns_compile_error_for_invalid_sigma() {
         .await
         .expect("response");
     assert_eq!(resp.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(resp.into_body(), 64 * 1024).await.expect("body");
+    let body = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+        .await
+        .expect("body");
     let result: Value = serde_json::from_slice(&body).expect("json");
     assert!(
         result["compile_result"]
@@ -799,7 +835,9 @@ async fn backtest_returns_match_stats_for_ingested_events() {
         )
         .await
         .expect("response");
-    let body = axum::body::to_bytes(rule_resp.into_body(), 64 * 1024).await.expect("body");
+    let body = axum::body::to_bytes(rule_resp.into_body(), 64 * 1024)
+        .await
+        .expect("body");
     let rule: Value = serde_json::from_slice(&body).expect("json");
     let rule_id = rule["rule_id"].as_str().expect("rule_id");
 
@@ -840,7 +878,9 @@ async fn backtest_returns_match_stats_for_ingested_events() {
         .await
         .expect("backtest response");
     assert_eq!(bt_resp.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(bt_resp.into_body(), 64 * 1024).await.expect("body");
+    let body = axum::body::to_bytes(bt_resp.into_body(), 64 * 1024)
+        .await
+        .expect("body");
     let bt: Value = serde_json::from_slice(&body).expect("json");
 
     assert_eq!(bt["total_events_scanned"].as_u64(), Some(3));
@@ -865,10 +905,15 @@ async fn coverage_report_reflects_rule_mitre_tags() {
         )
         .await
         .expect("response");
-    let body = axum::body::to_bytes(cov_resp.into_body(), 64 * 1024).await.expect("body");
+    let body = axum::body::to_bytes(cov_resp.into_body(), 64 * 1024)
+        .await
+        .expect("body");
     let cov: Value = serde_json::from_slice(&body).expect("json");
     assert_eq!(cov["total_covered"].as_u64(), Some(0));
-    assert!(cov["total_in_framework"].as_u64().unwrap_or(0) > 0, "framework count must be non-zero");
+    assert!(
+        cov["total_in_framework"].as_u64().unwrap_or(0) > 0,
+        "framework count must be non-zero"
+    );
 
     // Create a rule with MITRE tags.
     let rule_body = json!({
@@ -899,7 +944,9 @@ async fn coverage_report_reflects_rule_mitre_tags() {
         )
         .await
         .expect("response");
-    let body = axum::body::to_bytes(cov_resp2.into_body(), 64 * 1024).await.expect("body");
+    let body = axum::body::to_bytes(cov_resp2.into_body(), 64 * 1024)
+        .await
+        .expect("body");
     let cov2: Value = serde_json::from_slice(&body).expect("json");
     assert_eq!(cov2["total_covered"].as_u64(), Some(1));
     let techniques = cov2["covered_techniques"].as_array().expect("array");
@@ -1073,8 +1120,10 @@ async fn agent_heartbeat_returns_ok_and_empty_body() {
             serde_json::to_string(&json!({
                 "agent_id": "hb-agent", "tenant_id": "tenant-a",
                 "hostname": "hb-host", "os": "linux", "version": "0.2.0",
-            })).unwrap(),
-        )).unwrap();
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
     test_router().oneshot(req).await.unwrap();
 
     // Fresh router shares no state with the one above; re-register on the same instance
@@ -1086,8 +1135,10 @@ async fn agent_heartbeat_returns_ok_and_empty_body() {
             serde_json::to_string(&json!({
                 "agent_id": "hb-agent-2", "tenant_id": "tenant-a",
                 "hostname": "hb-host-2", "os": "linux", "version": "0.2.0",
-            })).unwrap(),
-        )).unwrap();
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
     let app = {
         // Use a shared AppState across requests within this test
         let handle = METRICS
@@ -1132,8 +1183,10 @@ async fn agent_list_and_tenant_isolation() {
             serde_json::to_string(&json!({
                 "agent_id": "iso-agent", "tenant_id": "tenant-a",
                 "hostname": "iso-host", "os": "linux", "version": "0.2.0",
-            })).unwrap(),
-        )).unwrap();
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
     app.clone().oneshot(reg).await.unwrap();
 
     // List as tenant-a — should see the agent
@@ -1146,7 +1199,10 @@ async fn agent_list_and_tenant_isolation() {
     assert_eq!(resp.status(), StatusCode::OK);
     let bytes = axum::body::to_bytes(resp.into_body(), 16384).await.unwrap();
     let agents: Vec<Value> = serde_json::from_slice(&bytes).unwrap();
-    assert!(agents.iter().any(|a| a["agent_id"] == "iso-agent"), "tenant-a should see its own agent");
+    assert!(
+        agents.iter().any(|a| a["agent_id"] == "iso-agent"),
+        "tenant-a should see its own agent"
+    );
 
     // List as tenant-b — should NOT see tenant-a's agent
     let list_b = Request::builder()
@@ -1183,8 +1239,10 @@ async fn agent_patch_group_and_tags() {
             serde_json::to_string(&json!({
                 "agent_id": "patch-agent", "tenant_id": "tenant-a",
                 "hostname": "patch-host", "os": "linux", "version": "0.2.0",
-            })).unwrap(),
-        )).unwrap();
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
     app.clone().oneshot(reg).await.unwrap();
 
     // PATCH group + tags
@@ -1195,8 +1253,10 @@ async fn agent_patch_group_and_tags() {
             serde_json::to_string(&json!({
                 "group": "prod-web",
                 "tags":  ["linux", "critical"],
-            })).unwrap(),
-        )).unwrap();
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
     let resp = app.clone().oneshot(patch).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
     let bytes = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
@@ -1221,8 +1281,10 @@ async fn agent_config_push_delivered_via_heartbeat() {
             serde_json::to_string(&json!({
                 "agent_id": "cfg-agent", "tenant_id": "tenant-a",
                 "hostname": "cfg-host", "os": "linux", "version": "0.2.0",
-            })).unwrap(),
-        )).unwrap();
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
     app.clone().oneshot(reg).await.unwrap();
 
     // Push config
@@ -1230,8 +1292,12 @@ async fn agent_config_push_delivered_via_heartbeat() {
         .uri("/api/v1/agents/cfg-agent/config")
         .method("POST")
         .body(axum::body::Body::from(
-            serde_json::to_string(&json!({ "config_toml": "[collector]\nhost = \"new.example.com\"\n" })).unwrap(),
-        )).unwrap();
+            serde_json::to_string(
+                &json!({ "config_toml": "[collector]\nhost = \"new.example.com\"\n" }),
+            )
+            .unwrap(),
+        ))
+        .unwrap();
     let resp = app.clone().oneshot(push).await.unwrap();
     assert_eq!(resp.status(), StatusCode::ACCEPTED);
 
@@ -1244,7 +1310,10 @@ async fn agent_config_push_delivered_via_heartbeat() {
     let resp = app.clone().oneshot(hb).await.unwrap();
     let bytes = axum::body::to_bytes(resp.into_body(), 16384).await.unwrap();
     let body: Value = serde_json::from_slice(&bytes).unwrap();
-    assert!(body["pending_config"].as_str().is_some(), "heartbeat should carry the pending config");
+    assert!(
+        body["pending_config"].as_str().is_some(),
+        "heartbeat should carry the pending config"
+    );
 
     // Second heartbeat — config should be cleared (delivered only once)
     let hb2 = auth_request(Request::builder())
@@ -1255,8 +1324,10 @@ async fn agent_config_push_delivered_via_heartbeat() {
     let resp2 = app.clone().oneshot(hb2).await.unwrap();
     let bytes2 = axum::body::to_bytes(resp2.into_body(), 4096).await.unwrap();
     let body2: Value = serde_json::from_slice(&bytes2).unwrap();
-    assert!(body2.get("pending_config").is_none() || body2["pending_config"].is_null(),
-        "config should be cleared after first delivery");
+    assert!(
+        body2.get("pending_config").is_none() || body2["pending_config"].is_null(),
+        "config should be cleared after first delivery"
+    );
 }
 
 #[tokio::test]
@@ -1276,8 +1347,10 @@ async fn agent_list_filter_by_group() {
                 serde_json::to_string(&json!({
                     "agent_id": id, "tenant_id": "tenant-a",
                     "hostname": id, "os": "linux", "version": "0.2.0",
-                })).unwrap(),
-            )).unwrap();
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
         app.clone().oneshot(reg).await.unwrap();
 
         let patch = auth_request(Request::builder())
@@ -1285,7 +1358,8 @@ async fn agent_list_filter_by_group() {
             .method("PATCH")
             .body(axum::body::Body::from(
                 serde_json::to_string(&json!({ "group": group })).unwrap(),
-            )).unwrap();
+            ))
+            .unwrap();
         app.clone().oneshot(patch).await.unwrap();
     }
 
@@ -1299,7 +1373,11 @@ async fn agent_list_filter_by_group() {
     assert_eq!(resp.status(), StatusCode::OK);
     let bytes = axum::body::to_bytes(resp.into_body(), 16384).await.unwrap();
     let agents: Vec<Value> = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(agents.len(), 1, "should return exactly one agent in prod-web");
+    assert_eq!(
+        agents.len(),
+        1,
+        "should return exactly one agent in prod-web"
+    );
     assert_eq!(agents[0]["agent_id"].as_str(), Some("grp-agent-1"));
     assert_eq!(agents[0]["group"].as_str(), Some("prod-web"));
 }
@@ -1324,8 +1402,8 @@ async fn bundled_rules_e2e_import_ingest_alert() {
     // ── 1. Import bundled rules ──────────────────────────────────────────────
     let auth = cyberbox_auth::AuthContext {
         tenant_id: "tenant-a".to_string(),
-        user_id:   "soc-admin".to_string(),
-        roles:     vec![cyberbox_auth::Role::Admin],
+        user_id: "soc-admin".to_string(),
+        roles: vec![cyberbox_auth::Role::Admin],
     };
 
     // Resolve rules/bundled relative to the workspace root (cargo test CWD).
@@ -1336,7 +1414,11 @@ async fn bundled_rules_e2e_import_ingest_alert() {
         .unwrap()
         .join("rules")
         .join("bundled");
-    assert!(rules_dir.is_dir(), "bundled rules dir must exist: {}", rules_dir.display());
+    assert!(
+        rules_dir.is_dir(),
+        "bundled rules dir must exist: {}",
+        rules_dir.display()
+    );
 
     let import_result = cyberbox_api::rules_pack::import_rules_from_dir(
         &auth,

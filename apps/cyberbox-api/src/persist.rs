@@ -76,8 +76,10 @@ pub fn save_rbac(store: &DashMap<String, Vec<Role>>, state_dir: &str) {
         return;
     }
     let path = Path::new(state_dir).join(RBAC_FILE);
-    let data: HashMap<String, Vec<Role>> =
-        store.iter().map(|e| (e.key().clone(), e.value().clone())).collect();
+    let data: HashMap<String, Vec<Role>> = store
+        .iter()
+        .map(|e| (e.key().clone(), e.value().clone()))
+        .collect();
     match serde_json::to_string_pretty(&data) {
         Ok(json) => {
             if let Err(e) = std::fs::write(&path, json) {

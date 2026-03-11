@@ -1,4 +1,4 @@
-use tracing_subscriber::{prelude::*, fmt, EnvFilter};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 /// Initialise the global tracing subscriber.
 ///
@@ -38,14 +38,12 @@ fn init_with_otel(service_name: &str, endpoint: &str) -> anyhow::Result<()> {
                 .tonic()
                 .with_endpoint(endpoint),
         )
-        .with_trace_config(
-            opentelemetry_sdk::trace::Config::default().with_resource(
-                opentelemetry_sdk::Resource::new(vec![opentelemetry::KeyValue::new(
-                    "service.name",
-                    service_name.to_owned(),
-                )]),
-            ),
-        )
+        .with_trace_config(opentelemetry_sdk::trace::Config::default().with_resource(
+            opentelemetry_sdk::Resource::new(vec![opentelemetry::KeyValue::new(
+                "service.name",
+                service_name.to_owned(),
+            )]),
+        ))
         .install_batch(opentelemetry_sdk::runtime::Tokio)?;
 
     // `install_batch` returns a `TracerProvider`; obtain the actual `Tracer` from it.
@@ -63,6 +61,7 @@ fn init_with_otel(service_name: &str, endpoint: &str) -> anyhow::Result<()> {
 }
 
 fn make_filter(service_name: &str) -> EnvFilter {
-    EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(format!("{service_name}=info,tower_http=info,axum=info")))
+    EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        EnvFilter::new(format!("{service_name}=info,tower_http=info,axum=info"))
+    })
 }

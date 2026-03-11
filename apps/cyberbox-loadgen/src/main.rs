@@ -474,9 +474,7 @@ fn build_ingest_body(config: &Config, run_id: &str, worker_index: usize) -> Even
                 .saturating_add((nonce_uuid.as_u128() as u64) % age_range.saturating_add(1))
         };
         let event_time = (now
-            - chrono::Duration::seconds(
-                std::cmp::min(event_age_seconds, i64::MAX as u64) as i64,
-            ))
+            - chrono::Duration::seconds(std::cmp::min(event_age_seconds, i64::MAX as u64) as i64))
         .to_rfc3339();
         events.push(IncomingEvent {
             tenant_id: config.tenant_id.clone(),

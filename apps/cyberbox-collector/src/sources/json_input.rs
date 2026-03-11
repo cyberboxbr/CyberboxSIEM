@@ -44,10 +44,10 @@ use crate::metrics::CollectorMetrics;
 // ─── UDP JSON source ──────────────────────────────────────────────────────────
 
 pub async fn run_udp(
-    bind:         SocketAddr,
-    tenant_id:    Arc<String>,
-    tx:           mpsc::Sender<Value>,
-    metrics:      Arc<CollectorMetrics>,
+    bind: SocketAddr,
+    tenant_id: Arc<String>,
+    tx: mpsc::Sender<Value>,
+    metrics: Arc<CollectorMetrics>,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
     use std::sync::atomic::Ordering::Relaxed;
@@ -72,7 +72,9 @@ pub async fn run_udp(
                     Ok(payload) if payload.is_object() => {
                         let ev = wrap_json(payload, &tenant_id, &source_ip, "json_udp");
                         match tx.try_send(ev) {
-                            Ok(_) => { metrics.json_udp_received.fetch_add(1, Relaxed); }
+                            Ok(_) => {
+                                metrics.json_udp_received.fetch_add(1, Relaxed);
+                            }
                             Err(TrySendError::Full(_)) => {
                                 metrics.channel_drops.fetch_add(1, Relaxed);
                                 debug!(source_ip, "JSON UDP event dropped — channel full");
@@ -82,12 +84,19 @@ pub async fn run_udp(
                     }
                     Ok(_) => {
                         metrics.parse_errors.fetch_add(1, Relaxed);
-                        if let Some(dlq) = metrics.dlq.get() { dlq.write("json_udp", &source_ip, &buf[..len]); }
-                        debug!(source_ip, "JSON UDP datagram is not a JSON object — skipping");
+                        if let Some(dlq) = metrics.dlq.get() {
+                            dlq.write("json_udp", &source_ip, &buf[..len]);
+                        }
+                        debug!(
+                            source_ip,
+                            "JSON UDP datagram is not a JSON object — skipping"
+                        );
                     }
                     Err(e) => {
                         metrics.parse_errors.fetch_add(1, Relaxed);
-                        if let Some(dlq) = metrics.dlq.get() { dlq.write("json_udp", &source_ip, &buf[..len]); }
+                        if let Some(dlq) = metrics.dlq.get() {
+                            dlq.write("json_udp", &source_ip, &buf[..len]);
+                        }
                         debug!(source_ip, err = %e, "JSON UDP datagram parse error");
                     }
                 }
@@ -103,11 +112,11 @@ pub async fn run_udp(
 /// `tls` is loaded per-connection from the `ArcSwap`, allowing SIGUSR1
 /// hot-reload without restarting the listener.  Pass `None` for plain-text.
 pub async fn run_tcp(
-    bind:         SocketAddr,
-    tenant_id:    Arc<String>,
-    tx:           mpsc::Sender<Value>,
-    metrics:      Arc<CollectorMetrics>,
-    tls:          Option<Arc<ArcSwap<tokio_rustls::TlsAcceptor>>>,
+    bind: SocketAddr,
+    tenant_id: Arc<String>,
+    tx: mpsc::Sender<Value>,
+    metrics: Arc<CollectorMetrics>,
+    tls: Option<Arc<ArcSwap<tokio_rustls::TlsAcceptor>>>,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
     let listener = TcpListener::bind(bind)
@@ -129,9 +138,9 @@ pub async fn run_tcp(
         match accept_res {
             Ok((stream, peer)) => {
                 let source_ip = peer.ip().to_string();
-                let tx2  = tx.clone();
-                let tid  = Arc::clone(&tenant_id);
-                let m    = Arc::clone(&metrics);
+                let tx2 = tx.clone();
+                let tid = Arc::clone(&tenant_id);
+                let m = Arc::clone(&metrics);
                 // Atomically snapshot the current TLS acceptor for this connection.
                 let tls2: Option<Arc<tokio_rustls::TlsAcceptor>> =
                     tls.as_ref().map(|s| s.load_full());
@@ -139,8 +148,9 @@ pub async fn run_tcp(
                 tokio::spawn(async move {
                     let result = if let Some(acceptor) = tls2 {
                         match acceptor.accept(stream).await {
-                            Ok(tls_stream) =>
-                                process_ndjson(tls_stream, source_ip.clone(), tid, tx2, m).await,
+                            Ok(tls_stream) => {
+                                process_ndjson(tls_stream, source_ip.clone(), tid, tx2, m).await
+                            }
                             Err(e) => {
                                 debug!(source_ip, err = %e, "JSON TCP TLS handshake failed");
                                 return;
@@ -161,38 +171,46 @@ pub async fn run_tcp(
 }
 
 async fn process_ndjson<S>(
-    stream:    S,
+    stream: S,
     source_ip: String,
     tenant_id: Arc<String>,
-    tx:        mpsc::Sender<Value>,
-    metrics:   Arc<CollectorMetrics>,
+    tx: mpsc::Sender<Value>,
+    metrics: Arc<CollectorMetrics>,
 ) -> Result<()>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
     use std::sync::atomic::Ordering::Relaxed;
 
-    let reader    = tokio::io::BufReader::new(stream);
+    let reader = tokio::io::BufReader::new(stream);
     let mut lines = reader.lines();
 
     while let Ok(Some(line)) = lines.next_line().await {
         let trimmed = line.trim();
-        if trimmed.is_empty() { continue; }
+        if trimmed.is_empty() {
+            continue;
+        }
 
         match serde_json::from_str::<Value>(trimmed) {
             Ok(payload) if payload.is_object() => {
                 let ev = wrap_json(payload, &tenant_id, &source_ip, "json_tcp");
                 metrics.json_tcp_received.fetch_add(1, Relaxed);
-                if tx.send(ev).await.is_err() { return Ok(()); }
+                if tx.send(ev).await.is_err() {
+                    return Ok(());
+                }
             }
             Ok(_) => {
                 metrics.parse_errors.fetch_add(1, Relaxed);
-                if let Some(dlq) = metrics.dlq.get() { dlq.write("json_tcp", &source_ip, trimmed.as_bytes()); }
+                if let Some(dlq) = metrics.dlq.get() {
+                    dlq.write("json_tcp", &source_ip, trimmed.as_bytes());
+                }
                 warn!(source_ip, "JSON TCP line is not a JSON object — skipping");
             }
             Err(e) => {
                 metrics.parse_errors.fetch_add(1, Relaxed);
-                if let Some(dlq) = metrics.dlq.get() { dlq.write("json_tcp", &source_ip, trimmed.as_bytes()); }
+                if let Some(dlq) = metrics.dlq.get() {
+                    dlq.write("json_tcp", &source_ip, trimmed.as_bytes());
+                }
                 debug!(source_ip, err = %e, "JSON TCP line parse error");
             }
         }
@@ -211,7 +229,11 @@ fn wrap_json(mut payload: Value, tenant_id: &str, source_ip: &str, default_sourc
 
     let event_time = payload
         .as_object()
-        .and_then(|m| m.get("event_time").or_else(|| m.get("timestamp")).or_else(|| m.get("@timestamp")))
+        .and_then(|m| {
+            m.get("event_time")
+                .or_else(|| m.get("timestamp"))
+                .or_else(|| m.get("@timestamp"))
+        })
         .and_then(|v| v.as_str().map(|s| s.to_string()))
         .unwrap_or_else(|| Utc::now().to_rfc3339());
 
@@ -242,9 +264,9 @@ mod tests {
             "msg": "hello",
         });
         let out = wrap_json(payload, "tenant1", "1.2.3.4", "json_udp");
-        assert_eq!(out["source"],     "beats");
+        assert_eq!(out["source"], "beats");
         assert_eq!(out["event_time"], "2026-01-01T00:00:00Z");
-        assert_eq!(out["tenant_id"],  "tenant1");
+        assert_eq!(out["tenant_id"], "tenant1");
     }
 
     #[test]
@@ -259,27 +281,27 @@ mod tests {
     #[tokio::test]
     async fn roundtrip_ndjson_plaintext() {
         let (tx, mut rx) = mpsc::channel(16);
-        let metrics      = CollectorMetrics::new("test-json-queue.jsonl".into());
-        let tenant       = Arc::new("acme".to_string());
+        let metrics = CollectorMetrics::new("test-json-queue.jsonl".into());
+        let tenant = Arc::new("acme".to_string());
 
         // Bind on OS-assigned port.
         let std_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let bound_addr   = std_listener.local_addr().unwrap();
+        let bound_addr = std_listener.local_addr().unwrap();
         std_listener.set_nonblocking(true).unwrap();
-        let listener     = TcpListener::from_std(std_listener).unwrap();
+        let listener = TcpListener::from_std(std_listener).unwrap();
 
         // Minimal accept loop that reuses process_ndjson directly.
-        let tx2  = tx.clone();
-        let tid  = Arc::clone(&tenant);
-        let m    = Arc::clone(&metrics);
+        let tx2 = tx.clone();
+        let tid = Arc::clone(&tenant);
+        let m = Arc::clone(&metrics);
         let handle = tokio::spawn(async move {
             loop {
                 match listener.accept().await {
                     Ok((stream, peer)) => {
-                        let ip   = peer.ip().to_string();
-                        let tx3  = tx2.clone();
+                        let ip = peer.ip().to_string();
+                        let tx3 = tx2.clone();
                         let tid2 = Arc::clone(&tid);
-                        let m2   = Arc::clone(&m);
+                        let m2 = Arc::clone(&m);
                         tokio::spawn(async move {
                             let _ = process_ndjson(stream, ip, tid2, tx3, m2).await;
                         });
@@ -295,16 +317,13 @@ mod tests {
             .await
             .unwrap();
 
-        let ev = tokio::time::timeout(
-            std::time::Duration::from_secs(3),
-            rx.recv(),
-        )
-        .await
-        .expect("timeout waiting for event")
-        .expect("channel closed");
+        let ev = tokio::time::timeout(std::time::Duration::from_secs(3), rx.recv())
+            .await
+            .expect("timeout waiting for event")
+            .expect("channel closed");
 
         assert_eq!(ev["tenant_id"], "acme");
-        assert_eq!(ev["source"],    "filebeat");
+        assert_eq!(ev["source"], "filebeat");
         assert_eq!(ev["raw_payload"]["message"]["msg"], "hello");
 
         handle.abort();

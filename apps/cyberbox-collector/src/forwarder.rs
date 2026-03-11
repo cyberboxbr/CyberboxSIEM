@@ -53,35 +53,43 @@ use crate::remote_config::SharedRuntimeConfig;
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 pub struct ForwarderConfig {
-    pub api_url:          String,
-    pub tenant_id:        String,
-    pub batch_size:       usize,
-    pub flush_ms:         u64,
-    pub queue_path:       PathBuf,
-    pub queue_max_mb:     u64,
+    pub api_url: String,
+    pub tenant_id: String,
+    pub batch_size: usize,
+    pub flush_ms: u64,
+    pub queue_path: PathBuf,
+    pub queue_max_mb: u64,
     /// Max concurrent in-flight batch POSTs (default 4).
-    pub concurrency:      usize,
+    pub concurrency: usize,
     /// Ingest channel capacity — used to compute adaptive batch size.
     pub channel_capacity: usize,
     /// If set, sign each POST with `X-Cyberbox-Signature: sha256=<hex>`.
-    pub hmac_secret:      Option<String>,
+    pub hmac_secret: Option<String>,
     /// When notified, immediately attempt to drain the disk queue (for the
     /// `POST /drain-dlq` management endpoint).
-    pub drain_trigger:    Arc<Notify>,
+    pub drain_trigger: Arc<Notify>,
 }
 
 // ─── API health tracker ───────────────────────────────────────────────────────
 
 struct ApiHealth {
-    online:     bool,
+    online: bool,
     backoff_ms: u64,
 }
 
 impl ApiHealth {
-    fn new()               -> Self { Self { online: true, backoff_ms: 100 } }
-    fn mark_success(&mut self) { self.online = true;  self.backoff_ms = 100; }
+    fn new() -> Self {
+        Self {
+            online: true,
+            backoff_ms: 100,
+        }
+    }
+    fn mark_success(&mut self) {
+        self.online = true;
+        self.backoff_ms = 100;
+    }
     fn mark_failure(&mut self) {
-        self.online     = false;
+        self.online = false;
         self.backoff_ms = (self.backoff_ms * 2).min(30_000);
     }
 }
@@ -89,36 +97,36 @@ impl ApiHealth {
 // ─── Concurrent POST result ───────────────────────────────────────────────────
 
 struct PostOutcome {
-    success:       bool,
+    success: bool,
     /// Non-empty only on failure — events to spill to disk queue.
     failed_events: Vec<Value>,
-    count:         u64,
-    latency_ms:    u64,
+    count: u64,
+    latency_ms: u64,
 }
 
 // ─── Forwarder task ───────────────────────────────────────────────────────────
 
 pub async fn run(
-    mut rx:  mpsc::Receiver<Value>,
-    cfg:     ForwarderConfig,
-    client:  reqwest::Client,
+    mut rx: mpsc::Receiver<Value>,
+    cfg: ForwarderConfig,
+    client: reqwest::Client,
     runtime: Option<SharedRuntimeConfig>,
     metrics: Arc<CollectorMetrics>,
 ) {
-    let ingest_url    = Arc::new(format!("{}/api/v1/events:ingest", cfg.api_url));
-    let tenant_id     = Arc::new(cfg.tenant_id.clone());
-    let hmac_secret   = Arc::new(cfg.hmac_secret.clone());
+    let ingest_url = Arc::new(format!("{}/api/v1/events:ingest", cfg.api_url));
+    let tenant_id = Arc::new(cfg.tenant_id.clone());
+    let hmac_secret = Arc::new(cfg.hmac_secret.clone());
     let drain_trigger = Arc::clone(&cfg.drain_trigger);
 
     let concurrency = cfg.concurrency.max(1);
-    let sem         = Arc::new(Semaphore::new(concurrency));
+    let sem = Arc::new(Semaphore::new(concurrency));
     let (result_tx, mut result_rx) = mpsc::unbounded_channel::<PostOutcome>();
 
     let flush_interval = Duration::from_millis(cfg.flush_ms);
     let mut batch: Vec<Value> = Vec::with_capacity(cfg.batch_size);
     let mut ticker = time::interval(flush_interval);
     ticker.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
-    let mut health      = ApiHealth::new();
+    let mut health = ApiHealth::new();
     let mut needs_drain = false;
 
     if cfg.queue_path.exists() {
@@ -130,7 +138,13 @@ pub async fn run(
         let cur_batch_size = effective_batch_size(&cfg, &runtime, &metrics);
 
         // ── Non-blocking drain of completed in-flight POSTs ───────────────────
-        drain_results(&mut result_rx, &mut needs_drain, &mut health, &metrics, &cfg);
+        drain_results(
+            &mut result_rx,
+            &mut needs_drain,
+            &mut health,
+            &metrics,
+            &cfg,
+        );
 
         tokio::select! {
             event = rx.recv() => {
@@ -194,7 +208,7 @@ pub async fn run(
 /// the multiplier is applied.  Result is capped at 5 000 to prevent oversized
 /// API requests.
 fn effective_batch_size(
-    cfg:     &ForwarderConfig,
+    cfg: &ForwarderConfig,
     runtime: &Option<SharedRuntimeConfig>,
     metrics: &CollectorMetrics,
 ) -> usize {
@@ -205,11 +219,19 @@ fn effective_batch_size(
         .unwrap_or(cfg.batch_size);
 
     let depth = metrics.channel_depth.load(Relaxed) as usize;
-    let cap   = cfg.channel_capacity.max(1);
+    let cap = cfg.channel_capacity.max(1);
 
-    let scale = if depth * 4 > cap * 3 { 4 }   // > 75%
-           else if depth * 2 > cap     { 2 }   // > 50%
-           else                        { 1 };
+    let scale = if depth * 4 > cap * 3 {
+        4
+    }
+    // > 75%
+    else if depth * 2 > cap {
+        2
+    }
+    // > 50%
+    else {
+        1
+    };
 
     (base * scale).min(5_000)
 }
@@ -221,34 +243,37 @@ fn effective_batch_size(
 /// the lifetime of the spawned task so at most `concurrency` POSTs run
 /// simultaneously.
 async fn dispatch_post(
-    events:      Vec<Value>,
-    sem:         &Arc<Semaphore>,
-    result_tx:   &mpsc::UnboundedSender<PostOutcome>,
-    client:      &reqwest::Client,
-    url:         &Arc<String>,
-    tenant_id:   &Arc<String>,
+    events: Vec<Value>,
+    sem: &Arc<Semaphore>,
+    result_tx: &mpsc::UnboundedSender<PostOutcome>,
+    client: &reqwest::Client,
+    url: &Arc<String>,
+    tenant_id: &Arc<String>,
     hmac_secret: &Arc<Option<String>>,
 ) {
-    let count  = events.len() as u64;
-    let permit = sem.clone().acquire_owned().await
+    let count = events.len() as u64;
+    let permit = sem
+        .clone()
+        .acquire_owned()
+        .await
         .expect("forwarder semaphore closed — this is a bug");
 
-    let client2    = client.clone();
-    let url2       = Arc::clone(url);
-    let tenant2    = Arc::clone(tenant_id);
-    let secret2    = Arc::clone(hmac_secret);
+    let client2 = client.clone();
+    let url2 = Arc::clone(url);
+    let tenant2 = Arc::clone(tenant_id);
+    let secret2 = Arc::clone(hmac_secret);
     let result_tx2 = result_tx.clone();
 
     tokio::spawn(async move {
-        let _permit  = permit; // released when this task ends
-        let t0       = std::time::Instant::now();
+        let _permit = permit; // released when this task ends
+        let t0 = std::time::Instant::now();
 
         match post_events(&client2, &url2, &tenant2, &events, secret2.as_deref()).await {
             Ok(()) => {
                 let latency_ms = t0.elapsed().as_millis() as u64;
                 debug!(count, latency_ms, "batch POSTed successfully");
                 let _ = result_tx2.send(PostOutcome {
-                    success:       true,
+                    success: true,
                     failed_events: vec![],
                     count,
                     latency_ms,
@@ -258,7 +283,7 @@ async fn dispatch_post(
                 let latency_ms = t0.elapsed().as_millis() as u64;
                 error!(%err, count, latency_ms, "API POST failed — spilling to result queue");
                 let _ = result_tx2.send(PostOutcome {
-                    success:       false,
+                    success: false,
                     failed_events: events,
                     count,
                     latency_ms,
@@ -271,11 +296,11 @@ async fn dispatch_post(
 // ─── Non-blocking drain of completed POST results ─────────────────────────────
 
 fn drain_results(
-    result_rx:   &mut mpsc::UnboundedReceiver<PostOutcome>,
+    result_rx: &mut mpsc::UnboundedReceiver<PostOutcome>,
     needs_drain: &mut bool,
-    health:      &mut ApiHealth,
-    metrics:     &CollectorMetrics,
-    cfg:         &ForwarderConfig,
+    health: &mut ApiHealth,
+    metrics: &CollectorMetrics,
+    cfg: &ForwarderConfig,
 ) {
     while let Ok(outcome) = result_rx.try_recv() {
         metrics.batch_latency.observe(outcome.latency_ms);
@@ -300,10 +325,10 @@ fn drain_results(
 // ─── HTTP POST ────────────────────────────────────────────────────────────────
 
 async fn post_events(
-    client:      &reqwest::Client,
-    url:         &str,
-    tenant_id:   &str,
-    events:      &[Value],
+    client: &reqwest::Client,
+    url: &str,
+    tenant_id: &str,
+    events: &[Value],
     hmac_secret: Option<&str>,
 ) -> anyhow::Result<()> {
     let body = json!({ "events": events });
@@ -316,15 +341,15 @@ async fn post_events(
 
     let mut req = client
         .post(url)
-        .header("x-tenant-id",      tenant_id)
-        .header("x-user-id",        "cyberbox-collector")
-        .header("x-roles",          "admin")
-        .header("Content-Type",     "application/json")
+        .header("x-tenant-id", tenant_id)
+        .header("x-user-id", "cyberbox-collector")
+        .header("x-roles", "admin")
+        .header("Content-Type", "application/json")
         .header("Content-Encoding", "gzip");
 
     if let Some(secret) = hmac_secret {
-        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())
-            .expect("HMAC accepts any key length");
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
         mac.update(&gz_bytes);
         let sig = hex::encode(mac.finalize().into_bytes());
         req = req.header("X-Cyberbox-Signature", format!("sha256={sig}"));
@@ -343,7 +368,7 @@ async fn post_events(
 // ─── Disk queue ───────────────────────────────────────────────────────────────
 
 fn spill_to_queue(cfg: &ForwarderConfig, events: Vec<Value>) {
-    let path      = &cfg.queue_path;
+    let path = &cfg.queue_path;
     let max_bytes = cfg.queue_max_mb * 1024 * 1024;
 
     if let Ok(meta) = std::fs::metadata(path) {
@@ -354,7 +379,11 @@ fn spill_to_queue(cfg: &ForwarderConfig, events: Vec<Value>) {
         }
     }
 
-    match std::fs::OpenOptions::new().create(true).append(true).open(path) {
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
         Ok(mut f) => {
             if let Ok(line) = serde_json::to_string(&events) {
                 let _ = writeln!(f, "{line}");
@@ -370,24 +399,29 @@ fn spill_to_queue(cfg: &ForwarderConfig, events: Vec<Value>) {
 /// Unprocessed lines are streamed to a `.jsonl.tmp` sidecar; on completion
 /// the sidecar atomically replaces the queue file (or is deleted when empty).
 async fn drain_queue(
-    client:      &reqwest::Client,
-    url:         &str,
-    tenant_id:   &str,
-    cfg:         &ForwarderConfig,
-    health:      &mut ApiHealth,
-    metrics:     &CollectorMetrics,
+    client: &reqwest::Client,
+    url: &str,
+    tenant_id: &str,
+    cfg: &ForwarderConfig,
+    health: &mut ApiHealth,
+    metrics: &CollectorMetrics,
     hmac_secret: Option<&str>,
 ) {
     let path = &cfg.queue_path;
-    if !path.exists() { return; }
+    if !path.exists() {
+        return;
+    }
 
     let file = match std::fs::File::open(path) {
-        Ok(f)  => f,
-        Err(e) => { error!(%e, "cannot open disk queue for draining"); return; }
+        Ok(f) => f,
+        Err(e) => {
+            error!(%e, "cannot open disk queue for draining");
+            return;
+        }
     };
 
-    let tmp_path      = path.with_extension("jsonl.tmp");
-    let reader        = std::io::BufReader::new(file);
+    let tmp_path = path.with_extension("jsonl.tmp");
+    let reader = std::io::BufReader::new(file);
     let mut succeeded = 0usize;
     let mut rem_count = 0usize;
     let mut tmp: Option<std::fs::File> = None;
@@ -408,12 +442,15 @@ async fn drain_queue(
         }
 
         let events: Vec<Value> = match serde_json::from_str(&line) {
-            Ok(v)  => v,
-            Err(_) => { succeeded += 1; continue; } // discard malformed
+            Ok(v) => v,
+            Err(_) => {
+                succeeded += 1;
+                continue;
+            } // discard malformed
         };
 
         let count = events.len() as u64;
-        let t0    = std::time::Instant::now();
+        let t0 = std::time::Instant::now();
         match post_events(client, url, tenant_id, &events, hmac_secret).await {
             Ok(_) => {
                 let latency_ms = t0.elapsed().as_millis() as u64;
@@ -458,6 +495,10 @@ async fn drain_queue(
                 let _ = std::fs::remove_file(&tmp_path);
             }
         }
-        info!(succeeded, remaining = rem_count, "partial queue drain — API still recovering");
+        info!(
+            succeeded,
+            remaining = rem_count,
+            "partial queue drain — API still recovering"
+        );
     }
 }

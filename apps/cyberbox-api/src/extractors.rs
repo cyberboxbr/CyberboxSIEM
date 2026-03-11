@@ -32,16 +32,18 @@ where
     type Rejection = SimdJsonRejection;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
-        let bytes = Bytes::from_request(req, state).await.map_err(|e| {
-            SimdJsonRejection(StatusCode::BAD_REQUEST, e.to_string())
-        })?;
+        let bytes = Bytes::from_request(req, state)
+            .await
+            .map_err(|e| SimdJsonRejection(StatusCode::BAD_REQUEST, e.to_string()))?;
         // simd_json mutates the buffer in-place — copy required since Bytes is immutable.
         let mut buf = bytes.to_vec();
-        simd_json::from_slice::<T>(&mut buf).map(SimdJson).map_err(|e| {
-            SimdJsonRejection(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                format!("JSON parse error: {e}"),
-            )
-        })
+        simd_json::from_slice::<T>(&mut buf)
+            .map(SimdJson)
+            .map_err(|e| {
+                SimdJsonRejection(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    format!("JSON parse error: {e}"),
+                )
+            })
     }
 }

@@ -20,43 +20,54 @@
 //! | RFC 5424 | `^<\d+>1 ` | `false` |
 //! | Python tracebacks | `^Traceback` | `false` |
 
-use std::time::{Duration, Instant};
 use regex::Regex;
+use std::time::{Duration, Instant};
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 pub struct MultilineConfig {
     /// When `Some`, drives multiline logic.  `None` = pass-through (disabled).
-    pub pattern:    Option<Regex>,
+    pub pattern: Option<Regex>,
     /// When `true`, a line that does NOT match starts a new event (continuation mode).
-    pub negate:     bool,
+    pub negate: bool,
     /// Flush accumulated buffer if it reaches this many lines.
-    pub max_lines:  usize,
+    pub max_lines: usize,
     /// Flush incomplete buffer after this many ms of silence.
     pub timeout_ms: u64,
 }
 
 impl Default for MultilineConfig {
     fn default() -> Self {
-        Self { pattern: None, negate: false, max_lines: 500, timeout_ms: 2_000 }
+        Self {
+            pattern: None,
+            negate: false,
+            max_lines: 500,
+            timeout_ms: 2_000,
+        }
     }
 }
 
 impl MultilineConfig {
-    pub fn is_enabled(&self) -> bool { self.pattern.is_some() }
+    pub fn is_enabled(&self) -> bool {
+        self.pattern.is_some()
+    }
 }
 
 // ─── Accumulator ──────────────────────────────────────────────────────────────
 
 pub struct MultilineAccumulator {
-    cfg:       MultilineConfig,
-    buf:       Vec<String>,
+    cfg: MultilineConfig,
+    buf: Vec<String>,
     last_seen: Option<Instant>,
 }
 
 impl MultilineAccumulator {
     pub fn new(cfg: MultilineConfig) -> Self {
-        Self { cfg, buf: Vec::new(), last_seen: None }
+        Self {
+            cfg,
+            buf: Vec::new(),
+            last_seen: None,
+        }
     }
 
     /// Feed one log line. Returns `Some(complete_event_string)` when a complete
@@ -67,9 +78,9 @@ impl MultilineAccumulator {
             return Some(line);
         }
 
-        let pat       = self.cfg.pattern.as_ref().unwrap();
-        let matches   = pat.is_match(&line);
-        let is_new    = if self.cfg.negate { !matches } else { matches };
+        let pat = self.cfg.pattern.as_ref().unwrap();
+        let matches = pat.is_match(&line);
+        let is_new = if self.cfg.negate { !matches } else { matches };
 
         self.last_seen = Some(Instant::now());
 
@@ -93,9 +104,15 @@ impl MultilineAccumulator {
     /// Call periodically (e.g. every flush tick) to surface events that have
     /// been silent for longer than `timeout_ms`.
     pub fn tick(&mut self) -> Option<String> {
-        if self.buf.is_empty() { return None; }
+        if self.buf.is_empty() {
+            return None;
+        }
         let timeout = Duration::from_millis(self.cfg.timeout_ms);
-        if self.last_seen.map(|t| t.elapsed() >= timeout).unwrap_or(false) {
+        if self
+            .last_seen
+            .map(|t| t.elapsed() >= timeout)
+            .unwrap_or(false)
+        {
             return Some(self.drain());
         }
         None
@@ -116,9 +133,9 @@ mod tests {
 
     fn acc_with_pattern(pattern: &str, negate: bool) -> MultilineAccumulator {
         MultilineAccumulator::new(MultilineConfig {
-            pattern:    Some(Regex::new(pattern).unwrap()),
+            pattern: Some(Regex::new(pattern).unwrap()),
             negate,
-            max_lines:  500,
+            max_lines: 500,
             timeout_ms: 2_000,
         })
     }
@@ -137,8 +154,14 @@ mod tests {
 
         // Exception line = start of new event
         assert_eq!(acc.feed("java.lang.NullPointerException".into()), None);
-        assert_eq!(acc.feed("\tat com.example.Foo.bar(Foo.java:42)".into()), None);
-        assert_eq!(acc.feed("\tat com.example.App.main(App.java:10)".into()), None);
+        assert_eq!(
+            acc.feed("\tat com.example.Foo.bar(Foo.java:42)".into()),
+            None
+        );
+        assert_eq!(
+            acc.feed("\tat com.example.App.main(App.java:10)".into()),
+            None
+        );
         // Next non-whitespace line flushes the buffer and starts a new event
         let complete = acc.feed("INFO: startup complete".into()).unwrap();
         assert!(complete.contains("NullPointerException"));
@@ -158,9 +181,9 @@ mod tests {
     #[test]
     fn max_lines_cap() {
         let mut acc = MultilineAccumulator::new(MultilineConfig {
-            pattern:    Some(Regex::new(r"^START").unwrap()),
-            negate:     false,
-            max_lines:  3,
+            pattern: Some(Regex::new(r"^START").unwrap()),
+            negate: false,
+            max_lines: 3,
             timeout_ms: 9_999,
         });
 
@@ -174,9 +197,9 @@ mod tests {
     #[test]
     fn tick_flushes_after_timeout() {
         let mut acc = MultilineAccumulator::new(MultilineConfig {
-            pattern:    Some(Regex::new(r"^START").unwrap()),
-            negate:     false,
-            max_lines:  500,
+            pattern: Some(Regex::new(r"^START").unwrap()),
+            negate: false,
+            max_lines: 500,
             timeout_ms: 0, // immediate timeout
         });
         acc.feed("START".into());

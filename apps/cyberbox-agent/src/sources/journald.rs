@@ -21,10 +21,10 @@ use tracing::{error, info, warn};
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 pub async fn run(
-    units:        Vec<String>,
-    tenant_id:    String,
-    hostname:     String,
-    tx:           mpsc::Sender<Value>,
+    units: Vec<String>,
+    tenant_id: String,
+    hostname: String,
+    tx: mpsc::Sender<Value>,
     mut shutdown: watch::Receiver<bool>,
 ) {
     loop {
@@ -36,7 +36,7 @@ pub async fn run(
         cmd.stdout(Stdio::piped()).stderr(Stdio::null());
 
         let mut child = match cmd.spawn() {
-            Ok(c)  => c,
+            Ok(c) => c,
             Err(e) => {
                 error!(%e, "failed to spawn journalctl");
                 tokio::select! {
@@ -97,7 +97,8 @@ fn parse_line(line: &str, tenant_id: &str, hostname: &str) -> Option<Value> {
         Some(Value::String(s)) if !s.is_empty() => s.clone(),
         Some(Value::Array(bytes)) => {
             // byte array — decode as UTF-8
-            let raw: Vec<u8> = bytes.iter()
+            let raw: Vec<u8> = bytes
+                .iter()
                 .filter_map(|b| b.as_u64().map(|n| n as u8))
                 .collect();
             String::from_utf8_lossy(&raw).into_owned()
@@ -105,18 +106,26 @@ fn parse_line(line: &str, tenant_id: &str, hostname: &str) -> Option<Value> {
         _ => return None,
     };
 
-    let unit    = str_field(&j, "_SYSTEMD_UNIT");
-    let comm    = str_field(&j, "_COMM");
-    let pid     = str_field(&j, "_PID");
-    let host    = j["_HOSTNAME"].as_str().unwrap_or(hostname).to_string();
-    let prio    = j["PRIORITY"].as_str()
+    let unit = str_field(&j, "_SYSTEMD_UNIT");
+    let comm = str_field(&j, "_COMM");
+    let pid = str_field(&j, "_PID");
+    let host = j["_HOSTNAME"].as_str().unwrap_or(hostname).to_string();
+    let prio = j["PRIORITY"]
+        .as_str()
         .and_then(|p| p.parse::<u8>().ok())
         .unwrap_or(6);
 
     // Collect any extra structured fields as a map
     let mut extra = Map::new();
-    for key in ["_EXE", "_CMDLINE", "_TRANSPORT", "SYSLOG_IDENTIFIER",
-                "SYSLOG_PID", "_BOOT_ID", "_MACHINE_ID"] {
+    for key in [
+        "_EXE",
+        "_CMDLINE",
+        "_TRANSPORT",
+        "SYSLOG_IDENTIFIER",
+        "SYSLOG_PID",
+        "_BOOT_ID",
+        "_MACHINE_ID",
+    ] {
         if let Some(v) = j.get(key).and_then(Value::as_str) {
             extra.insert(key.to_string(), Value::String(v.to_string()));
         }
@@ -146,8 +155,14 @@ fn str_field(j: &Value, key: &str) -> String {
 
 fn severity_name(p: u8) -> &'static str {
     match p {
-        0 => "emergency", 1 => "alert",  2 => "critical", 3 => "error",
-        4 => "warning",   5 => "notice", 6 => "info",      7 => "debug",
+        0 => "emergency",
+        1 => "alert",
+        2 => "critical",
+        3 => "error",
+        4 => "warning",
+        5 => "notice",
+        6 => "info",
+        7 => "debug",
         _ => "debug",
     }
 }

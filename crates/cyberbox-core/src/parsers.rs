@@ -86,7 +86,11 @@ pub fn parse_log_line(line: &str) -> Value {
 /// contain spaces if quoted. Unquoted values end at the next whitespace+`word=`.
 fn try_parse_cef(line: &str) -> Option<Value> {
     // CEF:0|... — split after the "CEF:" prefix
-    let after_cef = if line.len() > 4 { &line[4..] } else { return None; };
+    let after_cef = if line.len() > 4 {
+        &line[4..]
+    } else {
+        return None;
+    };
     // after_cef = "0|vendor|product|devVersion|sigId|name|severity|extensions"
     let parts: Vec<&str> = after_cef.splitn(8, '|').collect();
     if parts.len() < 7 {
@@ -127,7 +131,9 @@ fn parse_cef_extensions(ext: &str) -> Vec<(String, String)> {
             None => break,
         };
         let key = remaining[..eq].trim();
-        if key.is_empty() { break; }
+        if key.is_empty() {
+            break;
+        }
         remaining = &remaining[eq + 1..];
 
         // Value ends at the next `<space><identifier>=` pattern or end of string
@@ -156,7 +162,10 @@ fn find_next_kv_boundary(s: &str) -> Option<usize> {
                 let candidate = &rest[..eq];
                 // key must be non-empty and contain only word chars
                 if !candidate.trim().is_empty()
-                    && candidate.trim().chars().all(|c| c.is_alphanumeric() || c == '_')
+                    && candidate
+                        .trim()
+                        .chars()
+                        .all(|c| c.is_alphanumeric() || c == '_')
                 {
                     return Some(i);
                 }
@@ -174,7 +183,11 @@ fn find_next_kv_boundary(s: &str) -> Option<usize> {
 /// Extensions may be tab-separated (`\t`) or space-separated.
 fn try_parse_leef(line: &str) -> Option<Value> {
     // Skip "LEEF:" prefix
-    let after_leef = if line.len() > 5 { &line[5..] } else { return None; };
+    let after_leef = if line.len() > 5 {
+        &line[5..]
+    } else {
+        return None;
+    };
     // Split header (5 pipe-separated fields) from extensions
     let parts: Vec<&str> = after_leef.splitn(6, '|').collect();
     if parts.len() < 5 {

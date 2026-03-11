@@ -130,9 +130,7 @@ impl ClickHouseWriteBuffer {
         }
 
         // Update the live pending gauge regardless of drops.
-        let pending = self
-            .channel_capacity
-            .saturating_sub(self.sender.capacity()) as f64;
+        let pending = self.channel_capacity.saturating_sub(self.sender.capacity()) as f64;
         gauge!("cyberbox_clickhouse_write_buffer_pending").set(pending);
 
         if dropped > 0 {
@@ -230,7 +228,10 @@ async fn flush_with_retry(
                 counter!("cyberbox_clickhouse_write_buffer_events_flushed_total")
                     .increment(batch_len as u64);
                 counter!("cyberbox_clickhouse_write_buffer_batches_flushed_total").increment(1);
-                tracing::debug!(batch_size = batch_len, "ClickHouse write buffer: batch flushed");
+                tracing::debug!(
+                    batch_size = batch_len,
+                    "ClickHouse write buffer: batch flushed"
+                );
                 batch.clear();
                 return;
             }
@@ -277,4 +278,3 @@ async fn flush_with_retry(
         }
     }
 }
-

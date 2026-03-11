@@ -148,12 +148,11 @@ fn is_private(ip: &IpAddr) -> bool {
                 || (o[0] == 192 && o[1] == 168)                // 192.168.0.0/16
                 || o[0] == 127                                  // 127.0.0.0/8
                 || (o[0] == 169 && o[1] == 254)                // 169.254.0.0/16
-                || o == [0, 0, 0, 0]                           // 0.0.0.0
+                || o == [0, 0, 0, 0] // 0.0.0.0
         }
         IpAddr::V6(v6) => {
-            v6.is_loopback()
-                || v6.is_unspecified()
-                || (v6.segments()[0] & 0xffc0) == 0xfe80 // fe80::/10
+            v6.is_loopback() || v6.is_unspecified() || (v6.segments()[0] & 0xffc0) == 0xfe80
+            // fe80::/10
         }
     }
 }

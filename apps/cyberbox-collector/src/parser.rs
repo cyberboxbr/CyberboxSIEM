@@ -15,15 +15,15 @@ pub enum SyslogVersion {
 
 #[derive(Debug)]
 pub struct SyslogMsg {
-    pub facility:        u8,
-    pub severity:        u8,
-    pub timestamp:       DateTime<Utc>,
-    pub hostname:        String,
-    pub app_name:        String,
-    pub pid:             Option<String>,
-    pub message:         String,
-    pub source_ip:       String,
-    pub version:         SyslogVersion,
+    pub facility: u8,
+    pub severity: u8,
+    pub timestamp: DateTime<Utc>,
+    pub hostname: String,
+    pub app_name: String,
+    pub pid: Option<String>,
+    pub message: String,
+    pub source_ip: String,
+    pub version: SyslogVersion,
     /// RFC 5424 Structured Data: SD-ID → { param-name → param-value }
     pub structured_data: HashMap<String, HashMap<String, String>>,
 }
@@ -32,19 +32,40 @@ pub struct SyslogMsg {
 
 pub fn facility_name(f: u8) -> &'static str {
     match f {
-        0  => "kern",    1  => "user",    2  => "mail",    3  => "daemon",
-        4  => "auth",    5  => "syslog",  6  => "lpr",     7  => "news",
-        8  => "uucp",    9  => "cron",    10 => "authpriv", 11 => "ftp",
-        16 => "local0",  17 => "local1",  18 => "local2",  19 => "local3",
-        20 => "local4",  21 => "local5",  22 => "local6",  23 => "local7",
-        _  => "unknown",
+        0 => "kern",
+        1 => "user",
+        2 => "mail",
+        3 => "daemon",
+        4 => "auth",
+        5 => "syslog",
+        6 => "lpr",
+        7 => "news",
+        8 => "uucp",
+        9 => "cron",
+        10 => "authpriv",
+        11 => "ftp",
+        16 => "local0",
+        17 => "local1",
+        18 => "local2",
+        19 => "local3",
+        20 => "local4",
+        21 => "local5",
+        22 => "local6",
+        23 => "local7",
+        _ => "unknown",
     }
 }
 
 pub fn severity_name(s: u8) -> &'static str {
     match s {
-        0 => "emergency", 1 => "alert",   2 => "critical", 3 => "error",
-        4 => "warning",   5 => "notice",  6 => "info",     7 => "debug",
+        0 => "emergency",
+        1 => "alert",
+        2 => "critical",
+        3 => "error",
+        4 => "warning",
+        5 => "notice",
+        6 => "info",
+        7 => "debug",
         _ => "unknown",
     }
 }
@@ -54,28 +75,31 @@ pub fn severity_name(s: u8) -> &'static str {
 /// Parse a raw syslog byte buffer from `source_ip`. Returns `None` if the
 /// message cannot be decoded at all.
 pub fn parse_syslog(data: &[u8], source_ip: &str) -> Option<SyslogMsg> {
-    let raw = std::str::from_utf8(data).ok()?.trim_end_matches(['\n', '\r']);
+    let raw = std::str::from_utf8(data)
+        .ok()?
+        .trim_end_matches(['\n', '\r']);
     let raw = strip_octet_count(raw);
 
     if !raw.starts_with('<') {
         return Some(SyslogMsg {
-            facility: 1, severity: 6,
-            timestamp:       Utc::now(),
-            hostname:        source_ip.to_string(),
-            app_name:        String::new(),
-            pid:             None,
-            message:         raw.to_string(),
-            source_ip:       source_ip.to_string(),
-            version:         SyslogVersion::Rfc3164,
+            facility: 1,
+            severity: 6,
+            timestamp: Utc::now(),
+            hostname: source_ip.to_string(),
+            app_name: String::new(),
+            pid: None,
+            message: raw.to_string(),
+            source_ip: source_ip.to_string(),
+            version: SyslogVersion::Rfc3164,
             structured_data: HashMap::new(),
         });
     }
 
-    let close   = raw.find('>')?;
+    let close = raw.find('>')?;
     let pri: u16 = raw[1..close].parse().ok()?;
     let facility = (pri >> 3) as u8;
     let severity = (pri & 7) as u8;
-    let rest     = &raw[close + 1..];
+    let rest = &raw[close + 1..];
 
     if rest.starts_with('1') && rest.len() > 1 && rest.as_bytes().get(1) == Some(&b' ') {
         parse_rfc5424(&rest[2..], facility, severity, source_ip)
@@ -88,7 +112,9 @@ pub fn parse_syslog(data: &[u8], source_ip: &str) -> Option<SyslogMsg> {
 pub fn strip_octet_count(s: &str) -> &str {
     let bytes = s.as_bytes();
     let mut i = 0;
-    while i < bytes.len() && bytes[i].is_ascii_digit() { i += 1; }
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
     if i > 0 && bytes.get(i) == Some(&b' ') && bytes.get(i + 1) == Some(&b'<') {
         &s[i + 1..]
     } else {
@@ -97,12 +123,12 @@ pub fn strip_octet_count(s: &str) -> &str {
 }
 
 fn parse_rfc5424(rest: &str, facility: u8, severity: u8, source_ip: &str) -> Option<SyslogMsg> {
-    let mut iter   = rest.splitn(6, ' ');
-    let ts_str     = iter.next()?;
-    let hostname   = iter.next().unwrap_or("-").to_string();
-    let app_name   = iter.next().unwrap_or("-").to_string();
-    let pid_str    = iter.next().unwrap_or("-");
-    let _msgid     = iter.next();
+    let mut iter = rest.splitn(6, ' ');
+    let ts_str = iter.next()?;
+    let hostname = iter.next().unwrap_or("-").to_string();
+    let app_name = iter.next().unwrap_or("-").to_string();
+    let pid_str = iter.next().unwrap_or("-");
+    let _msgid = iter.next();
     let sd_and_msg = iter.next().unwrap_or("").trim_start();
 
     let timestamp = DateTime::parse_from_rfc3339(ts_str)
@@ -114,31 +140,43 @@ fn parse_rfc5424(rest: &str, facility: u8, severity: u8, source_ip: &str) -> Opt
         let msg = after_sd.trim_start_matches('\u{feff}').to_string();
         (sd, msg)
     } else if let Some(rest_msg) = sd_and_msg.strip_prefix("- ") {
-        (HashMap::new(), rest_msg.trim_start_matches('\u{feff}').to_string())
+        (
+            HashMap::new(),
+            rest_msg.trim_start_matches('\u{feff}').to_string(),
+        )
     } else if sd_and_msg == "-" || sd_and_msg.is_empty() {
         (HashMap::new(), String::new())
     } else {
-        (HashMap::new(), sd_and_msg.trim_start_matches('\u{feff}').to_string())
+        (
+            HashMap::new(),
+            sd_and_msg.trim_start_matches('\u{feff}').to_string(),
+        )
     };
 
     Some(SyslogMsg {
-        facility, severity, timestamp,
-        hostname:        nilval(hostname),
-        app_name:        nilval(app_name),
-        pid:             if pid_str == "-" { None } else { Some(pid_str.to_string()) },
+        facility,
+        severity,
+        timestamp,
+        hostname: nilval(hostname),
+        app_name: nilval(app_name),
+        pid: if pid_str == "-" {
+            None
+        } else {
+            Some(pid_str.to_string())
+        },
         message,
-        source_ip:       source_ip.to_string(),
-        version:         SyslogVersion::Rfc5424,
+        source_ip: source_ip.to_string(),
+        version: SyslogVersion::Rfc5424,
         structured_data,
     })
 }
 
 fn parse_rfc3164(rest: &str, facility: u8, severity: u8, source_ip: &str) -> Option<SyslogMsg> {
     let (timestamp, after_ts) = if rest.len() >= 16 && is_bsd_month(&rest[..3]) {
-        let year   = Utc::now().year();
+        let year = Utc::now().year();
         let ts_raw = rest[..15].trim().to_string();
         let ts_str = format!("{year} {ts_raw}");
-        let dt     = NaiveDateTime::parse_from_str(&ts_str, "%Y %b %e %H:%M:%S")
+        let dt = NaiveDateTime::parse_from_str(&ts_str, "%Y %b %e %H:%M:%S")
             .or_else(|_| NaiveDateTime::parse_from_str(&ts_str, "%Y %b  %e %H:%M:%S"))
             .map(|ndt| ndt.and_utc())
             .unwrap_or_else(|_| Utc::now());
@@ -151,34 +189,62 @@ fn parse_rfc3164(rest: &str, facility: u8, severity: u8, source_ip: &str) -> Opt
     let (app_name, pid, message) = parse_tag(rest2);
 
     Some(SyslogMsg {
-        facility, severity, timestamp,
-        hostname, app_name, pid, message,
-        source_ip:       source_ip.to_string(),
-        version:         SyslogVersion::Rfc3164,
+        facility,
+        severity,
+        timestamp,
+        hostname,
+        app_name,
+        pid,
+        message,
+        source_ip: source_ip.to_string(),
+        version: SyslogVersion::Rfc3164,
         structured_data: HashMap::new(),
     })
 }
 
-fn nilval(s: String) -> String { if s == "-" { String::new() } else { s } }
+fn nilval(s: String) -> String {
+    if s == "-" {
+        String::new()
+    } else {
+        s
+    }
+}
 
 fn is_bsd_month(s: &str) -> bool {
-    matches!(s, "Jan"|"Feb"|"Mar"|"Apr"|"May"|"Jun"|
-                "Jul"|"Aug"|"Sep"|"Oct"|"Nov"|"Dec")
+    matches!(
+        s,
+        "Jan"
+            | "Feb"
+            | "Mar"
+            | "Apr"
+            | "May"
+            | "Jun"
+            | "Jul"
+            | "Aug"
+            | "Sep"
+            | "Oct"
+            | "Nov"
+            | "Dec"
+    )
 }
 
 fn first_word(s: &str) -> (String, &str) {
     match s.find(' ') {
         Some(i) => (s[..i].to_string(), s[i + 1..].trim_start()),
-        None    => (s.to_string(), ""),
+        None => (s.to_string(), ""),
     }
 }
 
 fn parse_tag(s: &str) -> (String, Option<String>, String) {
     if let Some(colon) = s.find(':') {
         let tag_part = &s[..colon];
-        let msg      = s[colon + 1..].trim_start().to_string();
+        let msg = s[colon + 1..].trim_start().to_string();
         if let (Some(lb), Some(rb)) = (tag_part.find('['), tag_part.find(']')) {
-            return (tag_part[..lb].to_string(), Some(tag_part[lb+1..rb].to_string()), msg);
+            return (
+                tag_part[..lb].to_string(),
+                Some(tag_part[lb + 1..rb].to_string()),
+                msg,
+            );
         }
         return (tag_part.to_string(), None, msg);
     }
@@ -199,7 +265,7 @@ fn parse_structured_data(s: &str) -> (HashMap<String, HashMap<String, String>>, 
         let close = find_sd_close(rest);
         let close = match close {
             Some(i) => i,
-            None    => break,
+            None => break,
         };
 
         let element = &rest[1..close];
@@ -208,9 +274,11 @@ fn parse_structured_data(s: &str) -> (HashMap<String, HashMap<String, String>>, 
         // First token = SD-ID, rest = space-separated param=value pairs.
         let (sd_id, params_str) = match element.find(' ') {
             Some(i) => (element[..i].to_string(), &element[i + 1..]),
-            None    => (element.to_string(), ""),
+            None => (element.to_string(), ""),
         };
-        if sd_id.is_empty() { continue; }
+        if sd_id.is_empty() {
+            continue;
+        }
 
         let mut params: HashMap<String, String> = HashMap::new();
         parse_sd_params(params_str, &mut params);
@@ -229,8 +297,8 @@ fn find_sd_close(s: &str) -> Option<usize> {
     while i < bytes.len() {
         match bytes[i] {
             b'\\' => i += 2, // skip escaped char
-            b']'  => return Some(i),
-            _     => i += 1,
+            b']' => return Some(i),
+            _ => i += 1,
         }
     }
     None
@@ -245,20 +313,22 @@ fn parse_sd_params(s: &str, out: &mut HashMap<String, String>) {
         // Find '='
         let eq = match rest.find('=') {
             Some(i) => i,
-            None    => break,
+            None => break,
         };
         let key = rest[..eq].trim().to_string();
-        rest    = rest[eq + 1..].trim_start();
+        rest = rest[eq + 1..].trim_start();
 
         // Value must be quoted.
-        if !rest.starts_with('"') { break; }
+        if !rest.starts_with('"') {
+            break;
+        }
         rest = &rest[1..];
 
         // Collect chars until closing unescaped '"'.
-        let mut val       = String::new();
-        let mut bytes     = rest.as_bytes().iter().enumerate();
-        let mut end_byte  = rest.len();
-        let mut consumed  = rest.len();
+        let mut val = String::new();
+        let mut bytes = rest.as_bytes().iter().enumerate();
+        let mut end_byte = rest.len();
+        let mut consumed = rest.len();
         while let Some((i, &b)) = bytes.next() {
             if b == b'\\' {
                 if let Some((_, &nb)) = bytes.next() {
@@ -287,17 +357,19 @@ fn parse_sd_params(s: &str, out: &mut HashMap<String, String>) {
 pub fn parse_cef(msg: &str) -> Option<Map<String, Value>> {
     let body = msg.strip_prefix("CEF:")?;
     let parts: Vec<&str> = body.splitn(8, '|').collect();
-    if parts.len() < 7 { return None; }
+    if parts.len() < 7 {
+        return None;
+    }
 
     let mut map = Map::new();
-    map.insert("event_format".into(),      Value::String("CEF".into()));
-    map.insert("cef_version".into(),       Value::String(parts[0].into()));
-    map.insert("cef_vendor".into(),        Value::String(parts[1].into()));
-    map.insert("cef_product".into(),       Value::String(parts[2].into()));
-    map.insert("cef_dev_version".into(),   Value::String(parts[3].into()));
-    map.insert("cef_signature_id".into(),  Value::String(parts[4].into()));
-    map.insert("cef_name".into(),          Value::String(parts[5].into()));
-    map.insert("cef_severity".into(),      Value::String(parts[6].into()));
+    map.insert("event_format".into(), Value::String("CEF".into()));
+    map.insert("cef_version".into(), Value::String(parts[0].into()));
+    map.insert("cef_vendor".into(), Value::String(parts[1].into()));
+    map.insert("cef_product".into(), Value::String(parts[2].into()));
+    map.insert("cef_dev_version".into(), Value::String(parts[3].into()));
+    map.insert("cef_signature_id".into(), Value::String(parts[4].into()));
+    map.insert("cef_name".into(), Value::String(parts[5].into()));
+    map.insert("cef_severity".into(), Value::String(parts[6].into()));
 
     if let Some(ext) = parts.get(7) {
         parse_kv_extensions(ext, "cef_", &mut map);
@@ -310,26 +382,32 @@ pub fn parse_cef(msg: &str) -> Option<Map<String, Value>> {
 // LEEF:2.0|Vendor|Product|Version|EventID|delimiter|k=v...
 
 pub fn parse_leef(msg: &str) -> Option<Map<String, Value>> {
-    let body      = msg.strip_prefix("LEEF:")?;
+    let body = msg.strip_prefix("LEEF:")?;
     let parts: Vec<&str> = body.splitn(7, '|').collect();
-    if parts.len() < 5 { return None; }
+    if parts.len() < 5 {
+        return None;
+    }
 
-    let version   = parts[0];
+    let version = parts[0];
     let delimiter = if version.starts_with('2') && parts.len() >= 6 {
         parts[5].chars().next().unwrap_or('\t')
     } else {
         '\t'
     };
 
-    let ext_part = if version.starts_with('2') { parts.get(6) } else { parts.get(5) };
+    let ext_part = if version.starts_with('2') {
+        parts.get(6)
+    } else {
+        parts.get(5)
+    };
 
     let mut map = Map::new();
-    map.insert("event_format".into(),   Value::String("LEEF".into()));
-    map.insert("leef_version".into(),   Value::String(version.into()));
-    map.insert("leef_vendor".into(),    Value::String(parts[1].into()));
-    map.insert("leef_product".into(),   Value::String(parts[2].into()));
+    map.insert("event_format".into(), Value::String("LEEF".into()));
+    map.insert("leef_version".into(), Value::String(version.into()));
+    map.insert("leef_vendor".into(), Value::String(parts[1].into()));
+    map.insert("leef_product".into(), Value::String(parts[2].into()));
     map.insert("leef_dev_version".into(), Value::String(parts[3].into()));
-    map.insert("leef_event_id".into(),  Value::String(parts[4].into()));
+    map.insert("leef_event_id".into(), Value::String(parts[4].into()));
 
     if let Some(ext) = ext_part {
         parse_leef_extensions(ext, delimiter, &mut map);
@@ -354,13 +432,15 @@ fn parse_leef_extensions(ext: &str, delim: char, map: &mut Map<String, Value>) {
 /// Values can contain spaces; a new key starts at the next `word=` token.
 fn parse_kv_extensions(ext: &str, prefix: &str, map: &mut Map<String, Value>) {
     let mut current_key: Option<String> = None;
-    let mut val_parts: Vec<&str>        = Vec::new();
+    let mut val_parts: Vec<&str> = Vec::new();
 
     for token in ext.split(' ') {
         if let Some(eq) = token.find('=') {
             let key_candidate = &token[..eq];
             if !key_candidate.is_empty()
-                && key_candidate.chars().all(|c| c.is_alphanumeric() || c == '_')
+                && key_candidate
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '_')
             {
                 // Flush previous key
                 if let Some(k) = current_key.take() {
@@ -383,24 +463,40 @@ fn parse_kv_extensions(ext: &str, prefix: &str, map: &mut Map<String, Value>) {
 
 pub fn to_incoming_event(msg: &SyslogMsg, tenant_id: &str) -> Value {
     let mut raw = Map::new();
-    raw.insert("hostname".into(),      Value::String(msg.hostname.clone()));
-    raw.insert("app_name".into(),      Value::String(msg.app_name.clone()));
-    raw.insert("pid".into(),           msg.pid.as_deref().map(|s| Value::String(s.into())).unwrap_or(Value::Null));
-    raw.insert("message".into(),       Value::String(msg.message.clone()));
-    raw.insert("facility".into(),      Value::Number(msg.facility.into()));
-    raw.insert("facility_name".into(), Value::String(facility_name(msg.facility).into()));
-    raw.insert("severity".into(),      Value::Number(msg.severity.into()));
-    raw.insert("severity_name".into(), Value::String(severity_name(msg.severity).into()));
-    raw.insert("source_ip".into(),     Value::String(msg.source_ip.clone()));
-    raw.insert("syslog_version".into(), Value::String(match msg.version {
-        SyslogVersion::Rfc3164 => "RFC3164".into(),
-        SyslogVersion::Rfc5424 => "RFC5424".into(),
-    }));
+    raw.insert("hostname".into(), Value::String(msg.hostname.clone()));
+    raw.insert("app_name".into(), Value::String(msg.app_name.clone()));
+    raw.insert(
+        "pid".into(),
+        msg.pid
+            .as_deref()
+            .map(|s| Value::String(s.into()))
+            .unwrap_or(Value::Null),
+    );
+    raw.insert("message".into(), Value::String(msg.message.clone()));
+    raw.insert("facility".into(), Value::Number(msg.facility.into()));
+    raw.insert(
+        "facility_name".into(),
+        Value::String(facility_name(msg.facility).into()),
+    );
+    raw.insert("severity".into(), Value::Number(msg.severity.into()));
+    raw.insert(
+        "severity_name".into(),
+        Value::String(severity_name(msg.severity).into()),
+    );
+    raw.insert("source_ip".into(), Value::String(msg.source_ip.clone()));
+    raw.insert(
+        "syslog_version".into(),
+        Value::String(match msg.version {
+            SyslogVersion::Rfc3164 => "RFC3164".into(),
+            SyslogVersion::Rfc5424 => "RFC5424".into(),
+        }),
+    );
 
     // RFC 5424 Structured Data → nested map: { "sd_<ID>": { "key": "val" } }
     if !msg.structured_data.is_empty() {
         for (sd_id, params) in &msg.structured_data {
-            let params_val: Map<String, Value> = params.iter()
+            let params_val: Map<String, Value> = params
+                .iter()
                 .map(|(k, v)| (k.clone(), Value::String(v.clone())))
                 .collect();
             // Sanitise SD-ID: replace '@' and '.' which appear in IANA IDs.
@@ -411,9 +507,13 @@ pub fn to_incoming_event(msg: &SyslogMsg, tenant_id: &str) -> Value {
 
     // CEF / LEEF detection in the message body
     if let Some(cef) = parse_cef(&msg.message) {
-        for (k, v) in cef { raw.insert(k, v); }
+        for (k, v) in cef {
+            raw.insert(k, v);
+        }
     } else if let Some(leef) = parse_leef(&msg.message) {
-        for (k, v) in leef { raw.insert(k, v); }
+        for (k, v) in leef {
+            raw.insert(k, v);
+        }
     }
 
     json!({
@@ -488,11 +588,11 @@ mod tests {
     fn normalises_to_incoming_event_shape() {
         let raw = b"<165>1 2026-03-10T10:00:00Z db-01 postgres 999 - - connection received";
         let msg = parse_syslog(raw, "10.0.0.2").unwrap();
-        let ev  = to_incoming_event(&msg, "acme-corp");
-        assert_eq!(ev["tenant_id"],                "acme-corp");
-        assert_eq!(ev["source"],                   "syslog");
-        assert_eq!(ev["raw_payload"]["hostname"],   "db-01");
-        assert_eq!(ev["raw_payload"]["app_name"],   "postgres");
+        let ev = to_incoming_event(&msg, "acme-corp");
+        assert_eq!(ev["tenant_id"], "acme-corp");
+        assert_eq!(ev["source"], "syslog");
+        assert_eq!(ev["raw_payload"]["hostname"], "db-01");
+        assert_eq!(ev["raw_payload"]["app_name"], "postgres");
         assert_eq!(ev["raw_payload"]["severity_name"], "notice");
     }
 
@@ -500,41 +600,41 @@ mod tests {
     fn parses_cef_message() {
         let cef = "CEF:0|ArcSight|Logger|6.0|100|Login Success|5|src=10.0.0.1 dst=192.168.1.1 act=blocked";
         let map = parse_cef(cef).unwrap();
-        assert_eq!(map["cef_vendor"],       Value::String("ArcSight".into()));
-        assert_eq!(map["cef_name"],         Value::String("Login Success".into()));
-        assert_eq!(map["cef_severity"],     Value::String("5".into()));
-        assert_eq!(map["cef_src"],          Value::String("10.0.0.1".into()));
-        assert_eq!(map["cef_dst"],          Value::String("192.168.1.1".into()));
-        assert_eq!(map["cef_act"],          Value::String("blocked".into()));
-        assert_eq!(map["event_format"],     Value::String("CEF".into()));
+        assert_eq!(map["cef_vendor"], Value::String("ArcSight".into()));
+        assert_eq!(map["cef_name"], Value::String("Login Success".into()));
+        assert_eq!(map["cef_severity"], Value::String("5".into()));
+        assert_eq!(map["cef_src"], Value::String("10.0.0.1".into()));
+        assert_eq!(map["cef_dst"], Value::String("192.168.1.1".into()));
+        assert_eq!(map["cef_act"], Value::String("blocked".into()));
+        assert_eq!(map["event_format"], Value::String("CEF".into()));
     }
 
     #[test]
     fn parses_cef_in_syslog_body() {
         let raw = b"<134>1 2026-03-10T10:00:00Z fw01 CEF - - - CEF:0|Check Point|SmartDefense|R80|00000001|Port Scan|8|src=203.0.113.1 dst=10.0.0.5 proto=TCP";
         let msg = parse_syslog(raw, "10.0.0.1").unwrap();
-        let ev  = to_incoming_event(&msg, "t1");
+        let ev = to_incoming_event(&msg, "t1");
         assert_eq!(ev["raw_payload"]["event_format"], "CEF");
-        assert_eq!(ev["raw_payload"]["cef_vendor"],   "Check Point");
-        assert_eq!(ev["raw_payload"]["cef_src"],      "203.0.113.1");
+        assert_eq!(ev["raw_payload"]["cef_vendor"], "Check Point");
+        assert_eq!(ev["raw_payload"]["cef_src"], "203.0.113.1");
     }
 
     #[test]
     fn parses_leef_10() {
         let leef = "LEEF:1.0|IBM|QRadar|7.0|ADMIN_LOGIN|src=10.0.0.1\tdst=10.0.0.2\taction=login";
-        let map  = parse_leef(leef).unwrap();
-        assert_eq!(map["leef_vendor"],   Value::String("IBM".into()));
+        let map = parse_leef(leef).unwrap();
+        assert_eq!(map["leef_vendor"], Value::String("IBM".into()));
         assert_eq!(map["leef_event_id"], Value::String("ADMIN_LOGIN".into()));
-        assert_eq!(map["leef_src"],      Value::String("10.0.0.1".into()));
-        assert_eq!(map["leef_action"],   Value::String("login".into()));
+        assert_eq!(map["leef_src"], Value::String("10.0.0.1".into()));
+        assert_eq!(map["leef_action"], Value::String("login".into()));
     }
 
     #[test]
     fn parses_leef_20_custom_delimiter() {
         let leef = "LEEF:2.0|Vendor|Product|1.0|EventID|^|src=10.0.0.1^dst=10.0.0.2^proto=TCP";
-        let map  = parse_leef(leef).unwrap();
-        assert_eq!(map["leef_src"],   Value::String("10.0.0.1".into()));
-        assert_eq!(map["leef_dst"],   Value::String("10.0.0.2".into()));
+        let map = parse_leef(leef).unwrap();
+        assert_eq!(map["leef_src"], Value::String("10.0.0.1".into()));
+        assert_eq!(map["leef_dst"], Value::String("10.0.0.2".into()));
         assert_eq!(map["leef_proto"], Value::String("TCP".into()));
     }
 
@@ -568,7 +668,7 @@ mod tests {
     fn sd_exposed_in_incoming_event() {
         let raw = b"<165>1 2026-03-10T10:00:00Z host app - - [mySD key=\"val\"] hello";
         let msg = parse_syslog(raw, "1.2.3.4").unwrap();
-        let ev  = to_incoming_event(&msg, "t1");
+        let ev = to_incoming_event(&msg, "t1");
         // SD-ID "mySD" should appear as "sd_mySD" in raw_payload
         assert_eq!(ev["raw_payload"]["sd_mySD"]["key"], "val");
         assert_eq!(ev["raw_payload"]["message"], "hello");

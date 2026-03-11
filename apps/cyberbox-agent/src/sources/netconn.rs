@@ -43,26 +43,26 @@ use tracing::debug;
 
 #[derive(Clone, Hash, Eq, PartialEq)]
 struct ConnKey {
-    local_ip:    String,
-    local_port:  u16,
-    remote_ip:   String,
+    local_ip: String,
+    local_port: u16,
+    remote_ip: String,
     remote_port: u16,
-    state:       u8,
-    inode:       u64,
+    state: u8,
+    inode: u64,
 }
 
 struct ConnInfo {
-    key:  ConnKey,
-    uid:  u32,
+    key: ConnKey,
+    uid: u32,
 }
 
 // -- Entry point --------------------------------------------------------------
 
 pub async fn run(
-    poll_ms:   u64,
+    poll_ms: u64,
     tenant_id: String,
-    hostname:  String,
-    tx:        mpsc::Sender<Value>,
+    hostname: String,
+    tx: mpsc::Sender<Value>,
     mut shutdown: watch::Receiver<bool>,
 ) {
     let interval = Duration::from_millis(poll_ms.max(200));
@@ -70,10 +70,7 @@ pub async fn run(
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     // Build initial snapshot — don't fire events for pre-existing connections
-    let mut known: HashSet<ConnKey> = scan_connections()
-        .into_iter()
-        .map(|c| c.key)
-        .collect();
+    let mut known: HashSet<ConnKey> = scan_connections().into_iter().map(|c| c.key).collect();
 
     loop {
         tokio::select! {
@@ -89,12 +86,14 @@ pub async fn run(
         for conn in &current {
             if !known.contains(&conn.key) {
                 let kind = match conn.key.state {
-                    0x0A => "listening_open",    // LISTEN
-                    0x01 => "connection_open",   // ESTABLISHED
-                    _    => continue,            // skip transient states
+                    0x0A => "listening_open",  // LISTEN
+                    0x01 => "connection_open", // ESTABLISHED
+                    _ => continue,             // skip transient states
                 };
                 let ev = build_event(kind, &conn, &tenant_id, &hostname);
-                if tx.send(ev).await.is_err() { return; }
+                if tx.send(ev).await.is_err() {
+                    return;
+                }
             }
         }
 
@@ -104,10 +103,12 @@ pub async fn run(
                 let kind = match key.state {
                     0x0A => "listening_close",
                     0x01 => "connection_close",
-                    _    => continue,
+                    _ => continue,
                 };
                 let ev = build_close_event(kind, key, &tenant_id, &hostname);
-                if tx.send(ev).await.is_err() { return; }
+                if tx.send(ev).await.is_err() {
+                    return;
+                }
             }
         }
 
@@ -135,13 +136,15 @@ fn parse_proc_net_line(line: &str) -> Option<ConnInfo> {
     // Format: sl  local_address rem_address   st tx_queue:rx_queue ... uid ... inode
     // Example: 0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 ... 33 ... 12345
     let parts: Vec<&str> = line.split_whitespace().collect();
-    if parts.len() < 10 { return None; }
+    if parts.len() < 10 {
+        return None;
+    }
 
-    let local   = parse_addr(parts[1])?;
-    let remote  = parse_addr(parts[2])?;
-    let state   = u8::from_str_radix(parts[3], 16).ok()?;
-    let uid     = parts[7].parse::<u32>().unwrap_or(0);
-    let inode   = parts[9].parse::<u64>().unwrap_or(0);
+    let local = parse_addr(parts[1])?;
+    let remote = parse_addr(parts[2])?;
+    let state = u8::from_str_radix(parts[3], 16).ok()?;
+    let uid = parts[7].parse::<u32>().unwrap_or(0);
+    let inode = parts[9].parse::<u64>().unwrap_or(0);
 
     // Only track ESTABLISHED and LISTEN states
     if state != 0x01 && state != 0x0A {
@@ -150,9 +153,9 @@ fn parse_proc_net_line(line: &str) -> Option<ConnInfo> {
 
     Some(ConnInfo {
         key: ConnKey {
-            local_ip:    local.0,
-            local_port:  local.1,
-            remote_ip:   remote.0,
+            local_ip: local.0,
+            local_port: local.1,
+            remote_ip: remote.0,
             remote_port: remote.1,
             state,
             inode,
@@ -163,7 +166,9 @@ fn parse_proc_net_line(line: &str) -> Option<ConnInfo> {
 
 fn parse_addr(hex: &str) -> Option<(String, u16)> {
     let parts: Vec<&str> = hex.split(':').collect();
-    if parts.len() != 2 { return None; }
+    if parts.len() != 2 {
+        return None;
+    }
 
     let port = u16::from_str_radix(parts[1], 16).ok()?;
     let ip_hex = parts[0];
@@ -173,24 +178,36 @@ fn parse_addr(hex: &str) -> Option<(String, u16)> {
         let n = u32::from_str_radix(ip_hex, 16).ok()?;
         format!(
             "{}.{}.{}.{}",
-            n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, (n >> 24) & 0xff
+            n & 0xff,
+            (n >> 8) & 0xff,
+            (n >> 16) & 0xff,
+            (n >> 24) & 0xff
         )
     } else if ip_hex.len() == 32 {
         // IPv6: 4 groups of 4 bytes (little-endian within each group)
         let mut groups = Vec::new();
         for i in 0..4 {
-            let chunk = &ip_hex[i*8..(i+1)*8];
+            let chunk = &ip_hex[i * 8..(i + 1) * 8];
             let n = u32::from_str_radix(chunk, 16).ok()?;
             let swapped = n.swap_bytes();
-            groups.push(format!("{:04x}:{:04x}", (swapped >> 16) & 0xffff, swapped & 0xffff));
+            groups.push(format!(
+                "{:04x}:{:04x}",
+                (swapped >> 16) & 0xffff,
+                swapped & 0xffff
+            ));
         }
         // Check if it's an IPv4-mapped IPv6
-        if ip_hex.starts_with("0000000000000000FFFF0000") || ip_hex.starts_with("0000000000000000ffff0000") {
+        if ip_hex.starts_with("0000000000000000FFFF0000")
+            || ip_hex.starts_with("0000000000000000ffff0000")
+        {
             let v4_hex = &ip_hex[24..32];
             let n = u32::from_str_radix(v4_hex, 16).ok()?;
             format!(
                 "{}.{}.{}.{}",
-                n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, (n >> 24) & 0xff
+                n & 0xff,
+                (n >> 8) & 0xff,
+                (n >> 16) & 0xff,
+                (n >> 24) & 0xff
             )
         } else {
             groups.join(":")
@@ -215,7 +232,7 @@ fn state_name(state: u8) -> &'static str {
         0x09 => "LAST_ACK",
         0x0A => "LISTEN",
         0x0B => "CLOSING",
-        _    => "UNKNOWN",
+        _ => "UNKNOWN",
     }
 }
 
@@ -261,7 +278,11 @@ fn resolve_inode_to_process(inode: u64) -> (u32, String) {
 
 fn build_event(kind: &str, conn: &ConnInfo, tenant_id: &str, hostname: &str) -> Value {
     let (pid, exe) = resolve_inode_to_process(conn.key.inode);
-    let mitre = if kind == "connection_open" { "T1071" } else { "" };
+    let mitre = if kind == "connection_open" {
+        "T1071"
+    } else {
+        ""
+    };
 
     json!({
         "tenant_id":  tenant_id,

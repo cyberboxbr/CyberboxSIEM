@@ -23,13 +23,13 @@ use tracing::warn;
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 pub async fn run(
-    paths:         Vec<PathBuf>,
-    poll_ms:       u64,
+    paths: Vec<PathBuf>,
+    poll_ms: u64,
     bookmark_path: PathBuf,
-    tenant_id:     String,
-    hostname:      String,
-    tx:            mpsc::Sender<Value>,
-    mut shutdown:  watch::Receiver<bool>,
+    tenant_id: String,
+    hostname: String,
+    tx: mpsc::Sender<Value>,
+    mut shutdown: watch::Receiver<bool>,
 ) {
     let mut bookmarks = load_bookmarks(&bookmark_path);
 
@@ -67,21 +67,21 @@ pub async fn run(
 // ── Per-file polling ──────────────────────────────────────────────────────────
 
 async fn poll_file(
-    path:      &Path,
+    path: &Path,
     bookmarks: &mut HashMap<String, u64>,
     tenant_id: &str,
-    hostname:  &str,
-    tx:        &mpsc::Sender<Value>,
+    hostname: &str,
+    tx: &mpsc::Sender<Value>,
 ) {
     let key = path.to_string_lossy().to_string();
 
     let file = match std::fs::File::open(path) {
-        Ok(f)  => f,
+        Ok(f) => f,
         Err(_) => return, // file may not exist yet
     };
 
-    let size   = file.metadata().map(|m| m.len()).unwrap_or(0);
-    let saved  = *bookmarks.get(&key).unwrap_or(&0);
+    let size = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let saved = *bookmarks.get(&key).unwrap_or(&0);
     // Handle log rotation: if file shrank, restart from zero
     let offset = if size < saved { 0 } else { saved };
 
@@ -91,7 +91,7 @@ async fn poll_file(
     }
 
     let mut new_offset = offset;
-    let mut line       = String::new();
+    let mut line = String::new();
 
     loop {
         line.clear();
@@ -99,9 +99,10 @@ async fn poll_file(
             Ok(0) => break, // EOF
             Ok(n) => {
                 new_offset += n as u64;
-                let msg = line.trim_end_matches('\n')
-                              .trim_end_matches('\r')
-                              .to_string();
+                let msg = line
+                    .trim_end_matches('\n')
+                    .trim_end_matches('\r')
+                    .to_string();
                 if msg.is_empty() {
                     continue;
                 }

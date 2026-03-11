@@ -18,8 +18,8 @@ use windows::{
     core::PCWSTR,
     Win32::Foundation::{ERROR_NO_MORE_ITEMS, HANDLE},
     Win32::System::EventLog::{
-        EvtClose, EvtNext, EvtRender, EvtSubscribe, EVT_HANDLE,
-        EvtRenderEventXml, EvtSubscribeToFutureEvents,
+        EvtClose, EvtNext, EvtRender, EvtRenderEventXml, EvtSubscribe, EvtSubscribeToFutureEvents,
+        EVT_HANDLE,
     },
 };
 
@@ -30,7 +30,7 @@ pub async fn run(channels: Vec<String>, tenant_id: Arc<String>, tx: mpsc::Sender
     for channel in channels {
         let tx2 = tx.clone();
         let tid = Arc::clone(&tenant_id);
-        let ch  = channel.clone();
+        let ch = channel.clone();
         tokio::task::spawn_blocking(move || subscribe_channel(&ch, tid, tx2));
         info!(channel, "Windows Event Log subscription started");
     }
@@ -41,20 +41,20 @@ pub async fn run(channels: Vec<String>, tenant_id: Arc<String>, tx: mpsc::Sender
 fn subscribe_channel(channel: &str, tenant_id: Arc<String>, tx: mpsc::Sender<Value>) {
     // Build wide-char (UTF-16) strings
     let channel_w: Vec<u16> = channel.encode_utf16().chain(std::iter::once(0)).collect();
-    let query_w:   Vec<u16> = "*\0".encode_utf16().collect();
+    let query_w: Vec<u16> = "*\0".encode_utf16().collect();
 
     let subscription = unsafe {
         match EvtSubscribe(
-            EVT_HANDLE::default(),          // local machine
-            HANDLE::default(),              // no signal → polling mode
+            EVT_HANDLE::default(), // local machine
+            HANDLE::default(),     // no signal → polling mode
             PCWSTR(channel_w.as_ptr()),
             PCWSTR(query_w.as_ptr()),
-            EVT_HANDLE::default(),          // no bookmark
-            None,                           // no context
-            None,                           // no callback → polling mode
+            EVT_HANDLE::default(), // no bookmark
+            None,                  // no context
+            None,                  // no callback → polling mode
             EvtSubscribeToFutureEvents.0,
         ) {
-            Ok(h)  => h,
+            Ok(h) => h,
             Err(e) => {
                 error!(channel, error = %e, "EvtSubscribe failed");
                 return;
@@ -86,12 +86,16 @@ fn subscribe_channel(channel: &str, tenant_id: Arc<String>, tx: mpsc::Sender<Val
                     if let Some(ev) = parse_event_xml(&xml, channel, &tenant_id) {
                         // blocking_send is safe from spawn_blocking threads
                         if tx.blocking_send(ev).is_err() {
-                            unsafe { let _ = EvtClose(subscription); }
+                            unsafe {
+                                let _ = EvtClose(subscription);
+                            }
                             return;
                         }
                     }
                 }
-                unsafe { let _ = EvtClose(h); }
+                unsafe {
+                    let _ = EvtClose(h);
+                }
             }
         } else if let Err(e) = result {
             let code = e.code().0 as u32;
@@ -108,8 +112,8 @@ fn subscribe_channel(channel: &str, tenant_id: Arc<String>, tx: mpsc::Sender<Val
 // ─── Render event to XML ──────────────────────────────────────────────────────
 
 fn render_to_xml(event: EVT_HANDLE) -> Option<String> {
-    let mut buf_used:    u32 = 0;
-    let mut prop_count:  u32 = 0;
+    let mut buf_used: u32 = 0;
+    let mut prop_count: u32 = 0;
 
     // First call: get required buffer size
     let _ = unsafe {
@@ -124,7 +128,9 @@ fn render_to_xml(event: EVT_HANDLE) -> Option<String> {
         )
     };
 
-    if buf_used == 0 { return None; }
+    if buf_used == 0 {
+        return None;
+    }
 
     // Allocate UTF-16 buffer
     let cap = (buf_used as usize / 2) + 1;
@@ -142,7 +148,9 @@ fn render_to_xml(event: EVT_HANDLE) -> Option<String> {
         )
     };
 
-    if ok.is_err() { return None; }
+    if ok.is_err() {
+        return None;
+    }
 
     let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
     String::from_utf16(&buf[..len]).ok()
@@ -151,14 +159,14 @@ fn render_to_xml(event: EVT_HANDLE) -> Option<String> {
 // ─── XML → structured event ───────────────────────────────────────────────────
 
 fn parse_event_xml(xml: &str, channel: &str, tenant_id: &str) -> Option<Value> {
-    let event_id     = xml_value(xml, "EventID")?;
-    let time_created = xml_attr(xml, "TimeCreated", "SystemTime")
-        .unwrap_or_else(|| Utc::now().to_rfc3339());
-    let computer  = xml_value(xml, "Computer").unwrap_or_default();
-    let level     = xml_value(xml, "Level").unwrap_or_else(|| "4".into());
-    let provider  = xml_attr(xml, "Provider", "Name").unwrap_or_default();
+    let event_id = xml_value(xml, "EventID")?;
+    let time_created =
+        xml_attr(xml, "TimeCreated", "SystemTime").unwrap_or_else(|| Utc::now().to_rfc3339());
+    let computer = xml_value(xml, "Computer").unwrap_or_default();
+    let level = xml_value(xml, "Level").unwrap_or_else(|| "4".into());
+    let provider = xml_attr(xml, "Provider", "Name").unwrap_or_default();
 
-    let severity      = level_to_severity(&level);
+    let severity = level_to_severity(&level);
     let mut event_data = Map::new();
     extract_event_data(xml, &mut event_data);
 
@@ -181,24 +189,24 @@ fn parse_event_xml(xml: &str, channel: &str, tenant_id: &str) -> Option<Value> {
 
 /// Extract inner text of `<Tag>…</Tag>`.
 fn xml_value(xml: &str, tag: &str) -> Option<String> {
-    let open  = format!("<{tag}>");
+    let open = format!("<{tag}>");
     let close = format!("</{tag}>");
     let start = xml.find(&open)? + open.len();
-    let end   = xml[start..].find(&close).map(|p| start + p)?;
+    let end = xml[start..].find(&close).map(|p| start + p)?;
     Some(xml[start..end].to_string())
 }
 
 /// Extract attribute value from `<Tag … Attr='value' …>`.
 fn xml_attr(xml: &str, tag: &str, attr: &str) -> Option<String> {
-    let tag_open   = xml.find(&format!("<{tag}"))?;
-    let tag_end    = xml[tag_open..].find('>')? + tag_open;
-    let tag_slice  = &xml[tag_open..tag_end];
-    let attr_eq    = tag_slice.find(&format!("{attr}="))?;
+    let tag_open = xml.find(&format!("<{tag}"))?;
+    let tag_end = xml[tag_open..].find('>')? + tag_open;
+    let tag_slice = &xml[tag_open..tag_end];
+    let attr_eq = tag_slice.find(&format!("{attr}="))?;
     let val_offset = attr_eq + attr.len() + 1; // skip `attr=`
-    let quote      = tag_slice.as_bytes().get(val_offset)?;
-    let val_start  = val_offset + 1;
-    let end_char   = *quote as char;
-    let val_end    = tag_slice[val_start..].find(end_char)?;
+    let quote = tag_slice.as_bytes().get(val_offset)?;
+    let val_start = val_offset + 1;
+    let end_char = *quote as char;
+    let val_end = tag_slice[val_start..].find(end_char)?;
     Some(tag_slice[val_start..val_start + val_end].to_string())
 }
 
@@ -206,9 +214,13 @@ fn xml_attr(xml: &str, tag: &str, attr: &str) -> Option<String> {
 fn extract_event_data(xml: &str, map: &mut Map<String, Value>) {
     let mut pos = 0;
     while let Some(rel) = xml[pos..].find("<Data Name=") {
-        let abs        = pos + rel;
+        let abs = pos + rel;
         let name_start = abs + "<Data Name=".len() + 1; // skip opening quote
-        let q_char     = xml.as_bytes().get(abs + "<Data Name=".len()).copied().unwrap_or(b'\'') as char;
+        let q_char = xml
+            .as_bytes()
+            .get(abs + "<Data Name=".len())
+            .copied()
+            .unwrap_or(b'\'') as char;
         if let Some(name_end) = xml[name_start..].find(q_char) {
             let name = xml[name_start..name_start + name_end].to_string();
             if let Some(gt) = xml[abs..].find('>') {
@@ -232,14 +244,20 @@ fn level_to_severity(level: &str) -> u8 {
         "3" => 4, // Warning
         "4" => 6, // Information
         "5" => 7, // Verbose
-        _   => 6,
+        _ => 6,
     }
 }
 
 fn severity_name(s: u8) -> &'static str {
     match s {
-        0 => "emergency", 1 => "alert",   2 => "critical", 3 => "error",
-        4 => "warning",   5 => "notice",  6 => "info",     7 => "debug",
+        0 => "emergency",
+        1 => "alert",
+        2 => "critical",
+        3 => "error",
+        4 => "warning",
+        5 => "notice",
+        6 => "info",
+        7 => "debug",
         _ => "unknown",
     }
 }

@@ -107,7 +107,7 @@ mod tests {
     fn retry_after_scales_with_deficit() {
         let limiter = EpsLimiter::new(100, 10); // 100 eps, 1000 cap
         assert!(limiter.try_consume("tenant-a", 1_000).is_ok()); // drain 1000
-        // 100 more needed → 100 / 100 eps = 1s
+                                                                 // 100 more needed → 100 / 100 eps = 1s
         let err = limiter.try_consume("tenant-a", 100).unwrap_err();
         assert_eq!(err, 1);
     }

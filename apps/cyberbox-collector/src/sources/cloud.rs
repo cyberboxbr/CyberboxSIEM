@@ -52,7 +52,10 @@ use crate::metrics::CollectorMetrics;
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 fn env_bool(key: &str) -> bool {
-    matches!(std::env::var(key).as_deref(), Ok("true") | Ok("1") | Ok("yes"))
+    matches!(
+        std::env::var(key).as_deref(),
+        Ok("true") | Ok("1") | Ok("yes")
+    )
 }
 
 fn env_str(key: &str, default: &str) -> String {
@@ -81,32 +84,47 @@ async fn sleep_or_shutdown(dur: Duration, shutdown: &mut watch::Receiver<bool>) 
 /// `shutdown` is a watch receiver; when its value flips to `true` every cloud
 /// task exits its poll loop within one poll interval (or backoff sleep).
 pub async fn spawn_all(
-    client:    reqwest::Client,
+    client: reqwest::Client,
     tenant_id: Arc<String>,
-    tx:        mpsc::Sender<Value>,
-    metrics:   Arc<CollectorMetrics>,
-    shutdown:  watch::Receiver<bool>,
+    tx: mpsc::Sender<Value>,
+    metrics: Arc<CollectorMetrics>,
+    shutdown: watch::Receiver<bool>,
 ) {
     if env_bool("COLLECTOR_S3_ENABLED") {
         let (c2, t2, tx2, m2, sd) = (
-            client.clone(), Arc::clone(&tenant_id), tx.clone(),
-            Arc::clone(&metrics), shutdown.clone(),
+            client.clone(),
+            Arc::clone(&tenant_id),
+            tx.clone(),
+            Arc::clone(&metrics),
+            shutdown.clone(),
         );
-        tokio::spawn(async move { run_s3(c2, t2, tx2, m2, sd).await; });
+        tokio::spawn(async move {
+            run_s3(c2, t2, tx2, m2, sd).await;
+        });
     }
     if env_bool("COLLECTOR_OKTA_ENABLED") {
         let (c2, t2, tx2, m2, sd) = (
-            client.clone(), Arc::clone(&tenant_id), tx.clone(),
-            Arc::clone(&metrics), shutdown.clone(),
+            client.clone(),
+            Arc::clone(&tenant_id),
+            tx.clone(),
+            Arc::clone(&metrics),
+            shutdown.clone(),
         );
-        tokio::spawn(async move { run_okta(c2, t2, tx2, m2, sd).await; });
+        tokio::spawn(async move {
+            run_okta(c2, t2, tx2, m2, sd).await;
+        });
     }
     if env_bool("COLLECTOR_O365_ENABLED") {
         let (c2, t2, tx2, m2, sd) = (
-            client.clone(), Arc::clone(&tenant_id), tx.clone(),
-            Arc::clone(&metrics), shutdown.clone(),
+            client.clone(),
+            Arc::clone(&tenant_id),
+            tx.clone(),
+            Arc::clone(&metrics),
+            shutdown.clone(),
         );
-        tokio::spawn(async move { run_o365(c2, t2, tx2, m2, sd).await; });
+        tokio::spawn(async move {
+            run_o365(c2, t2, tx2, m2, sd).await;
+        });
     }
 }
 
@@ -115,26 +133,33 @@ pub async fn spawn_all(
 // ════════════════════════════════════════════════════════════════════════════════
 
 async fn run_s3(
-    client:    reqwest::Client,
+    client: reqwest::Client,
     tenant_id: Arc<String>,
-    tx:        mpsc::Sender<Value>,
-    metrics:   Arc<CollectorMetrics>,
+    tx: mpsc::Sender<Value>,
+    metrics: Arc<CollectorMetrics>,
     mut shutdown: watch::Receiver<bool>,
 ) {
-    let bucket     = env_str("COLLECTOR_S3_BUCKET",    "");
-    let prefix     = env_str("COLLECTOR_S3_PREFIX",    "");
-    let region     = env_str("COLLECTOR_S3_REGION",    "us-east-1");
-    let access_key = env_str("AWS_ACCESS_KEY_ID",      "");
-    let secret_key = env_str("AWS_SECRET_ACCESS_KEY",  "");
-    let poll_secs: u64 = env_str("COLLECTOR_S3_POLL_SECS", "60").parse().unwrap_or(60);
-    let max_objects: usize = env_str("COLLECTOR_S3_MAX_OBJECTS_PER_POLL", "100").parse().unwrap_or(100);
+    let bucket = env_str("COLLECTOR_S3_BUCKET", "");
+    let prefix = env_str("COLLECTOR_S3_PREFIX", "");
+    let region = env_str("COLLECTOR_S3_REGION", "us-east-1");
+    let access_key = env_str("AWS_ACCESS_KEY_ID", "");
+    let secret_key = env_str("AWS_SECRET_ACCESS_KEY", "");
+    let poll_secs: u64 = env_str("COLLECTOR_S3_POLL_SECS", "60")
+        .parse()
+        .unwrap_or(60);
+    let max_objects: usize = env_str("COLLECTOR_S3_MAX_OBJECTS_PER_POLL", "100")
+        .parse()
+        .unwrap_or(100);
 
     if bucket.is_empty() || access_key.is_empty() {
         error!("S3 source enabled but COLLECTOR_S3_BUCKET or AWS_ACCESS_KEY_ID is not set");
         return;
     }
 
-    info!(bucket, prefix, region, poll_secs, max_objects, "S3 source started");
+    info!(
+        bucket,
+        prefix, region, poll_secs, max_objects, "S3 source started"
+    );
 
     let signer = AwsSigV4::new(&access_key, &secret_key, &region, "s3");
     let mut seen: HashSet<String> = HashSet::new();
@@ -142,36 +167,53 @@ async fn run_s3(
     let mut consecutive_errors: u32 = 0;
 
     loop {
-        if sleep_or_shutdown(poll_dur, &mut shutdown).await { return; }
+        if sleep_or_shutdown(poll_dur, &mut shutdown).await {
+            return;
+        }
 
-        match poll_s3(&client, &signer, &bucket, &prefix, &region, &tenant_id,
-                      &mut seen, &tx, max_objects, &metrics).await
+        match poll_s3(
+            &client,
+            &signer,
+            &bucket,
+            &prefix,
+            &region,
+            &tenant_id,
+            &mut seen,
+            &tx,
+            max_objects,
+            &metrics,
+        )
+        .await
         {
             Ok(n) => {
                 consecutive_errors = 0;
-                if n > 0 { info!(events = n, "S3: processed new objects"); }
+                if n > 0 {
+                    info!(events = n, "S3: processed new objects");
+                }
             }
             Err(e) => {
                 consecutive_errors += 1;
                 let delay = backoff(consecutive_errors, poll_secs);
                 warn!(%e, consecutive_errors, backoff_secs = delay.as_secs(), "S3 poll error — backing off");
-                if sleep_or_shutdown(delay, &mut shutdown).await { return; }
+                if sleep_or_shutdown(delay, &mut shutdown).await {
+                    return;
+                }
             }
         }
     }
 }
 
 async fn poll_s3(
-    client:      &reqwest::Client,
-    signer:      &AwsSigV4,
-    bucket:      &str,
-    prefix:      &str,
-    region:      &str,
-    tenant_id:   &str,
-    seen:        &mut HashSet<String>,
-    tx:          &mpsc::Sender<Value>,
+    client: &reqwest::Client,
+    signer: &AwsSigV4,
+    bucket: &str,
+    prefix: &str,
+    region: &str,
+    tenant_id: &str,
+    seen: &mut HashSet<String>,
+    tx: &mpsc::Sender<Value>,
     max_objects: usize,
-    metrics:     &CollectorMetrics,
+    metrics: &CollectorMetrics,
 ) -> Result<usize> {
     let host = format!("{bucket}.s3.{region}.amazonaws.com");
     let mut continuation: Option<String> = None;
@@ -192,19 +234,26 @@ async fn poll_s3(
         let (amz_date, auth) = signer.sign_get(&host, "/", &qs);
         let url = format!("https://{host}/?{qs}");
 
-        let resp_text = client.get(&url)
+        let resp_text = client
+            .get(&url)
             .header("host", &host)
             .header("x-amz-date", &amz_date)
             .header("x-amz-content-sha256", "UNSIGNED-PAYLOAD")
             .header("Authorization", &auth)
-            .send().await?.error_for_status()?.text().await?;
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
 
-        let keys      = extract_xml_values(&resp_text, "Key");
+        let keys = extract_xml_values(&resp_text, "Key");
         let truncated = extract_xml_value(&resp_text, "IsTruncated") == "true";
-        continuation  = extract_xml_value_opt(&resp_text, "NextContinuationToken");
+        continuation = extract_xml_value_opt(&resp_text, "NextContinuationToken");
 
         for key in &keys {
-            if seen.contains(key.as_str()) { continue; }
+            if seen.contains(key.as_str()) {
+                continue;
+            }
             seen.insert(key.clone());
             objects_processed += 1;
 
@@ -213,7 +262,9 @@ async fn poll_s3(
                     let n = events.len() as u64;
                     total += events.len();
                     for ev in events {
-                        if tx.send(ev).await.is_err() { return Ok(total); }
+                        if tx.send(ev).await.is_err() {
+                            return Ok(total);
+                        }
                     }
                     metrics.cloud_received.fetch_add(n, Relaxed);
                 }
@@ -221,34 +272,44 @@ async fn poll_s3(
             }
 
             if objects_processed >= max_objects {
-                warn!(max_objects, "S3: per-poll object limit reached — deferring remainder to next poll");
+                warn!(
+                    max_objects,
+                    "S3: per-poll object limit reached — deferring remainder to next poll"
+                );
                 break 'outer;
             }
         }
 
-        if !truncated { break; }
+        if !truncated {
+            break;
+        }
     }
     Ok(total)
 }
 
 async fn download_and_parse_s3(
-    client:    &reqwest::Client,
-    signer:    &AwsSigV4,
-    host:      &str,
-    _region:   &str,
-    key:       &str,
+    client: &reqwest::Client,
+    signer: &AwsSigV4,
+    host: &str,
+    _region: &str,
+    key: &str,
     tenant_id: &str,
 ) -> Result<Vec<Value>> {
-    let path              = format!("/{}", url_encode(key));
-    let (amz_date, auth)  = signer.sign_get(host, &path, "");
-    let url               = format!("https://{host}{path}");
+    let path = format!("/{}", url_encode(key));
+    let (amz_date, auth) = signer.sign_get(host, &path, "");
+    let url = format!("https://{host}{path}");
 
-    let bytes = client.get(&url)
+    let bytes = client
+        .get(&url)
         .header("host", host)
         .header("x-amz-date", &amz_date)
         .header("x-amz-content-sha256", "UNSIGNED-PAYLOAD")
         .header("Authorization", &auth)
-        .send().await?.error_for_status()?.bytes().await?;
+        .send()
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
 
     let content = if bytes.starts_with(&[0x1f, 0x8b]) {
         use std::io::Read;
@@ -262,19 +323,26 @@ async fn download_and_parse_s3(
 
     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
         if let Some(records) = parsed.get("Records").and_then(|r| r.as_array()) {
-            return Ok(records.iter().map(|r| json!({
-                "tenant_id":  tenant_id,
-                "source":     "s3",
-                "event_time": r.get("eventTime").and_then(|t| t.as_str()).unwrap_or(""),
-                "raw_payload": r,
-            })).collect());
+            return Ok(records
+                .iter()
+                .map(|r| {
+                    json!({
+                        "tenant_id":  tenant_id,
+                        "source":     "s3",
+                        "event_time": r.get("eventTime").and_then(|t| t.as_str()).unwrap_or(""),
+                        "raw_payload": r,
+                    })
+                })
+                .collect());
         }
     }
 
-    Ok(content.lines()
+    Ok(content
+        .lines()
         .filter(|l| !l.trim().is_empty())
         .map(|line| {
-            let payload = serde_json::from_str::<Value>(line).unwrap_or(Value::String(line.to_string()));
+            let payload =
+                serde_json::from_str::<Value>(line).unwrap_or(Value::String(line.to_string()));
             json!({
                 "tenant_id":  tenant_id,
                 "source":     "s3",
@@ -290,18 +358,22 @@ async fn download_and_parse_s3(
 // ════════════════════════════════════════════════════════════════════════════════
 
 async fn run_okta(
-    client:    reqwest::Client,
+    client: reqwest::Client,
     tenant_id: Arc<String>,
-    tx:        mpsc::Sender<Value>,
-    metrics:   Arc<CollectorMetrics>,
+    tx: mpsc::Sender<Value>,
+    metrics: Arc<CollectorMetrics>,
     mut shutdown: watch::Receiver<bool>,
 ) {
-    let domain     = env_str("COLLECTOR_OKTA_DOMAIN",    "");
-    let api_token  = env_str("COLLECTOR_OKTA_API_TOKEN", "");
-    let poll_secs: u64 = env_str("COLLECTOR_OKTA_POLL_SECS", "30").parse().unwrap_or(30);
+    let domain = env_str("COLLECTOR_OKTA_DOMAIN", "");
+    let api_token = env_str("COLLECTOR_OKTA_API_TOKEN", "");
+    let poll_secs: u64 = env_str("COLLECTOR_OKTA_POLL_SECS", "30")
+        .parse()
+        .unwrap_or(30);
 
     if domain.is_empty() || api_token.is_empty() {
-        error!("Okta source enabled but COLLECTOR_OKTA_DOMAIN or COLLECTOR_OKTA_API_TOKEN is not set");
+        error!(
+            "Okta source enabled but COLLECTOR_OKTA_DOMAIN or COLLECTOR_OKTA_API_TOKEN is not set"
+        );
         return;
     }
 
@@ -312,71 +384,83 @@ async fn run_okta(
     let mut consecutive_errors: u32 = 0;
 
     loop {
-        if sleep_or_shutdown(poll_dur, &mut shutdown).await { return; }
+        if sleep_or_shutdown(poll_dur, &mut shutdown).await {
+            return;
+        }
 
         let since = last_time.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-        let url   = format!("https://{domain}/api/v1/logs?since={since}&limit=1000&sortOrder=ASCENDING");
+        let url =
+            format!("https://{domain}/api/v1/logs?since={since}&limit=1000&sortOrder=ASCENDING");
 
-        match client.get(&url)
+        match client
+            .get(&url)
             .header("Authorization", format!("SSWS {api_token}"))
             .header("Accept", "application/json")
-            .send().await
+            .send()
+            .await
         {
-            Ok(resp) if resp.status().is_success() => {
-                match resp.json::<Vec<Value>>().await {
-                    Ok(logs) if !logs.is_empty() => {
-                        consecutive_errors = 0;
-                        info!(count = logs.len(), "Okta: received events");
+            Ok(resp) if resp.status().is_success() => match resp.json::<Vec<Value>>().await {
+                Ok(logs) if !logs.is_empty() => {
+                    consecutive_errors = 0;
+                    info!(count = logs.len(), "Okta: received events");
 
-                        if let Some(last) = logs.last() {
-                            if let Some(ts) = last.get("published").and_then(|t| t.as_str()) {
-                                if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts) {
-                                    last_time = dt.with_timezone(&Utc)
-                                        + chrono::Duration::milliseconds(1);
-                                }
+                    if let Some(last) = logs.last() {
+                        if let Some(ts) = last.get("published").and_then(|t| t.as_str()) {
+                            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts) {
+                                last_time =
+                                    dt.with_timezone(&Utc) + chrono::Duration::milliseconds(1);
                             }
                         }
+                    }
 
-                        let count = logs.len() as u64;
-                        for log in logs {
-                            let ts = log.get("published")
-                                .and_then(|t| t.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            let ev = json!({
-                                "tenant_id":  *tenant_id,
-                                "source":     "okta",
-                                "event_time": ts,
-                                "raw_payload": log,
-                            });
-                            if tx.send(ev).await.is_err() { return; }
+                    let count = logs.len() as u64;
+                    for log in logs {
+                        let ts = log
+                            .get("published")
+                            .and_then(|t| t.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let ev = json!({
+                            "tenant_id":  *tenant_id,
+                            "source":     "okta",
+                            "event_time": ts,
+                            "raw_payload": log,
+                        });
+                        if tx.send(ev).await.is_err() {
+                            return;
                         }
-                        metrics.cloud_received.fetch_add(count, Relaxed);
                     }
-                    Ok(_)  => {
-                        consecutive_errors = 0;
-                        debug!("Okta: no new events");
-                    }
-                    Err(e) => {
-                        consecutive_errors += 1;
-                        let delay = backoff(consecutive_errors, poll_secs);
-                        warn!(%e, consecutive_errors, backoff_secs = delay.as_secs(), "Okta: JSON parse error — backing off");
-                        if sleep_or_shutdown(delay, &mut shutdown).await { return; }
+                    metrics.cloud_received.fetch_add(count, Relaxed);
+                }
+                Ok(_) => {
+                    consecutive_errors = 0;
+                    debug!("Okta: no new events");
+                }
+                Err(e) => {
+                    consecutive_errors += 1;
+                    let delay = backoff(consecutive_errors, poll_secs);
+                    warn!(%e, consecutive_errors, backoff_secs = delay.as_secs(), "Okta: JSON parse error — backing off");
+                    if sleep_or_shutdown(delay, &mut shutdown).await {
+                        return;
                     }
                 }
-            }
+            },
             Ok(resp) => {
                 consecutive_errors += 1;
                 let delay = backoff(consecutive_errors, poll_secs);
                 warn!(status = %resp.status(), consecutive_errors, backoff_secs = delay.as_secs(),
                       "Okta API rejected request — backing off");
-                if sleep_or_shutdown(delay, &mut shutdown).await { return; }
+                if sleep_or_shutdown(delay, &mut shutdown).await {
+                    return;
+                }
             }
             Err(err) => {
                 consecutive_errors += 1;
                 let delay = backoff(consecutive_errors, poll_secs);
                 warn!(%err, consecutive_errors, backoff_secs = delay.as_secs(), "Okta: request failed — backing off");
-                if sleep_or_shutdown(delay, &mut shutdown).await { return; }
+                if sleep_or_shutdown(delay, &mut shutdown).await {
+                    return;
+                }
             }
         }
     }
@@ -387,18 +471,22 @@ async fn run_okta(
 // ════════════════════════════════════════════════════════════════════════════════
 
 async fn run_o365(
-    client:    reqwest::Client,
+    client: reqwest::Client,
     tenant_id: Arc<String>,
-    tx:        mpsc::Sender<Value>,
-    metrics:   Arc<CollectorMetrics>,
+    tx: mpsc::Sender<Value>,
+    metrics: Arc<CollectorMetrics>,
     mut shutdown: watch::Receiver<bool>,
 ) {
-    let aad_tenant    = env_str("COLLECTOR_O365_TENANT_ID",     "");
-    let client_id     = env_str("COLLECTOR_O365_CLIENT_ID",     "");
+    let aad_tenant = env_str("COLLECTOR_O365_TENANT_ID", "");
+    let client_id = env_str("COLLECTOR_O365_CLIENT_ID", "");
     let client_secret = env_str("COLLECTOR_O365_CLIENT_SECRET", "");
-    let content_types = env_str("COLLECTOR_O365_CONTENT_TYPES",
-                                "Audit.AzureActiveDirectory,Audit.Exchange");
-    let poll_secs: u64 = env_str("COLLECTOR_O365_POLL_SECS", "300").parse().unwrap_or(300);
+    let content_types = env_str(
+        "COLLECTOR_O365_CONTENT_TYPES",
+        "Audit.AzureActiveDirectory,Audit.Exchange",
+    );
+    let poll_secs: u64 = env_str("COLLECTOR_O365_POLL_SECS", "300")
+        .parse()
+        .unwrap_or(300);
 
     if aad_tenant.is_empty() || client_id.is_empty() {
         error!("O365 source enabled but required credentials are missing");
@@ -407,7 +495,10 @@ async fn run_o365(
 
     info!(aad_tenant, poll_secs, "Microsoft 365 source started");
 
-    let types: Vec<String> = content_types.split(',').map(|s| s.trim().to_string()).collect();
+    let types: Vec<String> = content_types
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect();
     let poll_dur = Duration::from_secs(poll_secs);
     let mut consecutive_errors: u32 = 0;
 
@@ -419,30 +510,55 @@ async fn run_o365(
     }
 
     loop {
-        if sleep_or_shutdown(poll_dur, &mut shutdown).await { return; }
+        if sleep_or_shutdown(poll_dur, &mut shutdown).await {
+            return;
+        }
 
         let token = match get_o365_token(&client, &aad_tenant, &client_id, &client_secret).await {
-            Ok(t)  => { consecutive_errors = 0; t }
+            Ok(t) => {
+                consecutive_errors = 0;
+                t
+            }
             Err(e) => {
                 consecutive_errors += 1;
                 let delay = backoff(consecutive_errors, poll_secs);
                 warn!(%e, consecutive_errors, backoff_secs = delay.as_secs(), "O365: token request failed — backing off");
-                if sleep_or_shutdown(delay, &mut shutdown).await { return; }
+                if sleep_or_shutdown(delay, &mut shutdown).await {
+                    return;
+                }
                 continue;
             }
         };
 
-        let end_time   = Utc::now();
+        let end_time = Utc::now();
         let start_time = end_time - chrono::Duration::seconds(poll_secs as i64 + 60);
-        let start_str  = start_time.format("%Y-%m-%dT%H:%M:%SZ").to_string();
-        let end_str    = end_time.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        let start_str = start_time.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        let end_str = end_time.format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
         let mut any_error = false;
         for ct in &types {
-            match fetch_o365_content(&client, &token, &aad_tenant, ct,
-                                     &start_str, &end_str, &tenant_id, &tx, &metrics).await
+            match fetch_o365_content(
+                &client,
+                &token,
+                &aad_tenant,
+                ct,
+                &start_str,
+                &end_str,
+                &tenant_id,
+                &tx,
+                &metrics,
+            )
+            .await
             {
-                Ok(n)  => { if n > 0 { info!(content_type = ct.as_str(), events = n, "O365: received events"); } }
+                Ok(n) => {
+                    if n > 0 {
+                        info!(
+                            content_type = ct.as_str(),
+                            events = n,
+                            "O365: received events"
+                        );
+                    }
+                }
                 Err(e) => {
                     warn!(content_type = ct.as_str(), %e, "O365: fetch error");
                     any_error = true;
@@ -453,8 +569,14 @@ async fn run_o365(
         if any_error {
             consecutive_errors += 1;
             let delay = backoff(consecutive_errors, poll_secs);
-            warn!(consecutive_errors, backoff_secs = delay.as_secs(), "O365: partial errors — backing off before next poll");
-            if sleep_or_shutdown(delay, &mut shutdown).await { return; }
+            warn!(
+                consecutive_errors,
+                backoff_secs = delay.as_secs(),
+                "O365: partial errors — backing off before next poll"
+            );
+            if sleep_or_shutdown(delay, &mut shutdown).await {
+                return;
+            }
         } else {
             consecutive_errors = 0;
         }
@@ -463,18 +585,26 @@ async fn run_o365(
 
 async fn get_o365_token(
     client: &reqwest::Client,
-    tenant: &str, client_id: &str, client_secret: &str,
+    tenant: &str,
+    client_id: &str,
+    client_secret: &str,
 ) -> Result<String> {
-    let url  = format!("https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token");
+    let url = format!("https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token");
     let body = [
-        ("grant_type",    "client_credentials"),
-        ("client_id",     client_id),
+        ("grant_type", "client_credentials"),
+        ("client_id", client_id),
         ("client_secret", client_secret),
-        ("scope",         "https://manage.office.com/.default"),
+        ("scope", "https://manage.office.com/.default"),
     ];
 
-    let resp: serde_json::Value = client.post(&url)
-        .form(&body).send().await?.error_for_status()?.json().await?;
+    let resp: serde_json::Value = client
+        .post(&url)
+        .form(&body)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
 
     resp["access_token"]
         .as_str()
@@ -484,62 +614,79 @@ async fn get_o365_token(
 
 async fn ensure_subscription(
     client: &reqwest::Client,
-    token:  &str,
+    token: &str,
     tenant: &str,
-    ct:     &str,
+    ct: &str,
 ) -> Result<()> {
     let url = format!(
         "https://manage.office.com/api/v1.0/{tenant}/activity/feed/subscriptions/start?contentType={ct}"
     );
-    client.post(&url)
+    client
+        .post(&url)
         .bearer_auth(token)
         .json(&json!({"webhook": null}))
-        .send().await?;
+        .send()
+        .await?;
     Ok(())
 }
 
 async fn fetch_o365_content(
-    client:    &reqwest::Client,
-    token:     &str,
+    client: &reqwest::Client,
+    token: &str,
     aad_tenant: &str,
-    ct:        &str,
-    start:     &str,
-    end:       &str,
+    ct: &str,
+    start: &str,
+    end: &str,
     tenant_id: &str,
-    tx:        &mpsc::Sender<Value>,
-    metrics:   &CollectorMetrics,
+    tx: &mpsc::Sender<Value>,
+    metrics: &CollectorMetrics,
 ) -> Result<usize> {
     let url = format!(
         "https://manage.office.com/api/v1.0/{aad_tenant}/activity/feed/subscriptions/content\
         ?contentType={ct}&startTime={start}&endTime={end}"
     );
 
-    let blobs: Vec<Value> = client.get(&url)
+    let blobs: Vec<Value> = client
+        .get(&url)
         .bearer_auth(token)
-        .send().await?.error_for_status()?.json().await?;
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
 
     let mut total = 0usize;
     for blob in &blobs {
         let content_uri = match blob.get("contentUri").and_then(|u| u.as_str()) {
             Some(u) => u.to_string(),
-            None    => continue,
+            None => continue,
         };
 
-        let events: Vec<Value> = client.get(&content_uri)
+        let events: Vec<Value> = client
+            .get(&content_uri)
             .bearer_auth(token)
-            .send().await?.error_for_status()?.json().await?;
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
 
         let batch_count = events.len() as u64;
         for ev in events {
-            let ts = ev.get("CreationTime")
-                .and_then(|t| t.as_str()).unwrap_or("").to_string();
+            let ts = ev
+                .get("CreationTime")
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string();
             let wrapped = json!({
                 "tenant_id":  tenant_id,
                 "source":     "o365",
                 "event_time": ts,
                 "raw_payload": ev,
             });
-            if tx.send(wrapped).await.is_err() { return Ok(total); }
+            if tx.send(wrapped).await.is_err() {
+                return Ok(total);
+            }
             total += 1;
         }
         metrics.cloud_received.fetch_add(batch_count, Relaxed);
@@ -559,8 +706,8 @@ type HmacSha256 = Hmac<Sha256>;
 pub struct AwsSigV4 {
     access_key: String,
     secret_key: String,
-    region:     String,
-    service:    String,
+    region: String,
+    service: String,
 }
 
 impl AwsSigV4 {
@@ -568,35 +715,37 @@ impl AwsSigV4 {
         Self {
             access_key: access_key.to_string(),
             secret_key: secret_key.to_string(),
-            region:     region.to_string(),
-            service:    service.to_string(),
+            region: region.to_string(),
+            service: service.to_string(),
         }
     }
 
     pub fn sign_get(&self, host: &str, path: &str, query: &str) -> (String, String) {
-        let now        = Utc::now();
-        let amz_date   = now.format("%Y%m%dT%H%M%SZ").to_string();
+        let now = Utc::now();
+        let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
         let date_stamp = now.format("%Y%m%d").to_string();
 
-        let payload_hash   = "UNSIGNED-PAYLOAD";
+        let payload_hash = "UNSIGNED-PAYLOAD";
         let signed_headers = "host;x-amz-content-sha256;x-amz-date";
-        let canonical_hdrs = format!(
-            "host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\n"
-        );
+        let canonical_hdrs =
+            format!("host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\n");
 
-        let canonical_request = format!(
-            "GET\n{path}\n{query}\n{canonical_hdrs}\n{signed_headers}\n{payload_hash}"
-        );
+        let canonical_request =
+            format!("GET\n{path}\n{query}\n{canonical_hdrs}\n{signed_headers}\n{payload_hash}");
 
-        let credential_scope = format!("{date_stamp}/{}/{}/aws4_request", self.region, self.service);
-        let string_to_sign   = format!(
+        let credential_scope =
+            format!("{date_stamp}/{}/{}/aws4_request", self.region, self.service);
+        let string_to_sign = format!(
             "AWS4-HMAC-SHA256\n{amz_date}\n{credential_scope}\n{}",
             sha256_hex(canonical_request.as_bytes())
         );
 
-        let k_date    = hmac256(format!("AWS4{}", self.secret_key).as_bytes(), date_stamp.as_bytes());
-        let k_region  = hmac256(&k_date,    self.region.as_bytes());
-        let k_service = hmac256(&k_region,  self.service.as_bytes());
+        let k_date = hmac256(
+            format!("AWS4{}", self.secret_key).as_bytes(),
+            date_stamp.as_bytes(),
+        );
+        let k_region = hmac256(&k_date, self.region.as_bytes());
+        let k_service = hmac256(&k_region, self.service.as_bytes());
         let k_signing = hmac256(&k_service, b"aws4_request");
         let signature = hex::encode(hmac256(&k_signing, string_to_sign.as_bytes()));
 
@@ -631,10 +780,10 @@ fn url_encode(s: &str) -> String {
 }
 
 fn extract_xml_values(xml: &str, tag: &str) -> Vec<String> {
-    let open  = format!("<{tag}>");
+    let open = format!("<{tag}>");
     let close = format!("</{tag}>");
     let mut results = Vec::new();
-    let mut pos     = 0;
+    let mut pos = 0;
     while let Some(start) = xml[pos..].find(&open) {
         let abs = pos + start + open.len();
         if let Some(end) = xml[abs..].find(&close) {

@@ -67,8 +67,10 @@ async fn main() -> anyhow::Result<()> {
                 max_retries = buf_config.max_retries,
                 "starting ClickHouse async write buffer"
             );
-            state.clickhouse_write_buffer =
-                Some(ClickHouseWriteBuffer::start(clickhouse_store.clone(), buf_config));
+            state.clickhouse_write_buffer = Some(ClickHouseWriteBuffer::start(
+                clickhouse_store.clone(),
+                buf_config,
+            ));
         }
     }
 
@@ -112,8 +114,8 @@ async fn main() -> anyhow::Result<()> {
     // Iterates all configured feeds every 60 s and triggers a sync when a
     // feed's `auto_sync_interval_secs` has elapsed since its `last_synced_at`.
     {
-        let ti_feeds       = Arc::clone(&state.threat_intel_feeds);
-        let ti_lookup      = Arc::clone(&state.lookup_store);
+        let ti_feeds = Arc::clone(&state.threat_intel_feeds);
+        let ti_lookup = Arc::clone(&state.lookup_store);
         let ti_http_client = state.http_client.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(60));
@@ -170,22 +172,25 @@ async fn main() -> anyhow::Result<()> {
 
     // Auto-import bundled Sigma rules from CYBERBOX__RULES_DIR (if set or default exists).
     {
-        let rules_dir = std::env::var("CYBERBOX__RULES_DIR")
-            .ok()
-            .or_else(|| {
-                let default = std::path::PathBuf::from("rules/bundled");
-                if default.is_dir() { Some(default.to_string_lossy().to_string()) } else { None }
-            });
+        let rules_dir = std::env::var("CYBERBOX__RULES_DIR").ok().or_else(|| {
+            let default = std::path::PathBuf::from("rules/bundled");
+            if default.is_dir() {
+                Some(default.to_string_lossy().to_string())
+            } else {
+                None
+            }
+        });
         if let Some(dir) = rules_dir {
             let s = state.clone();
             tokio::spawn(async move {
                 // Use a system auth context for the import
                 let auth = cyberbox_auth::AuthContext {
                     tenant_id: "default".to_string(),
-                    user_id:   "system".to_string(),
-                    roles:     vec![cyberbox_auth::Role::Admin],
+                    user_id: "system".to_string(),
+                    roles: vec![cyberbox_auth::Role::Admin],
                 };
-                match cyberbox_api::rules_pack::import_rules_from_dir(&auth, &s, &dir, false).await {
+                match cyberbox_api::rules_pack::import_rules_from_dir(&auth, &s, &dir, false).await
+                {
                     Ok(result) => {
                         if result.imported > 0 || result.updated > 0 {
                             tracing::info!(
@@ -214,6 +219,10 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, "cyberbox api listening");
 
-    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }

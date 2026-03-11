@@ -7,9 +7,9 @@ use uuid::Uuid;
 use cyberbox_core::CyberboxError;
 use cyberbox_models::{
     AlertRecord, AlertStatus, AssignAlertRequest, AuditLogRecord, CaseRecord, CaseStatus,
-    CloseAlertRequest, DetectionMode, DetectionRule, EnrichmentMetadata, EventEnvelope, EventSource,
-    RuleScheduleConfig, RuleSchedulerHealth, SearchQueryRequest, SearchQueryResponse, Severity,
-    UpdateCaseRequest,
+    CloseAlertRequest, DetectionMode, DetectionRule, EnrichmentMetadata, EventEnvelope,
+    EventSource, RuleScheduleConfig, RuleSchedulerHealth, SearchQueryRequest, SearchQueryResponse,
+    Severity, UpdateCaseRequest,
 };
 
 use crate::traits::{AlertStore, CaseStore, EventStore, RuleStore};
@@ -87,8 +87,7 @@ impl ClickHouseEventStore {
     /// Lower values protect ClickHouse from thundering-herd bursts at the cost
     /// of higher tail latency under saturation.  Default: 64.
     pub fn with_concurrency_limit(mut self, limit: usize) -> Self {
-        self.concurrency_limiter =
-            std::sync::Arc::new(tokio::sync::Semaphore::new(limit.max(1)));
+        self.concurrency_limiter = std::sync::Arc::new(tokio::sync::Semaphore::new(limit.max(1)));
         self
     }
 
@@ -161,36 +160,85 @@ impl ClickHouseEventStore {
             // of key names used by different log sources (Windows, Linux, CEF, etc.)
             // so the same column is populated regardless of the source format.
             let raw = &event.raw_payload;
-            let computer_name = extract_str(raw, &[
-                "ComputerName", "computer_name", "Hostname", "hostname",
-                "host", "host.name",
-            ]);
-            let event_code = extract_str(raw, &[
-                "EventID", "event_code", "EventCode", "winlog.event_id",
-                "event.code",
-            ]);
-            let actor_user = extract_str(raw, &[
-                "User", "SubjectUserName", "TargetUserName", "user",
-                "user.name", "Username", "username", "AccountName",
-            ]);
-            let process_image = extract_str(raw, &[
-                "Image", "process.name", "process.executable",
-                "ProcessName", "CommandLine",
-            ]);
-            let src_ip = extract_str(raw, &[
-                "SourceIp", "source.ip", "src_ip", "SrcAddr", "IpAddress",
-                "ipAddress", "client_ip",
-            ]);
-            let dst_ip = extract_str(raw, &[
-                "DestinationIp", "destination.ip", "dst_ip", "DstAddr",
-                "DestAddress",
-            ]);
-            let dst_port = extract_u16(raw, &[
-                "DestinationPort", "destination.port", "dst_port",
-                "DstPort", "DestPort",
-            ]);
+            let computer_name = extract_str(
+                raw,
+                &[
+                    "ComputerName",
+                    "computer_name",
+                    "Hostname",
+                    "hostname",
+                    "host",
+                    "host.name",
+                ],
+            );
+            let event_code = extract_str(
+                raw,
+                &[
+                    "EventID",
+                    "event_code",
+                    "EventCode",
+                    "winlog.event_id",
+                    "event.code",
+                ],
+            );
+            let actor_user = extract_str(
+                raw,
+                &[
+                    "User",
+                    "SubjectUserName",
+                    "TargetUserName",
+                    "user",
+                    "user.name",
+                    "Username",
+                    "username",
+                    "AccountName",
+                ],
+            );
+            let process_image = extract_str(
+                raw,
+                &[
+                    "Image",
+                    "process.name",
+                    "process.executable",
+                    "ProcessName",
+                    "CommandLine",
+                ],
+            );
+            let src_ip = extract_str(
+                raw,
+                &[
+                    "SourceIp",
+                    "source.ip",
+                    "src_ip",
+                    "SrcAddr",
+                    "IpAddress",
+                    "ipAddress",
+                    "client_ip",
+                ],
+            );
+            let dst_ip = extract_str(
+                raw,
+                &[
+                    "DestinationIp",
+                    "destination.ip",
+                    "dst_ip",
+                    "DstAddr",
+                    "DestAddress",
+                ],
+            );
+            let dst_port = extract_u16(
+                raw,
+                &[
+                    "DestinationPort",
+                    "destination.port",
+                    "dst_port",
+                    "DstPort",
+                    "DestPort",
+                ],
+            );
             // class_uid and severity_id come from the OCSF record, not raw payload.
-            let class_uid = event.ocsf_record
+            let class_uid = event
+                .ocsf_record
                 .get("class_uid")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0) as u32;
@@ -331,15 +379,15 @@ impl ClickHouseEventStore {
         // New deployments get the columns from CREATE TABLE above; existing ones
         // pick them up here without manual intervention.
         let event_migrations: &[(&str, &str)] = &[
-            ("class_uid",     "UInt32 DEFAULT 0"),
-            ("severity_id",   "UInt8 DEFAULT 0"),
+            ("class_uid", "UInt32 DEFAULT 0"),
+            ("severity_id", "UInt8 DEFAULT 0"),
             ("computer_name", "LowCardinality(String) DEFAULT ''"),
-            ("event_code",    "String DEFAULT ''"),
-            ("actor_user",    "LowCardinality(String) DEFAULT ''"),
+            ("event_code", "String DEFAULT ''"),
+            ("actor_user", "LowCardinality(String) DEFAULT ''"),
             ("process_image", "String DEFAULT ''"),
-            ("src_ip",        "String DEFAULT ''"),
-            ("dst_ip",        "String DEFAULT ''"),
-            ("dst_port",      "UInt16 DEFAULT 0"),
+            ("src_ip", "String DEFAULT ''"),
+            ("dst_ip", "String DEFAULT ''"),
+            ("dst_port", "UInt16 DEFAULT 0"),
         ];
         for (col, ty) in event_migrations {
             let stmt = format!(
@@ -944,7 +992,8 @@ impl ClickHouseEventStore {
 #[async_trait]
 impl EventStore for ClickHouseEventStore {
     async fn insert_events(&self, events: &[EventEnvelope]) -> Result<(), CyberboxError> {
-        self.insert_events_with_deduplication_token(events, None).await
+        self.insert_events_with_deduplication_token(events, None)
+            .await
     }
 
     async fn search(
@@ -1278,7 +1327,10 @@ impl CaseStore for ClickHouseEventStore {
             escape_sql_literal(tenant_id), case_id
         );
         let resp = self.execute_sql_json(&query).await?;
-        resp.data.first().ok_or(CyberboxError::NotFound).and_then(parse_case_row)
+        resp.data
+            .first()
+            .ok_or(CyberboxError::NotFound)
+            .and_then(parse_case_row)
     }
 
     async fn list_cases(&self, tenant_id: &str) -> Result<Vec<CaseRecord>, CyberboxError> {
@@ -1290,7 +1342,10 @@ impl CaseStore for ClickHouseEventStore {
             self.database, self.cases_table, escape_sql_literal(tenant_id)
         );
         let resp = self.execute_sql_json(&query).await?;
-        resp.data.iter().map(parse_case_row).collect::<Result<Vec<_>, _>>()
+        resp.data
+            .iter()
+            .map(parse_case_row)
+            .collect::<Result<Vec<_>, _>>()
     }
 
     async fn update_case(
@@ -1301,14 +1356,28 @@ impl CaseStore for ClickHouseEventStore {
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<CaseRecord, CyberboxError> {
         let mut case = self.get_case(tenant_id, case_id).await?;
-        if let Some(t) = &patch.title      { case.title       = t.clone(); }
-        if let Some(d) = &patch.description { case.description = d.clone(); }
-        if let Some(s) = &patch.status     { case.status      = s.clone(); }
-        if let Some(s) = &patch.severity   { case.severity    = s.clone(); }
-        if let Some(a) = &patch.assignee   { case.assignee    = Some(a.clone()); }
-        if let Some(t) = &patch.tags       { case.tags        = t.clone(); }
+        if let Some(t) = &patch.title {
+            case.title = t.clone();
+        }
+        if let Some(d) = &patch.description {
+            case.description = d.clone();
+        }
+        if let Some(s) = &patch.status {
+            case.status = s.clone();
+        }
+        if let Some(s) = &patch.severity {
+            case.severity = s.clone();
+        }
+        if let Some(a) = &patch.assignee {
+            case.assignee = Some(a.clone());
+        }
+        if let Some(t) = &patch.tags {
+            case.tags = t.clone();
+        }
         case.updated_at = now;
-        if matches!(case.status, CaseStatus::Resolved | CaseStatus::Closed) && case.closed_at.is_none() {
+        if matches!(case.status, CaseStatus::Resolved | CaseStatus::Closed)
+            && case.closed_at.is_none()
+        {
             case.closed_at = Some(now);
         }
         self.upsert_case(case).await
@@ -1333,31 +1402,54 @@ fn case_status_to_string(status: &CaseStatus) -> String {
 }
 
 fn parse_case_row(row: &Value) -> Result<CaseRecord, CyberboxError> {
-    let case_id     = parse_uuid_field(row, "case_id")?;
-    let tenant_id   = parse_string_field(row, "tenant_id")?;
-    let title       = parse_string_field(row, "title")?;
-    let description = row.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let status: CaseStatus = serde_json::from_value(Value::String(parse_string_field(row, "status")?))
-        .map_err(|e| CyberboxError::Internal(format!("invalid case status: {e}")))?;
-    let severity: Severity = serde_json::from_value(Value::String(parse_string_field(row, "severity")?))
-        .map_err(|e| CyberboxError::Internal(format!("invalid severity: {e}")))?;
-    let alert_ids: Vec<Uuid> = serde_json::from_str(&parse_string_field(row, "alert_ids")?)
-        .unwrap_or_default();
-    let assignee = row.get("assignee").and_then(|v| v.as_str().map(ToOwned::to_owned));
-    let created_by  = parse_string_field(row, "created_by")?;
-    let created_at  = parse_datetime_field(row, "created_at")?;
-    let updated_at  = parse_datetime_field(row, "updated_at")?;
-    let sla_due_at  = row.get("sla_due_at").and_then(|v| v.as_str())
+    let case_id = parse_uuid_field(row, "case_id")?;
+    let tenant_id = parse_string_field(row, "tenant_id")?;
+    let title = parse_string_field(row, "title")?;
+    let description = row
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let status: CaseStatus =
+        serde_json::from_value(Value::String(parse_string_field(row, "status")?))
+            .map_err(|e| CyberboxError::Internal(format!("invalid case status: {e}")))?;
+    let severity: Severity =
+        serde_json::from_value(Value::String(parse_string_field(row, "severity")?))
+            .map_err(|e| CyberboxError::Internal(format!("invalid severity: {e}")))?;
+    let alert_ids: Vec<Uuid> =
+        serde_json::from_str(&parse_string_field(row, "alert_ids")?).unwrap_or_default();
+    let assignee = row
+        .get("assignee")
+        .and_then(|v| v.as_str().map(ToOwned::to_owned));
+    let created_by = parse_string_field(row, "created_by")?;
+    let created_at = parse_datetime_field(row, "created_at")?;
+    let updated_at = parse_datetime_field(row, "updated_at")?;
+    let sla_due_at = row
+        .get("sla_due_at")
+        .and_then(|v| v.as_str())
         .and_then(|s| parse_clickhouse_datetime(s).ok());
-    let closed_at   = row.get("closed_at").and_then(|v| v.as_str())
+    let closed_at = row
+        .get("closed_at")
+        .and_then(|v| v.as_str())
         .and_then(|s| parse_clickhouse_datetime(s).ok());
-    let tags: Vec<String> = serde_json::from_str(&parse_string_field(row, "tags")?)
-        .unwrap_or_default();
+    let tags: Vec<String> =
+        serde_json::from_str(&parse_string_field(row, "tags")?).unwrap_or_default();
 
     Ok(CaseRecord {
-        case_id, tenant_id, title, description, status, severity,
-        alert_ids, assignee, created_by, created_at, updated_at,
-        sla_due_at, closed_at, tags,
+        case_id,
+        tenant_id,
+        title,
+        description,
+        status,
+        severity,
+        alert_ids,
+        assignee,
+        created_by,
+        created_at,
+        updated_at,
+        sla_due_at,
+        closed_at,
+        tags,
     })
 }
 
@@ -1665,10 +1757,7 @@ fn parse_alert_row(row: &Value) -> Result<AlertRecord, CyberboxError> {
     let assignee = row
         .get("assignee")
         .and_then(|value| value.as_str().map(ToOwned::to_owned));
-    let hit_count = row
-        .get("hit_count")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(1);
+    let hit_count = row.get("hit_count").and_then(|v| v.as_u64()).unwrap_or(1);
     let mitre_attack = row
         .get("mitre_attack")
         .and_then(|v| v.as_str())

@@ -20,7 +20,11 @@ use std::{
 
 use anyhow::{Context, Result};
 use serde_json::Value;
-use tokio::{net::UdpSocket, sync::{mpsc, watch}, task::JoinSet};
+use tokio::{
+    net::UdpSocket,
+    sync::{mpsc, watch},
+    task::JoinSet,
+};
 use tracing::{debug, error, info};
 
 use crate::metrics::CollectorMetrics;
@@ -33,13 +37,13 @@ use crate::ratelimit::SourceRateLimiter;
 /// (each task wraps its own independently-bound socket) and the non-Linux path
 /// (N tasks share one socket) can use the same code.
 async fn run_reader(
-    sock:          Arc<UdpSocket>,
-    tenant_id:     Arc<String>,
-    tx:            mpsc::Sender<Value>,
+    sock: Arc<UdpSocket>,
+    tenant_id: Arc<String>,
+    tx: mpsc::Sender<Value>,
     max_msg_bytes: usize,
-    metrics:       Arc<CollectorMetrics>,
-    rate_limiter:  Arc<SourceRateLimiter>,
-    mut shutdown:  watch::Receiver<bool>,
+    metrics: Arc<CollectorMetrics>,
+    rate_limiter: Arc<SourceRateLimiter>,
+    mut shutdown: watch::Receiver<bool>,
 ) {
     use tokio::sync::mpsc::error::TrySendError;
     let mut buf = vec![0u8; max_msg_bytes];
@@ -51,7 +55,7 @@ async fn run_reader(
         };
         match res {
             Ok((len, peer)) => {
-                let ip        = peer.ip();
+                let ip = peer.ip();
                 let source_ip = ip.to_string();
 
                 if !rate_limiter.check(ip) {
@@ -64,7 +68,9 @@ async fn run_reader(
                     Some(msg) => {
                         let ev = to_incoming_event(&msg, &tenant_id);
                         match tx.try_send(ev) {
-                            Ok(_) => { metrics.udp_received.fetch_add(1, Relaxed); }
+                            Ok(_) => {
+                                metrics.udp_received.fetch_add(1, Relaxed);
+                            }
                             Err(TrySendError::Full(_)) => {
                                 metrics.channel_drops.fetch_add(1, Relaxed);
                                 debug!(source_ip, "UDP event dropped — ingest channel full");
@@ -91,26 +97,30 @@ async fn run_reader(
 #[cfg(target_os = "linux")]
 fn make_reuseport_socket(addr: SocketAddr) -> Result<std::net::UdpSocket> {
     use socket2::{Domain, Protocol, Socket, Type};
-    let domain = if addr.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
-    let sock   = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP))
-        .context("socket2 new UDP")?;
+    let domain = if addr.is_ipv4() {
+        Domain::IPV4
+    } else {
+        Domain::IPV6
+    };
+    let sock = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP)).context("socket2 new UDP")?;
     sock.set_reuse_port(true).context("SO_REUSEPORT")?;
     sock.set_nonblocking(true).context("set_nonblocking")?;
-    sock.bind(&addr.into()).with_context(|| format!("bind SO_REUSEPORT UDP {addr}"))?;
+    sock.bind(&addr.into())
+        .with_context(|| format!("bind SO_REUSEPORT UDP {addr}"))?;
     Ok(sock.into())
 }
 
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 pub async fn run(
-    bind:          SocketAddr,
-    readers:       usize,
-    tenant_id:     Arc<String>,
-    tx:            mpsc::Sender<Value>,
+    bind: SocketAddr,
+    readers: usize,
+    tenant_id: Arc<String>,
+    tx: mpsc::Sender<Value>,
     max_msg_bytes: usize,
-    metrics:       Arc<CollectorMetrics>,
-    rate_limiter:  Arc<SourceRateLimiter>,
-    shutdown:      watch::Receiver<bool>,
+    metrics: Arc<CollectorMetrics>,
+    rate_limiter: Arc<SourceRateLimiter>,
+    shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
     // ── Linux: N independent SO_REUSEPORT sockets (true kernel load-balancing) ─
     #[cfg(target_os = "linux")]
@@ -119,19 +129,21 @@ pub async fn run(
         let mut set = JoinSet::new();
         for _ in 0..readers {
             let std_sock = make_reuseport_socket(bind)?;
-            let sock     = Arc::new(
+            let sock = Arc::new(
                 UdpSocket::from_std(std_sock)
                     .context("tokio UdpSocket from SO_REUSEPORT socket")?,
             );
             let tx2 = tx.clone();
             let tid = Arc::clone(&tenant_id);
-            let m   = Arc::clone(&metrics);
-            let rl  = Arc::clone(&rate_limiter);
-            let sd  = shutdown.clone();
+            let m = Arc::clone(&metrics);
+            let rl = Arc::clone(&rate_limiter);
+            let sd = shutdown.clone();
             set.spawn(run_reader(sock, tid, tx2, max_msg_bytes, m, rl, sd));
         }
         while let Some(res) = set.join_next().await {
-            if let Err(e) = res { error!(err = %e, "UDP reader task panicked"); }
+            if let Err(e) = res {
+                error!(err = %e, "UDP reader task panicked");
+            }
         }
         return Ok(());
     }
@@ -148,15 +160,17 @@ pub async fn run(
         let mut set = JoinSet::new();
         for _ in 0..readers {
             let sock2 = Arc::clone(&sock);
-            let tx2   = tx.clone();
-            let tid   = Arc::clone(&tenant_id);
-            let m     = Arc::clone(&metrics);
-            let rl    = Arc::clone(&rate_limiter);
-            let sd    = shutdown.clone();
+            let tx2 = tx.clone();
+            let tid = Arc::clone(&tenant_id);
+            let m = Arc::clone(&metrics);
+            let rl = Arc::clone(&rate_limiter);
+            let sd = shutdown.clone();
             set.spawn(run_reader(sock2, tid, tx2, max_msg_bytes, m, rl, sd));
         }
         while let Some(res) = set.join_next().await {
-            if let Err(e) = res { error!(err = %e, "UDP reader task panicked"); }
+            if let Err(e) = res {
+                error!(err = %e, "UDP reader task panicked");
+            }
         }
     }
     Ok(())
@@ -173,9 +187,9 @@ mod tests {
     #[tokio::test]
     async fn roundtrip_syslog_datagram() {
         let (tx, mut rx) = mpsc::channel(16);
-        let metrics      = CollectorMetrics::new("test-udp-queue.jsonl".into());
-        let rl           = Arc::new(SourceRateLimiter::new(0, 3)); // disabled
-        let tenant       = Arc::new("test-tenant".to_string());
+        let metrics = CollectorMetrics::new("test-udp-queue.jsonl".into());
+        let rl = Arc::new(SourceRateLimiter::new(0, 3)); // disabled
+        let tenant = Arc::new("test-tenant".to_string());
 
         // Bind source on OS-assigned port, retrieve address.
         let std_sock = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -183,9 +197,9 @@ mod tests {
         std_sock.set_nonblocking(true).unwrap();
         let listener = Arc::new(UdpSocket::from_std(std_sock).unwrap());
 
-        let m2   = Arc::clone(&metrics);
-        let rl2  = Arc::clone(&rl);
-        let tx2  = tx.clone();
+        let m2 = Arc::clone(&metrics);
+        let rl2 = Arc::clone(&rl);
+        let tx2 = tx.clone();
         let tid2 = Arc::clone(&tenant);
         let sock2 = Arc::clone(&listener);
         let (_sd_tx, sd_rx) = tokio::sync::watch::channel(false);
@@ -194,26 +208,28 @@ mod tests {
         // Send a syslog datagram.
         let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         sender
-            .send_to(b"<13>Jan  1 00:00:00 testhost myapp: hello from udp test", bound_addr)
+            .send_to(
+                b"<13>Jan  1 00:00:00 testhost myapp: hello from udp test",
+                bound_addr,
+            )
             .await
             .unwrap();
 
-        let ev = tokio::time::timeout(
-            std::time::Duration::from_secs(3),
-            rx.recv(),
-        )
-        .await
-        .expect("timeout waiting for event")
-        .expect("channel closed");
+        let ev = tokio::time::timeout(std::time::Duration::from_secs(3), rx.recv())
+            .await
+            .expect("timeout waiting for event")
+            .expect("channel closed");
 
         assert_eq!(ev["tenant_id"], "test-tenant");
-        assert_eq!(ev["source"],    "syslog");
-        assert!(ev["raw_payload"]["hostname"].as_str().unwrap_or("") == "testhost"
-            || ev["raw_payload"]["source_ip"].as_str().is_some());
+        assert_eq!(ev["source"], "syslog");
+        assert!(
+            ev["raw_payload"]["hostname"].as_str().unwrap_or("") == "testhost"
+                || ev["raw_payload"]["source_ip"].as_str().is_some()
+        );
 
         handle.abort();
         drop(metrics); // silence unused warning
-        drop(rl);      // silence unused warning
+        drop(rl); // silence unused warning
         let _ = Ipv4Addr::LOCALHOST; // suppress unused import lint
     }
 }

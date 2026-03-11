@@ -41,14 +41,14 @@ pub struct LatencyHistogram {
     /// `buckets[i]` = count of observations with value ≤ BOUNDS[i].
     /// `buckets[NUM_BUCKETS-1]` = +Inf = total count.
     buckets: [AtomicU64; NUM_BUCKETS],
-    sum_ms:  AtomicU64,
+    sum_ms: AtomicU64,
 }
 
 impl Default for LatencyHistogram {
     fn default() -> Self {
         Self {
             buckets: std::array::from_fn(|_| AtomicU64::new(0)),
-            sum_ms:  AtomicU64::new(0),
+            sum_ms: AtomicU64::new(0),
         }
     }
 }
@@ -87,34 +87,34 @@ impl LatencyHistogram {
 
 pub struct CollectorMetrics {
     // Events received per source
-    pub udp_received:      AtomicU64,
-    pub tcp_received:      AtomicU64,
-    pub file_received:     AtomicU64,
-    pub netflow_received:  AtomicU64,
-    pub cloud_received:    AtomicU64,
-    pub heartbeat_sent:    AtomicU64,
+    pub udp_received: AtomicU64,
+    pub tcp_received: AtomicU64,
+    pub file_received: AtomicU64,
+    pub netflow_received: AtomicU64,
+    pub cloud_received: AtomicU64,
+    pub heartbeat_sent: AtomicU64,
     // Granular per-protocol counters
     pub gelf_udp_received: AtomicU64,
     pub gelf_tcp_received: AtomicU64,
     pub json_udp_received: AtomicU64,
     pub json_tcp_received: AtomicU64,
-    pub otlp_received:     AtomicU64,
+    pub otlp_received: AtomicU64,
 
     // Drops / errors
-    pub channel_drops:    AtomicU64,
-    pub parse_errors:     AtomicU64,
+    pub channel_drops: AtomicU64,
+    pub parse_errors: AtomicU64,
     pub rate_limit_drops: AtomicU64,
 
     // Forwarder
-    pub batches_ok:       AtomicU64,
-    pub batches_err:      AtomicU64,
+    pub batches_ok: AtomicU64,
+    pub batches_err: AtomicU64,
     pub events_forwarded: AtomicU64,
 
     // Kafka consumer
-    pub kafka_received:   AtomicU64,
+    pub kafka_received: AtomicU64,
 
     // Ingest channel depth (sampled by a background task in main.rs)
-    pub channel_depth:    AtomicU64,
+    pub channel_depth: AtomicU64,
 
     // Epoch seconds of the last successful API batch (0 = never)
     pub last_batch_epoch_secs: AtomicU64,
@@ -132,25 +132,25 @@ pub struct CollectorMetrics {
 impl CollectorMetrics {
     pub fn new(queue_path: PathBuf) -> Arc<Self> {
         Arc::new(Self {
-            udp_received:      AtomicU64::new(0),
-            tcp_received:      AtomicU64::new(0),
-            file_received:     AtomicU64::new(0),
-            netflow_received:  AtomicU64::new(0),
-            cloud_received:    AtomicU64::new(0),
-            heartbeat_sent:    AtomicU64::new(0),
+            udp_received: AtomicU64::new(0),
+            tcp_received: AtomicU64::new(0),
+            file_received: AtomicU64::new(0),
+            netflow_received: AtomicU64::new(0),
+            cloud_received: AtomicU64::new(0),
+            heartbeat_sent: AtomicU64::new(0),
             gelf_udp_received: AtomicU64::new(0),
             gelf_tcp_received: AtomicU64::new(0),
             json_udp_received: AtomicU64::new(0),
             json_tcp_received: AtomicU64::new(0),
-            otlp_received:     AtomicU64::new(0),
-            channel_drops:     AtomicU64::new(0),
-            parse_errors:      AtomicU64::new(0),
-            rate_limit_drops:  AtomicU64::new(0),
-            batches_ok:        AtomicU64::new(0),
-            batches_err:       AtomicU64::new(0),
-            events_forwarded:  AtomicU64::new(0),
-            kafka_received:    AtomicU64::new(0),
-            channel_depth:     AtomicU64::new(0),
+            otlp_received: AtomicU64::new(0),
+            channel_drops: AtomicU64::new(0),
+            parse_errors: AtomicU64::new(0),
+            rate_limit_drops: AtomicU64::new(0),
+            batches_ok: AtomicU64::new(0),
+            batches_err: AtomicU64::new(0),
+            events_forwarded: AtomicU64::new(0),
+            kafka_received: AtomicU64::new(0),
+            channel_depth: AtomicU64::new(0),
             last_batch_epoch_secs: AtomicU64::new(0),
             batch_latency: LatencyHistogram::default(),
             queue_path,
@@ -162,28 +162,30 @@ impl CollectorMetrics {
     pub fn render(&self) -> String {
         let r = Ordering::Relaxed;
 
-        let udp      = self.udp_received.load(r);
-        let tcp      = self.tcp_received.load(r);
-        let file     = self.file_received.load(r);
-        let netflow  = self.netflow_received.load(r);
-        let cloud    = self.cloud_received.load(r);
-        let hb       = self.heartbeat_sent.load(r);
+        let udp = self.udp_received.load(r);
+        let tcp = self.tcp_received.load(r);
+        let file = self.file_received.load(r);
+        let netflow = self.netflow_received.load(r);
+        let cloud = self.cloud_received.load(r);
+        let hb = self.heartbeat_sent.load(r);
         let gelf_udp = self.gelf_udp_received.load(r);
         let gelf_tcp = self.gelf_tcp_received.load(r);
         let json_udp = self.json_udp_received.load(r);
         let json_tcp = self.json_tcp_received.load(r);
-        let otlp     = self.otlp_received.load(r);
-        let kafka    = self.kafka_received.load(r);
-        let drops    = self.channel_drops.load(r);
-        let perr     = self.parse_errors.load(r);
-        let rldrops  = self.rate_limit_drops.load(r);
-        let bok      = self.batches_ok.load(r);
-        let berr     = self.batches_err.load(r);
-        let fwd      = self.events_forwarded.load(r);
-        let depth    = self.channel_depth.load(r);
-        let last_batch      = self.last_batch_epoch_secs.load(r);
-        let latency_buckets = self.batch_latency.render_buckets("collector_batch_latency_ms");
-        let qbytes   = std::fs::metadata(&self.queue_path)
+        let otlp = self.otlp_received.load(r);
+        let kafka = self.kafka_received.load(r);
+        let drops = self.channel_drops.load(r);
+        let perr = self.parse_errors.load(r);
+        let rldrops = self.rate_limit_drops.load(r);
+        let bok = self.batches_ok.load(r);
+        let berr = self.batches_err.load(r);
+        let fwd = self.events_forwarded.load(r);
+        let depth = self.channel_depth.load(r);
+        let last_batch = self.last_batch_epoch_secs.load(r);
+        let latency_buckets = self
+            .batch_latency
+            .render_buckets("collector_batch_latency_ms");
+        let qbytes = std::fs::metadata(&self.queue_path)
             .map(|m| m.len())
             .unwrap_or(0);
 
@@ -235,21 +237,27 @@ impl CollectorMetrics {
 /// Serve Prometheus `/metrics` on `COLLECTOR_METRICS_BIND` (default
 /// `0.0.0.0:9091`). Returns immediately if the env var is set to empty string.
 pub async fn serve(metrics: Arc<CollectorMetrics>) {
-    let bind_str = std::env::var("COLLECTOR_METRICS_BIND")
-        .unwrap_or_else(|_| "0.0.0.0:9091".to_string());
+    let bind_str =
+        std::env::var("COLLECTOR_METRICS_BIND").unwrap_or_else(|_| "0.0.0.0:9091".to_string());
 
     if bind_str.is_empty() {
         return;
     }
 
     let bind: SocketAddr = match bind_str.parse() {
-        Ok(a)  => a,
-        Err(e) => { error!(%e, "invalid COLLECTOR_METRICS_BIND — metrics disabled"); return; }
+        Ok(a) => a,
+        Err(e) => {
+            error!(%e, "invalid COLLECTOR_METRICS_BIND — metrics disabled");
+            return;
+        }
     };
 
     let listener = match tokio::net::TcpListener::bind(bind).await {
-        Ok(l)  => l,
-        Err(e) => { error!(%e, %bind, "failed to bind metrics listener"); return; }
+        Ok(l) => l,
+        Err(e) => {
+            error!(%e, %bind, "failed to bind metrics listener");
+            return;
+        }
     };
     info!(%bind, "collector metrics endpoint ready (GET /metrics)");
 
@@ -268,7 +276,8 @@ pub async fn serve(metrics: Arc<CollectorMetrics>) {
                      Content-Type: text/plain; version=0.0.4; charset=utf-8\r\n\
                      Content-Length: {}\r\n\
                      Connection: close\r\n\r\n{}",
-                    body.len(), body
+                    body.len(),
+                    body
                 );
                 let _ = stream.write_all(resp.as_bytes()).await;
             });

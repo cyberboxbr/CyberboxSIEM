@@ -13,10 +13,12 @@
 use std::collections::HashMap;
 
 use chrono::Utc;
-use metrics::gauge;
 use cyberbox_core::CyberboxError;
-use cyberbox_models::{AlertStatus, CaseRecord, CaseStatus, RuleScheduleConfig, RuleSchedulerHealth, Severity};
-use cyberbox_storage::{AlertStore, CaseStore, sla_due_at};
+use cyberbox_models::{
+    AlertStatus, CaseRecord, CaseStatus, RuleScheduleConfig, RuleSchedulerHealth, Severity,
+};
+use cyberbox_storage::{sla_due_at, AlertStore, CaseStore};
+use metrics::gauge;
 
 use crate::state::AppState;
 
@@ -70,9 +72,10 @@ pub async fn run_tick(state: &AppState) -> Result<SchedulerTickResult, CyberboxE
         let mut error_count = 0u64;
 
         // Scan from the last watermark, or fall back to `now - lookback` on first run.
-        let from = state.storage.get_watermark(rule.rule_id).unwrap_or_else(|| {
-            now - chrono::Duration::seconds(schedule.lookback_seconds as i64)
-        });
+        let from = state
+            .storage
+            .get_watermark(rule.rule_id)
+            .unwrap_or_else(|| now - chrono::Duration::seconds(schedule.lookback_seconds as i64));
 
         let events =
             state
@@ -86,10 +89,11 @@ pub async fn run_tick(state: &AppState) -> Result<SchedulerTickResult, CyberboxE
             }
             match_count += 1;
 
-            if let Some(alert) = state
-                .rule_executor
-                .maybe_build_alert(rule, event, format!("event:{}", event.event_id))
-            {
+            if let Some(alert) = state.rule_executor.maybe_build_alert(
+                rule,
+                event,
+                format!("event:{}", event.event_id),
+            ) {
                 if let Err(err) = state.storage.suppress_or_create_alert(alert).await {
                     tracing::warn!(
                         tenant_id = %rule.tenant_id,
@@ -158,10 +162,15 @@ pub async fn run_tick(state: &AppState) -> Result<SchedulerTickResult, CyberboxE
             if !f.enabled || f.auto_sync_interval_secs == 0 {
                 return None;
             }
-            let due = f.last_synced_at
+            let due = f
+                .last_synced_at
                 .map(|t| (now_utc - t).num_seconds() >= f.auto_sync_interval_secs as i64)
                 .unwrap_or(true);
-            if due { Some(f.feed_id) } else { None }
+            if due {
+                Some(f.feed_id)
+            } else {
+                None
+            }
         })
         .collect();
 
@@ -219,7 +228,10 @@ pub async fn run_tick(state: &AppState) -> Result<SchedulerTickResult, CyberboxE
             let mut by_rule: HashMap<uuid::Uuid, Vec<uuid::Uuid>> = HashMap::new();
             for alert in &alerts {
                 if matches!(alert.status, AlertStatus::Open | AlertStatus::InProgress) {
-                    by_rule.entry(alert.rule_id).or_default().push(alert.alert_id);
+                    by_rule
+                        .entry(alert.rule_id)
+                        .or_default()
+                        .push(alert.alert_id);
                 }
             }
 
@@ -230,14 +242,21 @@ pub async fn run_tick(state: &AppState) -> Result<SchedulerTickResult, CyberboxE
 
                 // Check if a case already groups these alerts (by tag "auto:rule:<rule_id>").
                 let tag = format!("auto:rule:{rule_id}");
-                let existing_case = state.storage
-                    .list_cases(tenant_id)
-                    .await
-                    .ok()
-                    .and_then(|cases| cases.into_iter().find(|c| {
-                        c.tags.contains(&tag)
-                            && !matches!(c.status, CaseStatus::Closed | CaseStatus::Resolved)
-                    }));
+                let existing_case =
+                    state
+                        .storage
+                        .list_cases(tenant_id)
+                        .await
+                        .ok()
+                        .and_then(|cases| {
+                            cases.into_iter().find(|c| {
+                                c.tags.contains(&tag)
+                                    && !matches!(
+                                        c.status,
+                                        CaseStatus::Closed | CaseStatus::Resolved
+                                    )
+                            })
+                        });
 
                 let now_utc = Utc::now();
                 if let Some(mut case) = existing_case {
@@ -262,7 +281,8 @@ pub async fn run_tick(state: &AppState) -> Result<SchedulerTickResult, CyberboxE
                         title: format!("Auto-grouped: rule {rule_id} ({} alerts)", alert_ids.len()),
                         description: format!(
                             "Automatically grouped {} open alerts triggered by rule {}.",
-                            alert_ids.len(), rule_id
+                            alert_ids.len(),
+                            rule_id
                         ),
                         status: CaseStatus::Open,
                         severity: severity.clone(),
@@ -289,7 +309,10 @@ pub async fn run_tick(state: &AppState) -> Result<SchedulerTickResult, CyberboxE
     // ── Scheduled digest report ───────────────────────────────────────────────
     if state.report_interval_secs > 0 {
         let should_report = {
-            let last = state.last_report_sent_at.lock().unwrap_or_else(|e| e.into_inner());
+            let last = state
+                .last_report_sent_at
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             last.map(|t| t.elapsed().as_secs() >= state.report_interval_secs)
                 .unwrap_or(true)
         };
@@ -301,12 +324,14 @@ pub async fn run_tick(state: &AppState) -> Result<SchedulerTickResult, CyberboxE
             for tenant_id in &tenants {
                 if let Ok(alerts) = state.storage.list_alerts(tenant_id).await {
                     total_alerts += alerts.len();
-                    open_alerts += alerts.iter()
+                    open_alerts += alerts
+                        .iter()
                         .filter(|a| matches!(a.status, AlertStatus::Open | AlertStatus::InProgress))
                         .count();
                 }
                 if let Ok(cases) = state.storage.list_cases(tenant_id).await {
-                    open_cases += cases.iter()
+                    open_cases += cases
+                        .iter()
                         .filter(|c| matches!(c.status, CaseStatus::Open | CaseStatus::InProgress))
                         .count();
                 }
@@ -315,14 +340,23 @@ pub async fn run_tick(state: &AppState) -> Result<SchedulerTickResult, CyberboxE
                 }
             }
             let period = format!("{}s interval", state.report_interval_secs);
-            if let Err(e) = state.teams_notifier
-                .send_digest(&period, open_alerts, total_alerts, open_cases, sla_breaches_count)
+            if let Err(e) = state
+                .teams_notifier
+                .send_digest(
+                    &period,
+                    open_alerts,
+                    total_alerts,
+                    open_cases,
+                    sla_breaches_count,
+                )
                 .await
             {
                 tracing::warn!(error = %e, "scheduled digest send failed");
             } else {
-                *state.last_report_sent_at.lock().unwrap_or_else(|e| e.into_inner())
-                    = Some(std::time::Instant::now());
+                *state
+                    .last_report_sent_at
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
                 tracing::info!("scheduled digest sent");
             }
         }
@@ -336,8 +370,7 @@ pub async fn run_tick(state: &AppState) -> Result<SchedulerTickResult, CyberboxE
 
 /// Background scheduler loop — spawned from `main.rs` in noop/in-memory mode.
 pub async fn run_scheduler_loop(state: AppState, tick_secs: u64) {
-    let mut interval =
-        tokio::time::interval(std::time::Duration::from_secs(tick_secs.max(1)));
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(tick_secs.max(1)));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     tracing::info!(tick_secs, "in-memory scheduler loop started");

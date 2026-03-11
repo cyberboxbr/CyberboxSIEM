@@ -1,18 +1,18 @@
 //! `agent.toml` configuration types.
 
-use std::path::PathBuf;
 use serde::Deserialize;
+use std::path::PathBuf;
 
 // ── Top-level ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AgentConfig {
     pub collector: CollectorConfig,
-    pub agent:     AgentMeta,
+    pub agent: AgentMeta,
     #[serde(default)]
-    pub source:    Vec<SourceConfig>,
+    pub source: Vec<SourceConfig>,
     /// Optional: register + heartbeat with cyberbox-api
-    pub api:       Option<AgentApiConfig>,
+    pub api: Option<AgentApiConfig>,
 }
 
 // ── Collector output ──────────────────────────────────────────────────────────
@@ -59,10 +59,18 @@ pub struct CollectorConfig {
     pub queue_path: Option<String>,
 }
 
-fn default_port()         -> u16    { 7514 }
-fn default_protocol()     -> String { "json".into() }
-fn default_backoff_max()  -> u64    { 30 }
-fn default_buffer_size()  -> usize  { 10_000 }
+fn default_port() -> u16 {
+    7514
+}
+fn default_protocol() -> String {
+    "json".into()
+}
+fn default_backoff_max() -> u64 {
+    30
+}
+fn default_buffer_size() -> usize {
+    10_000
+}
 
 // ── Agent identity ────────────────────────────────────────────────────────────
 
@@ -79,7 +87,9 @@ pub struct AgentMeta {
     pub app_name: String,
 }
 
-fn default_app_name() -> String { "cyberbox-agent".into() }
+fn default_app_name() -> String {
+    "cyberbox-agent".into()
+}
 
 // ── Sources ───────────────────────────────────────────────────────────────────
 
@@ -88,9 +98,9 @@ fn default_app_name() -> String { "cyberbox-agent".into() }
 pub enum SourceConfig {
     /// Tail one or more log files
     File {
-        paths:         Vec<String>,
+        paths: Vec<String>,
         #[serde(default = "default_poll_ms")]
-        poll_ms:       u64,
+        poll_ms: u64,
         #[serde(default = "default_bookmark")]
         bookmark_path: String,
     },
@@ -103,7 +113,7 @@ pub enum SourceConfig {
     Journald {
         /// Filter to specific units (empty = all)
         #[serde(default)]
-        #[allow(dead_code)]  // used on Linux only
+        #[allow(dead_code)] // used on Linux only
         units: Vec<String>,
     },
     /// File Integrity Monitoring — hash + metadata change detection
@@ -146,15 +156,31 @@ pub enum SourceConfig {
     },
 }
 
-fn default_fim_interval()      -> u64    { 60 }
-fn default_fim_recursive()     -> bool   { true }
-fn default_fim_baseline()      -> String { "cyberbox-agent.fim-baseline.json".into() }
-fn default_procmon_poll_ms()   -> u64    { 1000 }
-fn default_docker_socket()     -> String { "/var/run/docker.sock".into() }
-fn default_netconn_poll_ms()   -> u64    { 5000 }
+fn default_fim_interval() -> u64 {
+    60
+}
+fn default_fim_recursive() -> bool {
+    true
+}
+fn default_fim_baseline() -> String {
+    "cyberbox-agent.fim-baseline.json".into()
+}
+fn default_procmon_poll_ms() -> u64 {
+    1000
+}
+fn default_docker_socket() -> String {
+    "/var/run/docker.sock".into()
+}
+fn default_netconn_poll_ms() -> u64 {
+    5000
+}
 
-fn default_poll_ms() -> u64 { 500 }
-fn default_bookmark() -> String { "cyberbox-agent.bookmark.json".into() }
+fn default_poll_ms() -> u64 {
+    500
+}
+fn default_bookmark() -> String {
+    "cyberbox-agent.bookmark.json".into()
+}
 fn default_wel_channels() -> Vec<String> {
     vec!["Security".into(), "System".into(), "Application".into()]
 }
@@ -174,13 +200,14 @@ pub struct AgentApiConfig {
     pub token: Option<String>,
 }
 
-fn default_heartbeat_secs() -> u64 { 30 }
+fn default_heartbeat_secs() -> u64 {
+    30
+}
 
 // ── Load from file ────────────────────────────────────────────────────────────
 
 pub fn load(path: &std::path::Path) -> anyhow::Result<AgentConfig> {
     let raw = std::fs::read_to_string(path)
         .map_err(|e| anyhow::anyhow!("cannot read config {}: {e}", path.display()))?;
-    toml::from_str(&raw)
-        .map_err(|e| anyhow::anyhow!("invalid config {}: {e}", path.display()))
+    toml::from_str(&raw).map_err(|e| anyhow::anyhow!("invalid config {}: {e}", path.display()))
 }

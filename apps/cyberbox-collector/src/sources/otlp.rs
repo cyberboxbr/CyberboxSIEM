@@ -36,10 +36,10 @@ const MAX_BODY: usize = 10 * 1024 * 1024;
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 pub async fn run(
-    bind:         SocketAddr,
-    tenant_id:    Arc<String>,
-    tx:           mpsc::Sender<Value>,
-    metrics:      Arc<CollectorMetrics>,
+    bind: SocketAddr,
+    tenant_id: Arc<String>,
+    tx: mpsc::Sender<Value>,
+    metrics: Arc<CollectorMetrics>,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
     let listener = TcpListener::bind(bind)
@@ -59,7 +59,7 @@ pub async fn run(
                 let source_ip = peer.ip().to_string();
                 let tx2 = tx.clone();
                 let tid = Arc::clone(&tenant_id);
-                let m   = Arc::clone(&metrics);
+                let m = Arc::clone(&metrics);
                 tokio::spawn(async move {
                     if let Err(e) = handle_conn(stream, source_ip.clone(), tid, tx2, m).await {
                         debug!(source_ip, err = %e, "OTLP HTTP connection error");
@@ -75,11 +75,11 @@ pub async fn run(
 // ─── HTTP connection handler ──────────────────────────────────────────────────
 
 async fn handle_conn(
-    stream:    TcpStream,
+    stream: TcpStream,
     source_ip: String,
     tenant_id: Arc<String>,
-    tx:        mpsc::Sender<Value>,
-    metrics:   Arc<CollectorMetrics>,
+    tx: mpsc::Sender<Value>,
+    metrics: Arc<CollectorMetrics>,
 ) -> Result<()> {
     let (reader, mut writer) = tokio::io::split(stream);
     let mut reader = BufReader::new(reader);
@@ -89,11 +89,13 @@ async fn handle_conn(
         // ── Request line ──────────────────────────────────────────────────────
         let mut req_line = String::new();
         let n = reader.read_line(&mut req_line).await?;
-        if n == 0 { break; } // connection closed
+        if n == 0 {
+            break;
+        } // connection closed
 
         let mut tokens = req_line.trim().splitn(3, ' ');
         let method = tokens.next().unwrap_or("").to_string();
-        let path   = tokens.next().unwrap_or("").to_string();
+        let path = tokens.next().unwrap_or("").to_string();
 
         // ── Headers ───────────────────────────────────────────────────────────
         let mut content_length: Option<usize> = None;
@@ -101,7 +103,9 @@ async fn handle_conn(
             let mut hdr = String::new();
             reader.read_line(&mut hdr).await?;
             let h = hdr.trim();
-            if h.is_empty() { break; }
+            if h.is_empty() {
+                break;
+            }
             let lower = h.to_ascii_lowercase();
             if let Some(v) = lower.strip_prefix("content-length:") {
                 content_length = v.trim().parse().ok();
@@ -145,19 +149,21 @@ async fn handle_conn(
 // ─── Body dispatch ────────────────────────────────────────────────────────────
 
 async fn process_body(
-    path:      &str,
-    body:      &[u8],
+    path: &str,
+    body: &[u8],
     source_ip: &str,
     tenant_id: &str,
-    tx:        &mpsc::Sender<Value>,
-    metrics:   &CollectorMetrics,
+    tx: &mpsc::Sender<Value>,
+    metrics: &CollectorMetrics,
 ) -> usize {
     use std::sync::atomic::Ordering::Relaxed;
 
-    if body.is_empty() { return 0; }
+    if body.is_empty() {
+        return 0;
+    }
 
     let root: Value = match serde_json::from_slice(body) {
-        Ok(v)  => v,
+        Ok(v) => v,
         Err(e) => {
             metrics.parse_errors.fetch_add(1, Relaxed);
             warn!(source_ip, path, err = %e, "OTLP JSON parse error");
@@ -166,11 +172,15 @@ async fn process_body(
     };
 
     match path {
-        "/v1/logs"    => emit_logs(&root, source_ip, tenant_id, tx, metrics).await,
-        "/v1/traces"  => emit_traces(&root, source_ip, tenant_id, tx, metrics).await,
+        "/v1/logs" => emit_logs(&root, source_ip, tenant_id, tx, metrics).await,
+        "/v1/traces" => emit_traces(&root, source_ip, tenant_id, tx, metrics).await,
         "/v1/metrics" => emit_metrics(&root, source_ip, tenant_id, tx, metrics).await,
         other => {
-            debug!(source_ip, path = other, "OTLP HTTP: unknown path — ignoring");
+            debug!(
+                source_ip,
+                path = other,
+                "OTLP HTTP: unknown path — ignoring"
+            );
             0
         }
     }
@@ -218,12 +228,13 @@ fn extract_any_value(v: &Value) -> Value {
 
 /// Parse OTLP nanosecond epoch (string or number) to RFC-3339.
 fn otlp_nanos_to_rfc3339(v: &Value) -> String {
-    let ns = v.as_str()
+    let ns = v
+        .as_str()
         .and_then(|s| s.parse::<u64>().ok())
         .or_else(|| v.as_u64());
 
     ns.and_then(|ns| {
-        let secs  = (ns / 1_000_000_000) as i64;
+        let secs = (ns / 1_000_000_000) as i64;
         let nanos = (ns % 1_000_000_000) as u32;
         chrono::DateTime::from_timestamp(secs, nanos)
     })
@@ -234,30 +245,31 @@ fn otlp_nanos_to_rfc3339(v: &Value) -> String {
 // ─── Log record emission ──────────────────────────────────────────────────────
 
 async fn emit_logs(
-    root:      &Value,
+    root: &Value,
     source_ip: &str,
     tenant_id: &str,
-    tx:        &mpsc::Sender<Value>,
-    metrics:   &CollectorMetrics,
+    tx: &mpsc::Sender<Value>,
+    metrics: &CollectorMetrics,
 ) -> usize {
     use std::sync::atomic::Ordering::Relaxed;
     let mut count = 0usize;
 
     let resource_logs = match root["resourceLogs"].as_array() {
         Some(a) => a,
-        None    => return 0,
+        None => return 0,
     };
 
     'outer: for rl in resource_logs {
-        let res_attrs   = extract_attributes(&rl["resource"]["attributes"]);
-        let service_name = res_attrs.get("service.name")
+        let res_attrs = extract_attributes(&rl["resource"]["attributes"]);
+        let service_name = res_attrs
+            .get("service.name")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown")
             .to_string();
 
         let scope_logs = match rl["scopeLogs"].as_array() {
             Some(a) => a,
-            None    => continue,
+            None => continue,
         };
 
         for sl in scope_logs {
@@ -265,41 +277,40 @@ async fn emit_logs(
 
             let records = match sl["logRecords"].as_array() {
                 Some(a) => a,
-                None    => continue,
+                None => continue,
             };
 
             for lr in records {
                 let event_time = otlp_nanos_to_rfc3339(
                     lr.get("timeUnixNano")
                         .or_else(|| lr.get("observedTimeUnixNano"))
-                        .unwrap_or(&Value::Null)
+                        .unwrap_or(&Value::Null),
                 );
 
-                let severity_text = lr["severityText"].as_str()
-                    .unwrap_or("INFO")
-                    .to_string();
+                let severity_text = lr["severityText"].as_str().unwrap_or("INFO").to_string();
                 let severity_number = lr["severityNumber"].as_u64().unwrap_or(9);
 
                 // Body can be a string AnyValue or a plain string field.
-                let body = lr["body"]["stringValue"].as_str()
+                let body = lr["body"]["stringValue"]
+                    .as_str()
                     .unwrap_or_else(|| lr["body"].as_str().unwrap_or(""))
                     .to_string();
 
                 let rec_attrs = extract_attributes(&lr["attributes"]);
 
                 let mut raw = Map::new();
-                raw.insert("message".into(),          Value::String(body));
-                raw.insert("severity_text".into(),    Value::String(severity_text));
-                raw.insert("severity_number".into(),  json!(severity_number));
-                raw.insert("service_name".into(),     Value::String(service_name.clone()));
-                raw.insert("scope_name".into(),       Value::String(scope_name.clone()));
-                raw.insert("source_ip".into(),        Value::String(source_ip.to_string()));
-                raw.insert("protocol".into(),         Value::String("otlp".into()));
+                raw.insert("message".into(), Value::String(body));
+                raw.insert("severity_text".into(), Value::String(severity_text));
+                raw.insert("severity_number".into(), json!(severity_number));
+                raw.insert("service_name".into(), Value::String(service_name.clone()));
+                raw.insert("scope_name".into(), Value::String(scope_name.clone()));
+                raw.insert("source_ip".into(), Value::String(source_ip.to_string()));
+                raw.insert("protocol".into(), Value::String("otlp".into()));
                 if let Some(tid) = lr["traceId"].as_str() {
                     raw.insert("trace_id".into(), Value::String(tid.to_string()));
                 }
                 if let Some(sid) = lr["spanId"].as_str() {
-                    raw.insert("span_id".into(),  Value::String(sid.to_string()));
+                    raw.insert("span_id".into(), Value::String(sid.to_string()));
                 }
                 // Resource attributes (prefixed to avoid collision)
                 for (k, v) in &res_attrs {
@@ -318,7 +329,9 @@ async fn emit_logs(
                 });
 
                 metrics.otlp_received.fetch_add(1, Relaxed);
-                if tx.send(ev).await.is_err() { break 'outer; }
+                if tx.send(ev).await.is_err() {
+                    break 'outer;
+                }
                 count += 1;
             }
         }
@@ -329,30 +342,31 @@ async fn emit_logs(
 // ─── Trace span emission ──────────────────────────────────────────────────────
 
 async fn emit_traces(
-    root:      &Value,
+    root: &Value,
     source_ip: &str,
     tenant_id: &str,
-    tx:        &mpsc::Sender<Value>,
-    metrics:   &CollectorMetrics,
+    tx: &mpsc::Sender<Value>,
+    metrics: &CollectorMetrics,
 ) -> usize {
     use std::sync::atomic::Ordering::Relaxed;
     let mut count = 0usize;
 
     let resource_spans = match root["resourceSpans"].as_array() {
         Some(a) => a,
-        None    => return 0,
+        None => return 0,
     };
 
     'outer: for rs in resource_spans {
-        let res_attrs    = extract_attributes(&rs["resource"]["attributes"]);
-        let service_name = res_attrs.get("service.name")
+        let res_attrs = extract_attributes(&rs["resource"]["attributes"]);
+        let service_name = res_attrs
+            .get("service.name")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown")
             .to_string();
 
         let scope_spans = match rs["scopeSpans"].as_array() {
             Some(a) => a,
-            None    => continue,
+            None => continue,
         };
 
         for ss in scope_spans {
@@ -360,30 +374,33 @@ async fn emit_traces(
 
             let spans = match ss["spans"].as_array() {
                 Some(a) => a,
-                None    => continue,
+                None => continue,
             };
 
             for span in spans {
                 let event_time = otlp_nanos_to_rfc3339(&span["startTimeUnixNano"]);
-                let span_name  = span["name"].as_str().unwrap_or("").to_string();
-                let kind       = span["kind"].as_u64().unwrap_or(0);
+                let span_name = span["name"].as_str().unwrap_or("").to_string();
+                let kind = span["kind"].as_u64().unwrap_or(0);
                 let status_code = span["status"]["code"].as_u64().unwrap_or(0);
-                let span_attrs  = extract_attributes(&span["attributes"]);
+                let span_attrs = extract_attributes(&span["attributes"]);
 
                 let mut raw = Map::new();
-                raw.insert("message".into(),       Value::String(format!("span: {span_name}")));
-                raw.insert("span_name".into(),     Value::String(span_name));
-                raw.insert("span_kind".into(),     json!(kind));
-                raw.insert("status_code".into(),   json!(status_code));
-                raw.insert("service_name".into(),  Value::String(service_name.clone()));
-                raw.insert("scope_name".into(),    Value::String(scope_name.clone()));
-                raw.insert("source_ip".into(),     Value::String(source_ip.to_string()));
-                raw.insert("protocol".into(),      Value::String("otlp_trace".into()));
+                raw.insert(
+                    "message".into(),
+                    Value::String(format!("span: {span_name}")),
+                );
+                raw.insert("span_name".into(), Value::String(span_name));
+                raw.insert("span_kind".into(), json!(kind));
+                raw.insert("status_code".into(), json!(status_code));
+                raw.insert("service_name".into(), Value::String(service_name.clone()));
+                raw.insert("scope_name".into(), Value::String(scope_name.clone()));
+                raw.insert("source_ip".into(), Value::String(source_ip.to_string()));
+                raw.insert("protocol".into(), Value::String("otlp_trace".into()));
                 if let Some(tid) = span["traceId"].as_str() {
-                    raw.insert("trace_id".into(),  Value::String(tid.to_string()));
+                    raw.insert("trace_id".into(), Value::String(tid.to_string()));
                 }
                 if let Some(sid) = span["spanId"].as_str() {
-                    raw.insert("span_id".into(),   Value::String(sid.to_string()));
+                    raw.insert("span_id".into(), Value::String(sid.to_string()));
                 }
                 for (k, v) in &res_attrs {
                     raw.insert(format!("resource_{}", k.replace('.', "_")), v.clone());
@@ -400,7 +417,9 @@ async fn emit_traces(
                 });
 
                 metrics.otlp_received.fetch_add(1, Relaxed);
-                if tx.send(ev).await.is_err() { break 'outer; }
+                if tx.send(ev).await.is_err() {
+                    break 'outer;
+                }
                 count += 1;
             }
         }
@@ -415,32 +434,33 @@ async fn emit_traces(
 /// individual data-point events — the full OTLP JSON tree is passed through
 /// as `raw_payload.metrics_data` for downstream storage.
 async fn emit_metrics(
-    root:      &Value,
+    root: &Value,
     source_ip: &str,
     tenant_id: &str,
-    tx:        &mpsc::Sender<Value>,
-    metrics:   &CollectorMetrics,
+    tx: &mpsc::Sender<Value>,
+    metrics: &CollectorMetrics,
 ) -> usize {
     use std::sync::atomic::Ordering::Relaxed;
     let mut count = 0usize;
 
     let resource_metrics = match root["resourceMetrics"].as_array() {
         Some(a) => a,
-        None    => return 0,
+        None => return 0,
     };
 
     for rm in resource_metrics {
-        let res_attrs    = extract_attributes(&rm["resource"]["attributes"]);
-        let service_name = res_attrs.get("service.name")
+        let res_attrs = extract_attributes(&rm["resource"]["attributes"]);
+        let service_name = res_attrs
+            .get("service.name")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown")
             .to_string();
 
         let mut raw = Map::new();
-        raw.insert("service_name".into(),  Value::String(service_name.clone()));
-        raw.insert("source_ip".into(),     Value::String(source_ip.to_string()));
-        raw.insert("protocol".into(),      Value::String("otlp_metrics".into()));
-        raw.insert("metrics_data".into(),  rm.clone());
+        raw.insert("service_name".into(), Value::String(service_name.clone()));
+        raw.insert("source_ip".into(), Value::String(source_ip.to_string()));
+        raw.insert("protocol".into(), Value::String("otlp_metrics".into()));
+        raw.insert("metrics_data".into(), rm.clone());
         for (k, v) in &res_attrs {
             raw.insert(format!("resource_{}", k.replace('.', "_")), v.clone());
         }
@@ -453,7 +473,9 @@ async fn emit_metrics(
         });
 
         metrics.otlp_received.fetch_add(1, Relaxed);
-        if tx.send(ev).await.is_err() { break; }
+        if tx.send(ev).await.is_err() {
+            break;
+        }
         count += 1;
     }
     count
@@ -490,7 +512,8 @@ mod tests {
                     }]
                 }]
             }]
-        }).to_string();
+        })
+        .to_string();
         let body_bytes = body.as_bytes();
         format!(
             "POST /v1/logs HTTP/1.1\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n",
@@ -501,26 +524,26 @@ mod tests {
     #[tokio::test]
     async fn otlp_logs_roundtrip() {
         let (tx, mut rx) = mpsc::channel(16);
-        let metrics      = CollectorMetrics::new("test-otlp-queue.jsonl".into());
-        let tenant       = Arc::new("otlp-tenant".to_string());
+        let metrics = CollectorMetrics::new("test-otlp-queue.jsonl".into());
+        let tenant = Arc::new("otlp-tenant".to_string());
 
         // Bind on OS-assigned port.
         let std_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let bound_addr   = std_listener.local_addr().unwrap();
+        let bound_addr = std_listener.local_addr().unwrap();
         std_listener.set_nonblocking(true).unwrap();
-        let listener     = TcpListener::from_std(std_listener).unwrap();
+        let listener = TcpListener::from_std(std_listener).unwrap();
 
-        let tx2  = tx.clone();
-        let tid  = Arc::clone(&tenant);
-        let m    = Arc::clone(&metrics);
+        let tx2 = tx.clone();
+        let tid = Arc::clone(&tenant);
+        let m = Arc::clone(&metrics);
         let handle = tokio::spawn(async move {
             loop {
                 match listener.accept().await {
                     Ok((stream, peer)) => {
-                        let ip   = peer.ip().to_string();
-                        let tx3  = tx2.clone();
+                        let ip = peer.ip().to_string();
+                        let tx3 = tx2.clone();
                         let tid2 = Arc::clone(&tid);
-                        let m2   = Arc::clone(&m);
+                        let m2 = Arc::clone(&m);
                         tokio::spawn(async move {
                             let _ = handle_conn(stream, ip, tid2, tx3, m2).await;
                         });
@@ -533,23 +556,20 @@ mod tests {
         let mut stream = TcpStream::connect(bound_addr).await.unwrap();
         stream.write_all(&make_log_request()).await.unwrap();
 
-        let ev = tokio::time::timeout(
-            std::time::Duration::from_secs(3),
-            rx.recv(),
-        )
-        .await
-        .expect("timeout waiting for OTLP event")
-        .expect("channel closed");
+        let ev = tokio::time::timeout(std::time::Duration::from_secs(3), rx.recv())
+            .await
+            .expect("timeout waiting for OTLP event")
+            .expect("channel closed");
 
-        assert_eq!(ev["tenant_id"],  "otlp-tenant");
-        assert_eq!(ev["source"],     "otlp:my-service");
-        assert_eq!(ev["raw_payload"]["message"],         "hello from otlp");
-        assert_eq!(ev["raw_payload"]["severity_text"],   "INFO");
-        assert_eq!(ev["raw_payload"]["service_name"],    "my-service");
+        assert_eq!(ev["tenant_id"], "otlp-tenant");
+        assert_eq!(ev["source"], "otlp:my-service");
+        assert_eq!(ev["raw_payload"]["message"], "hello from otlp");
+        assert_eq!(ev["raw_payload"]["severity_text"], "INFO");
+        assert_eq!(ev["raw_payload"]["service_name"], "my-service");
         assert_eq!(ev["raw_payload"]["resource_service_name"], "my-service");
-        assert_eq!(ev["raw_payload"]["trace_id"],        "aabbccdd00000000");
+        assert_eq!(ev["raw_payload"]["trace_id"], "aabbccdd00000000");
         // request.id attribute → request_id in raw_payload
-        assert_eq!(ev["raw_payload"]["request_id"],      "abc123");
+        assert_eq!(ev["raw_payload"]["request_id"], "abc123");
 
         handle.abort();
     }
@@ -557,8 +577,8 @@ mod tests {
     #[tokio::test]
     async fn otlp_unknown_path_returns_empty() {
         let (tx, _rx) = mpsc::channel(16);
-        let metrics   = CollectorMetrics::new("test-otlp2-queue.jsonl".into());
-        let body      = b"{}";
+        let metrics = CollectorMetrics::new("test-otlp2-queue.jsonl".into());
+        let body = b"{}";
         let n = process_body("/v1/unknown", body, "1.2.3.4", "t", &tx, &metrics).await;
         assert_eq!(n, 0);
     }
@@ -572,8 +592,8 @@ mod tests {
             {"key": "bool", "value": {"boolValue": true}},
         ]);
         let map = extract_attributes(&attrs);
-        assert_eq!(map["str"],  Value::String("hello".into()));
-        assert_eq!(map["num"],  json!(42i64));
+        assert_eq!(map["str"], Value::String("hello".into()));
+        assert_eq!(map["num"], json!(42i64));
         assert_eq!(map["bool"], json!(true));
     }
 

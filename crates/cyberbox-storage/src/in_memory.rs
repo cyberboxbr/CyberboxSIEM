@@ -50,7 +50,11 @@ impl InMemoryStore {
             .remove(tenant_id)
             .map(|(_, tree)| tree.len() as u64)
             .unwrap_or(0);
-        tracing::info!(tenant_id, deleted_rows = removed, "GDPR purge: tenant events cleared from in-memory store");
+        tracing::info!(
+            tenant_id,
+            deleted_rows = removed,
+            "GDPR purge: tenant events cleared from in-memory store"
+        );
         removed
     }
 
@@ -321,7 +325,12 @@ impl InMemoryStore {
     }
 
     /// Return a specific version snapshot, or `None` if not found.
-    pub fn get_rule_version(&self, tenant_id: &str, rule_id: Uuid, version: u32) -> Option<RuleVersion> {
+    pub fn get_rule_version(
+        &self,
+        tenant_id: &str,
+        rule_id: Uuid,
+        version: u32,
+    ) -> Option<RuleVersion> {
         self.rule_versions
             .get(&(tenant_id.to_string(), rule_id))
             .and_then(|v| v.iter().find(|rv| rv.version == version).cloned())
@@ -333,7 +342,8 @@ impl RuleStore for InMemoryStore {
     async fn upsert_rule(&self, rule: DetectionRule) -> Result<DetectionRule, CyberboxError> {
         // Record an immutable version snapshot before inserting.
         let key = (rule.tenant_id.clone(), rule.rule_id);
-        let next_version = self.rule_versions
+        let next_version = self
+            .rule_versions
             .get(&key)
             .map(|v| v.len() as u32 + 1)
             .unwrap_or(1);
@@ -401,7 +411,10 @@ impl RuleStore for InMemoryStore {
 impl AlertStore for InMemoryStore {
     async fn upsert_alert(&self, alert: AlertRecord) -> Result<AlertRecord, CyberboxError> {
         // Keep dedupe index in sync: open/in-progress alerts are indexed; closed ones are not.
-        let idx_key = (alert.tenant_id.clone(), alert.routing_state.dedupe_key.clone());
+        let idx_key = (
+            alert.tenant_id.clone(),
+            alert.routing_state.dedupe_key.clone(),
+        );
         if matches!(alert.status, AlertStatus::Open | AlertStatus::InProgress) {
             self.alert_dedupe_index.insert(idx_key, alert.alert_id);
         } else {
@@ -465,7 +478,10 @@ impl AlertStore for InMemoryStore {
         entry.close_note = request.note.clone();
         entry.last_seen = Utc::now();
         // Remove from dedupe index so future events create a fresh alert.
-        let idx_key = (tenant_id.to_string(), entry.routing_state.dedupe_key.clone());
+        let idx_key = (
+            tenant_id.to_string(),
+            entry.routing_state.dedupe_key.clone(),
+        );
         drop(entry);
         self.alert_dedupe_index.remove(&idx_key);
         Ok(self.alerts.get(&key).unwrap().clone())
@@ -477,7 +493,10 @@ impl AlertStore for InMemoryStore {
         &self,
         alert: AlertRecord,
     ) -> Result<AlertRecord, CyberboxError> {
-        let idx_key = (alert.tenant_id.clone(), alert.routing_state.dedupe_key.clone());
+        let idx_key = (
+            alert.tenant_id.clone(),
+            alert.routing_state.dedupe_key.clone(),
+        );
 
         if let Some(existing_id) = self.alert_dedupe_index.get(&idx_key).map(|v| *v) {
             let alert_key = (alert.tenant_id.clone(), existing_id);
@@ -521,15 +540,12 @@ pub fn sla_due_at(severity: &Severity, created_at: DateTime<Utc>) -> DateTime<Ut
 #[async_trait]
 impl CaseStore for InMemoryStore {
     async fn upsert_case(&self, case: CaseRecord) -> Result<CaseRecord, CyberboxError> {
-        self.cases.insert((case.tenant_id.clone(), case.case_id), case.clone());
+        self.cases
+            .insert((case.tenant_id.clone(), case.case_id), case.clone());
         Ok(case)
     }
 
-    async fn get_case(
-        &self,
-        tenant_id: &str,
-        case_id: Uuid,
-    ) -> Result<CaseRecord, CyberboxError> {
+    async fn get_case(&self, tenant_id: &str, case_id: Uuid) -> Result<CaseRecord, CyberboxError> {
         self.cases
             .get(&(tenant_id.to_string(), case_id))
             .map(|r| r.clone())
@@ -556,8 +572,12 @@ impl CaseStore for InMemoryStore {
     ) -> Result<CaseRecord, CyberboxError> {
         let key = (tenant_id.to_string(), case_id);
         let mut entry = self.cases.get_mut(&key).ok_or(CyberboxError::NotFound)?;
-        if let Some(t) = &patch.title { entry.title = t.clone(); }
-        if let Some(d) = &patch.description { entry.description = d.clone(); }
+        if let Some(t) = &patch.title {
+            entry.title = t.clone();
+        }
+        if let Some(d) = &patch.description {
+            entry.description = d.clone();
+        }
         if let Some(s) = &patch.status {
             if matches!(s, CaseStatus::Resolved | CaseStatus::Closed) && entry.closed_at.is_none() {
                 entry.closed_at = Some(now);
@@ -568,8 +588,12 @@ impl CaseStore for InMemoryStore {
             entry.severity = sev.clone();
             entry.sla_due_at = Some(sla_due_at(sev, entry.created_at));
         }
-        if let Some(a) = &patch.assignee { entry.assignee = Some(a.clone()); }
-        if let Some(tags) = &patch.tags { entry.tags = tags.clone(); }
+        if let Some(a) = &patch.assignee {
+            entry.assignee = Some(a.clone());
+        }
+        if let Some(tags) = &patch.tags {
+            entry.tags = tags.clone();
+        }
         entry.updated_at = now;
         Ok(entry.clone())
     }

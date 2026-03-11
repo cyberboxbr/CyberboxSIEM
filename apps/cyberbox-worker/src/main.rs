@@ -455,7 +455,8 @@ async fn run_with_kafka(config: &AppConfig, role: WorkerRole) -> anyhow::Result<
         let detector_store = clickhouse_store
             .clone()
             .context("stream detection role requires clickhouse store")?;
-        tasks.spawn(async move { run_stream_detection_loop(detector_config, detector_store).await });
+        tasks
+            .spawn(async move { run_stream_detection_loop(detector_config, detector_store).await });
     }
 
     if role.runs_scheduler() {
@@ -476,7 +477,9 @@ async fn run_with_kafka(config: &AppConfig, role: WorkerRole) -> anyhow::Result<
         for worker_index in 0..sink_worker_count {
             let sink_config = sink_config.clone();
             let sink_store = sink_store.clone();
-            tasks.spawn(async move { run_clickhouse_sink(sink_config, sink_store, worker_index).await });
+            tasks.spawn(
+                async move { run_clickhouse_sink(sink_config, sink_store, worker_index).await },
+            );
         }
     }
 
@@ -542,7 +545,10 @@ async fn run_normalizer_loop(config: AppConfig) -> anyhow::Result<()> {
         .set("bootstrap.servers", &config.redpanda_brokers)
         .set(
             "message.timeout.ms",
-            config.kafka_producer_message_timeout_ms.max(1000).to_string(),
+            config
+                .kafka_producer_message_timeout_ms
+                .max(1000)
+                .to_string(),
         )
         .set("acks", &config.kafka_producer_acks)
         .set(
@@ -865,7 +871,10 @@ async fn run_scheduler_loop(
     let mut last_run_by_rule: HashMap<uuid::Uuid, chrono::DateTime<chrono::Utc>> =
         match clickhouse_store.load_rule_watermarks().await {
             Ok(wm) => {
-                tracing::info!(count = wm.len(), "loaded scheduler watermarks from ClickHouse");
+                tracing::info!(
+                    count = wm.len(),
+                    "loaded scheduler watermarks from ClickHouse"
+                );
                 wm
             }
             Err(err) => {
@@ -908,7 +917,10 @@ async fn load_stream_rules_by_tenant(
     let rules = clickhouse_store.list_stream_rules().await?;
     let mut grouped = HashMap::<String, Vec<cyberbox_models::DetectionRule>>::new();
     for rule in rules {
-        grouped.entry(rule.tenant_id.clone()).or_default().push(rule);
+        grouped
+            .entry(rule.tenant_id.clone())
+            .or_default()
+            .push(rule);
     }
     Ok(grouped)
 }
@@ -1600,8 +1612,9 @@ async fn flush_clickhouse_buffer(
                 metrics::counter!("clickhouse_sink_flush_error_total").increment(1);
                 if attempt >= max_retries {
                     let mut restored = Vec::with_capacity(events_to_insert.len());
-                    for (event, offset_record) in
-                        events_to_insert.into_iter().zip(offsets_to_commit.into_iter())
+                    for (event, offset_record) in events_to_insert
+                        .into_iter()
+                        .zip(offsets_to_commit.into_iter())
                     {
                         restored.push(SinkBufferedEvent {
                             event,
@@ -1625,11 +1638,8 @@ async fn flush_clickhouse_buffer(
                     batch_len,
                     "clickhouse sink flush failed, retrying"
                 );
-                let backoff_ms = sink_retry_backoff_ms(
-                    retry_backoff_base_ms,
-                    retry_backoff_jitter_ms,
-                    attempt,
-                );
+                let backoff_ms =
+                    sink_retry_backoff_ms(retry_backoff_base_ms, retry_backoff_jitter_ms, attempt);
                 tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
             }
         }

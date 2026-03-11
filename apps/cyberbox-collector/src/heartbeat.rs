@@ -13,11 +13,13 @@ use tracing::debug;
 
 pub async fn run(
     interval_secs: u64,
-    tenant_id:     Arc<String>,
-    tx:            mpsc::Sender<Value>,
-    mut shutdown:  watch::Receiver<bool>,
+    tenant_id: Arc<String>,
+    tx: mpsc::Sender<Value>,
+    mut shutdown: watch::Receiver<bool>,
 ) {
-    if interval_secs == 0 { return; }
+    if interval_secs == 0 {
+        return;
+    }
 
     let mut ticker = tokio::time::interval(Duration::from_secs(interval_secs));
     ticker.tick().await; // skip the immediate first tick
@@ -47,7 +49,9 @@ pub async fn run(
             }
         });
 
-        if tx.send(ev).await.is_err() { return; }
+        if tx.send(ev).await.is_err() {
+            return;
+        }
         debug!("heartbeat sent");
     }
 }

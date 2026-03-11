@@ -238,7 +238,10 @@ impl KafkaRawEventPublisher {
             .set("bootstrap.servers", &config.redpanda_brokers)
             .set(
                 "message.timeout.ms",
-                config.kafka_producer_message_timeout_ms.max(1000).to_string(),
+                config
+                    .kafka_producer_message_timeout_ms
+                    .max(1000)
+                    .to_string(),
             )
             .set("acks", &config.kafka_producer_acks)
             .set(
@@ -384,8 +387,8 @@ impl KafkaRawEventPublisher {
 
                     if queue_full {
                         return Err(CyberboxError::TooManyRequests {
-                            message:
-                                "ingest overloaded: kafka producer queue is saturated".to_string(),
+                            message: "ingest overloaded: kafka producer queue is saturated"
+                                .to_string(),
                             retry_after_seconds: self.overload_retry_after_seconds,
                         });
                     }

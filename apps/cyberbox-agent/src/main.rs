@@ -48,17 +48,17 @@ mod updater;
 
 use config::{AgentConfig, SourceConfig};
 
-const SERVICE_NAME:        &str = "CyberboxAgent";
-const SERVICE_DISPLAY:     &str = "Cyberbox SIEM Agent";
-const CHANNEL_CAPACITY:    usize = 10_000;
+const SERVICE_NAME: &str = "CyberboxAgent";
+const SERVICE_DISPLAY: &str = "Cyberbox SIEM Agent";
+const CHANNEL_CAPACITY: usize = 10_000;
 
 // -- CLI ----------------------------------------------------------------------
 
 #[derive(Parser)]
 #[command(
-    name    = "cyberbox-agent",
-    about   = "Cyberbox SIEM log-forwarding agent",
-    version,
+    name = "cyberbox-agent",
+    about = "Cyberbox SIEM log-forwarding agent",
+    version
 )]
 struct Cli {
     #[command(subcommand)]
@@ -99,10 +99,10 @@ async fn main() {
 
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Run      { config } => cmd_run(config).await,
+        Cmd::Run { config } => cmd_run(config).await,
         Cmd::Validate { config } => cmd_validate(config),
-        Cmd::Install  { config } => cmd_install(config),
-        Cmd::Uninstall           => cmd_uninstall(),
+        Cmd::Install { config } => cmd_install(config),
+        Cmd::Uninstall => cmd_uninstall(),
     }
 }
 
@@ -110,7 +110,7 @@ async fn main() {
 
 async fn cmd_run(config_path: Option<PathBuf>) {
     let path = resolve_config(config_path);
-    let cfg  = config::load(&path).unwrap_or_else(|e| {
+    let cfg = config::load(&path).unwrap_or_else(|e| {
         error!("{e}");
         std::process::exit(1);
     });
@@ -124,9 +124,7 @@ async fn cmd_run(config_path: Option<PathBuf>) {
         "cyberbox-agent starting",
     );
 
-    let hostname = cfg.agent.hostname
-        .clone()
-        .unwrap_or_else(detect_hostname);
+    let hostname = cfg.agent.hostname.clone().unwrap_or_else(detect_hostname);
 
     let (tx, rx) = mpsc::channel::<Value>(CHANNEL_CAPACITY);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -143,27 +141,33 @@ async fn cmd_run(config_path: Option<PathBuf>) {
 
     // -- Spawn output ---------------------------------------------------------
     // Token: config file > CYBERBOX_AGENT_TOKEN env var
-    let token = cfg.collector.token.clone()
+    let token = cfg
+        .collector
+        .token
+        .clone()
         .or_else(|| std::env::var("CYBERBOX_AGENT_TOKEN").ok());
 
     // Resolve disk queue path: config > platform default
-    let queue_path = cfg.collector.queue_path.clone()
+    let queue_path = cfg
+        .collector
+        .queue_path
+        .clone()
         .map(PathBuf::from)
         .unwrap_or_else(default_queue_path);
 
     let out_cfg = output::OutputConfig {
-        host:             cfg.collector.host.clone(),
-        port:             cfg.collector.port,
-        protocol:         cfg.collector.protocol.clone(),
-        tls:              cfg.collector.tls,
-        tls_ca:           cfg.collector.tls_ca.clone(),
+        host: cfg.collector.host.clone(),
+        port: cfg.collector.port,
+        protocol: cfg.collector.protocol.clone(),
+        tls: cfg.collector.tls,
+        tls_ca: cfg.collector.tls_ca.clone(),
         token,
         backoff_max_secs: cfg.collector.backoff_max_secs,
-        buffer_size:      cfg.collector.buffer_size,
-        hostname:         hostname.clone(),
-        app_name:         cfg.agent.app_name.clone(),
-        tenant_id:        cfg.agent.tenant_id.clone(),
-        version:          env!("CARGO_PKG_VERSION").to_string(),
+        buffer_size: cfg.collector.buffer_size,
+        hostname: hostname.clone(),
+        app_name: cfg.agent.app_name.clone(),
+        tenant_id: cfg.agent.tenant_id.clone(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         queue_path,
     };
 
@@ -176,15 +180,15 @@ async fn cmd_run(config_path: Option<PathBuf>) {
     // -- Agent registration + heartbeat (optional) ----------------------------
     if let Some(api_cfg) = &cfg.api {
         let reg_cfg = registration::RegistrationConfig {
-            api_url:        api_cfg.url.clone(),
-            token:          api_cfg.token.clone(),
+            api_url: api_cfg.url.clone(),
+            token: api_cfg.token.clone(),
             heartbeat_secs: api_cfg.heartbeat_secs,
-            agent_id:       cfg.agent.tenant_id.clone(),
-            hostname:       hostname.clone(),
-            tenant_id:      cfg.agent.tenant_id.clone(),
-            version:        env!("CARGO_PKG_VERSION").to_string(),
-            config_path:    path.clone(),
-            reload_tx:      Some(reload_tx),
+            agent_id: cfg.agent.tenant_id.clone(),
+            hostname: hostname.clone(),
+            tenant_id: cfg.agent.tenant_id.clone(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            config_path: path.clone(),
+            reload_tx: Some(reload_tx),
         };
         tokio::spawn(registration::run(reg_cfg, shutdown_rx.clone()));
     }
@@ -232,8 +236,12 @@ fn cmd_validate(config_path: Option<PathBuf>) {
     let path = resolve_config(config_path);
     match config::load(&path) {
         Ok(cfg) => {
-            println!("Config OK: {} source(s), collector={}:{}",
-                cfg.source.len(), cfg.collector.host, cfg.collector.port);
+            println!(
+                "Config OK: {} source(s), collector={}:{}",
+                cfg.source.len(),
+                cfg.collector.host,
+                cfg.collector.port
+            );
         }
         Err(e) => {
             eprintln!("Config error: {e}");
@@ -285,10 +293,16 @@ fn install_windows(exe: &std::path::Path, config: &std::path::Path) {
     println!("Installing Windows Service '{SERVICE_NAME}'...");
 
     let status = Command::new("sc")
-        .args(["create", SERVICE_NAME,
-               "binPath=", &bin_path,
-               "DisplayName=", SERVICE_DISPLAY,
-               "start=", "auto"])
+        .args([
+            "create",
+            SERVICE_NAME,
+            "binPath=",
+            &bin_path,
+            "DisplayName=",
+            SERVICE_DISPLAY,
+            "start=",
+            "auto",
+        ])
         .status();
 
     match status {
@@ -306,7 +320,7 @@ fn install_windows(exe: &std::path::Path, config: &std::path::Path) {
 fn uninstall_windows() {
     use std::process::Command;
     println!("Stopping and removing Windows Service '{SERVICE_NAME}'...");
-    let _ = Command::new("sc").args(["stop",   SERVICE_NAME]).status();
+    let _ = Command::new("sc").args(["stop", SERVICE_NAME]).status();
     let _ = Command::new("sc").args(["delete", SERVICE_NAME]).status();
     println!("Done.");
 }
@@ -332,7 +346,7 @@ fn install_linux(exe: &std::path::Path, config: &std::path::Path) {
          \n\
          [Install]\n\
          WantedBy=multi-user.target\n",
-        exe    = exe.display(),
+        exe = exe.display(),
         config = config.display(),
     );
 
@@ -356,8 +370,12 @@ fn install_linux(exe: &std::path::Path, config: &std::path::Path) {
 fn uninstall_linux() {
     use std::process::Command;
     println!("Stopping and disabling cyberbox-agent...");
-    let _ = Command::new("systemctl").args(["stop",    "cyberbox-agent"]).status();
-    let _ = Command::new("systemctl").args(["disable", "cyberbox-agent"]).status();
+    let _ = Command::new("systemctl")
+        .args(["stop", "cyberbox-agent"])
+        .status();
+    let _ = Command::new("systemctl")
+        .args(["disable", "cyberbox-agent"])
+        .status();
     let _ = std::fs::remove_file("/etc/systemd/system/cyberbox-agent.service");
     let _ = Command::new("systemctl").arg("daemon-reload").status();
     println!("Done.");
@@ -366,16 +384,20 @@ fn uninstall_linux() {
 // -- Source spawning ----------------------------------------------------------
 
 fn spawn_source(
-    src:      &SourceConfig,
-    cfg:      &AgentConfig,
+    src: &SourceConfig,
+    cfg: &AgentConfig,
     hostname: String,
-    tx:       mpsc::Sender<Value>,
-    sd:       watch::Receiver<bool>,
+    tx: mpsc::Sender<Value>,
+    sd: watch::Receiver<bool>,
 ) {
-    let tenant  = cfg.agent.tenant_id.clone();
+    let tenant = cfg.agent.tenant_id.clone();
 
     match src.clone() {
-        SourceConfig::File { paths, poll_ms, bookmark_path } => {
+        SourceConfig::File {
+            paths,
+            poll_ms,
+            bookmark_path,
+        } => {
             let paths: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
             let bookmark = PathBuf::from(bookmark_path);
             tokio::spawn(sources::file::run(
@@ -386,7 +408,7 @@ fn spawn_source(
 
         #[cfg(windows)]
         SourceConfig::Wineventlog { channels } => {
-            let tid  = Arc::new(tenant);
+            let tid = Arc::new(tenant);
             let host = Arc::new(hostname);
             tokio::spawn(sources::wineventlog::run(channels, tid, host, tx));
             info!("Windows Event Log source started");
@@ -408,19 +430,30 @@ fn spawn_source(
             error!("journald source is only supported on Linux -- skipping");
         }
 
-        SourceConfig::Fim { paths, scan_interval_secs, recursive, baseline_path } => {
+        SourceConfig::Fim {
+            paths,
+            scan_interval_secs,
+            recursive,
+            baseline_path,
+        } => {
             let paths: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
             let baseline = PathBuf::from(baseline_path);
             tokio::spawn(sources::fim::run(
-                paths, scan_interval_secs, recursive, baseline,
-                tenant, hostname, tx, sd,
+                paths,
+                scan_interval_secs,
+                recursive,
+                baseline,
+                tenant,
+                hostname,
+                tx,
+                sd,
             ));
             info!("FIM source started");
         }
 
         #[cfg(windows)]
         SourceConfig::Sysmon => {
-            let tid  = Arc::new(tenant);
+            let tid = Arc::new(tenant);
             let host = Arc::new(hostname);
             tokio::spawn(sources::sysmon::run(tid, host, tx));
             info!("Sysmon source started");
@@ -476,25 +509,33 @@ fn resolve_config(explicit: Option<PathBuf>) -> PathBuf {
     // Same directory as the executable
     if let Ok(exe) = std::env::current_exe() {
         let candidate = exe.parent().unwrap_or(&exe).join("agent.toml");
-        if candidate.exists() { return candidate; }
+        if candidate.exists() {
+            return candidate;
+        }
     }
 
     // Current working directory
     let cwd = PathBuf::from("agent.toml");
-    if cwd.exists() { return cwd; }
+    if cwd.exists() {
+        return cwd;
+    }
 
     // Platform-specific system path
     #[cfg(target_os = "linux")]
     {
         let sys = PathBuf::from("/etc/cyberbox/agent.toml");
-        if sys.exists() { return sys; }
+        if sys.exists() {
+            return sys;
+        }
     }
 
     #[cfg(windows)]
     {
         if let Some(pd) = std::env::var_os("ProgramData") {
             let sys = PathBuf::from(pd).join("Cyberbox").join("agent.toml");
-            if sys.exists() { return sys; }
+            if sys.exists() {
+                return sys;
+            }
         }
     }
 

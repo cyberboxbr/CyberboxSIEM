@@ -27,11 +27,7 @@
 //! Pairs naturally with Sigma rules that reference `Image`, `CommandLine`,
 //! `User`, `ProcessId`, `ParentProcessId`.
 
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    time::Duration,
-};
+use std::{collections::HashMap, path::PathBuf, time::Duration};
 
 use chrono::Utc;
 use serde_json::{json, Value};
@@ -42,22 +38,22 @@ use tracing::debug;
 
 #[derive(Clone)]
 struct ProcInfo {
-    pid:     u32,
-    ppid:    u32,
-    comm:    String,
+    pid: u32,
+    ppid: u32,
+    comm: String,
     cmdline: String,
-    exe:     String,
-    uid:     u32,
-    gid:     u32,
+    exe: String,
+    uid: u32,
+    gid: u32,
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 pub async fn run(
-    poll_ms:  u64,
+    poll_ms: u64,
     tenant_id: String,
-    hostname:  String,
-    tx:        mpsc::Sender<Value>,
+    hostname: String,
+    tx: mpsc::Sender<Value>,
     mut shutdown: watch::Receiver<bool>,
 ) {
     let interval = Duration::from_millis(poll_ms.max(100));
@@ -80,7 +76,9 @@ pub async fn run(
         for (pid, info) in &current {
             if !known.contains_key(pid) {
                 let ev = build_event("process_create", info, &tenant_id, &hostname);
-                if tx.send(ev).await.is_err() { return; }
+                if tx.send(ev).await.is_err() {
+                    return;
+                }
             }
         }
 
@@ -88,7 +86,9 @@ pub async fn run(
         for (pid, info) in &known {
             if !current.contains_key(pid) {
                 let ev = build_event("process_terminate", info, &tenant_id, &hostname);
-                if tx.send(ev).await.is_err() { return; }
+                if tx.send(ev).await.is_err() {
+                    return;
+                }
             }
         }
 
@@ -152,27 +152,39 @@ fn read_proc_info(pid: u32) -> Option<ProcInfo> {
     // status — parse Pid, PPid, Uid, Gid
     let (ppid, uid, gid) = parse_status(pid).unwrap_or((0, 0, 0));
 
-    Some(ProcInfo { pid, ppid, comm, cmdline, exe, uid, gid })
+    Some(ProcInfo {
+        pid,
+        ppid,
+        comm,
+        cmdline,
+        exe,
+        uid,
+        gid,
+    })
 }
 
 /// Parse /proc/<pid>/status for PPid, Uid (real), Gid (real).
 fn parse_status(pid: u32) -> Option<(u32, u32, u32)> {
     let content = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
     let mut ppid = 0u32;
-    let mut uid  = 0u32;
-    let mut gid  = 0u32;
+    let mut uid = 0u32;
+    let mut gid = 0u32;
 
     for line in content.lines() {
         if let Some(rest) = line.strip_prefix("PPid:") {
             ppid = rest.trim().parse().unwrap_or(0);
         } else if let Some(rest) = line.strip_prefix("Uid:") {
-            uid = rest.split_whitespace().next()
-                      .and_then(|s| s.parse().ok())
-                      .unwrap_or(0);
+            uid = rest
+                .split_whitespace()
+                .next()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
         } else if let Some(rest) = line.strip_prefix("Gid:") {
-            gid = rest.split_whitespace().next()
-                      .and_then(|s| s.parse().ok())
-                      .unwrap_or(0);
+            gid = rest
+                .split_whitespace()
+                .next()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
         }
     }
     Some((ppid, uid, gid))
@@ -181,7 +193,11 @@ fn parse_status(pid: u32) -> Option<(u32, u32, u32)> {
 // ── Event builder ─────────────────────────────────────────────────────────────
 
 fn build_event(kind: &str, info: &ProcInfo, tenant_id: &str, hostname: &str) -> Value {
-    let mitre = if kind == "process_create" { "T1059" } else { "" };
+    let mitre = if kind == "process_create" {
+        "T1059"
+    } else {
+        ""
+    };
 
     json!({
         "tenant_id":  tenant_id,
@@ -210,7 +226,8 @@ fn resolve_uid(uid: u32) -> String {
     std::fs::read_to_string("/etc/passwd")
         .ok()
         .and_then(|content| {
-            content.lines()
+            content
+                .lines()
                 .find(|line| {
                     let parts: Vec<&str> = line.splitn(4, ':').collect();
                     parts.get(2).and_then(|s| s.parse::<u32>().ok()) == Some(uid)

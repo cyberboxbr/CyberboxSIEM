@@ -40,23 +40,23 @@ use tracing::{error, info, warn};
 // ── Public config ─────────────────────────────────────────────────────────────
 
 pub struct OutputConfig {
-    pub host:             String,
-    pub port:             u16,
+    pub host: String,
+    pub port: u16,
     /// `"json"` or `"syslog"`
-    pub protocol:         String,
-    pub tls:              bool,
-    pub tls_ca:           Option<std::path::PathBuf>,
+    pub protocol: String,
+    pub tls: bool,
+    pub tls_ca: Option<std::path::PathBuf>,
     /// Enrollment token — sent as first line per connection (JSON mode only)
-    pub token:            Option<String>,
+    pub token: Option<String>,
     pub backoff_max_secs: u64,
-    pub buffer_size:      usize,
-    pub hostname:         String,
-    pub app_name:         String,
-    pub tenant_id:        String,
+    pub buffer_size: usize,
+    pub hostname: String,
+    pub app_name: String,
+    pub tenant_id: String,
     /// Agent version string embedded in auth handshake
-    pub version:          String,
+    pub version: String,
     /// Path for the disk-backed queue (sled database directory)
-    pub queue_path:       std::path::PathBuf,
+    pub queue_path: std::path::PathBuf,
 }
 
 // ── Unified connection wrapper ────────────────────────────────────────────────
@@ -80,13 +80,13 @@ impl Conn {
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 pub async fn run(
-    mut rx:       mpsc::Receiver<Value>,
-    cfg:          OutputConfig,
+    mut rx: mpsc::Receiver<Value>,
+    cfg: OutputConfig,
     mut shutdown: watch::Receiver<bool>,
 ) {
-    let addr            = format!("{}:{}", cfg.host, cfg.port);
+    let addr = format!("{}:{}", cfg.host, cfg.port);
     let mut backoff_ms: u64 = 500;
-    let backoff_max_ms      = cfg.backoff_max_secs * 1000;
+    let backoff_max_ms = cfg.backoff_max_secs * 1000;
 
     let mut buf = match DiskQueue::open(&cfg.queue_path, cfg.buffer_size) {
         Ok(q) => q,
@@ -94,8 +94,7 @@ pub async fn run(
             error!(%e, "failed to open disk queue — falling back to in-memory");
             // Create a temp dir as fallback
             let tmp = std::env::temp_dir().join("cyberbox-agent-queue-fallback");
-            DiskQueue::open(&tmp, cfg.buffer_size)
-                .expect("cannot open fallback disk queue")
+            DiskQueue::open(&tmp, cfg.buffer_size).expect("cannot open fallback disk queue")
         }
     };
 
@@ -187,7 +186,10 @@ pub async fn run(
     let remaining = buf.len();
     buf.flush();
     if remaining > 0 {
-        info!(persisted = remaining, "output shutting down — events persisted to disk queue");
+        info!(
+            persisted = remaining,
+            "output shutting down — events persisted to disk queue"
+        );
     }
 }
 
@@ -208,7 +210,7 @@ async fn connect(addr: &str, cfg: &OutputConfig) -> anyhow::Result<Conn> {
 
 #[cfg(feature = "tls")]
 async fn connect_tls(
-    addr:   &str,
+    addr: &str,
     tls_ca: Option<&Path>,
 ) -> anyhow::Result<tokio_rustls::client::TlsStream<TcpStream>> {
     use rustls::{ClientConfig, RootCertStore};
@@ -241,8 +243,8 @@ async fn connect_tls(
             .with_no_client_auth(),
     );
 
-    let connector  = TlsConnector::from(tls_cfg);
-    let hostname   = addr.split(':').next().unwrap_or(addr).to_string();
+    let connector = TlsConnector::from(tls_cfg);
+    let hostname = addr.split(':').next().unwrap_or(addr).to_string();
     let server_name = rustls::pki_types::ServerName::try_from(hostname)
         .map_err(|e| anyhow::anyhow!("invalid TLS hostname: {e}"))?;
 
@@ -256,8 +258,10 @@ fn format_event(ev: &Value, cfg: &OutputConfig) -> String {
     match cfg.protocol.as_str() {
         "syslog" => {
             // RFC 3164: <14> = user.info
-            let ts  = chrono::Utc::now().format("%-b %e %H:%M:%S");
-            let msg = ev["raw_payload"]["message"].as_str().unwrap_or("(no message)");
+            let ts = chrono::Utc::now().format("%-b %e %H:%M:%S");
+            let msg = ev["raw_payload"]["message"]
+                .as_str()
+                .unwrap_or("(no message)");
             format!("<14>{ts} {} {}: {msg}\n", cfg.hostname, cfg.app_name)
         }
         _ => {

@@ -34,15 +34,14 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// - `GET  /healthz`   — JSON health/metrics snapshot
 /// - `POST /drain-dlq` — trigger immediate disk queue drain (202 Accepted)
 pub async fn serve(metrics: Arc<CollectorMetrics>, start: Instant, drain_trigger: Arc<Notify>) {
-    let bind_str = std::env::var("COLLECTOR_HEALTHZ_BIND")
-        .unwrap_or_default();
+    let bind_str = std::env::var("COLLECTOR_HEALTHZ_BIND").unwrap_or_default();
 
     if bind_str.is_empty() {
         return;
     }
 
     let bind: SocketAddr = match bind_str.parse() {
-        Ok(a)  => a,
+        Ok(a) => a,
         Err(e) => {
             error!(%e, "invalid COLLECTOR_HEALTHZ_BIND — healthz disabled");
             return;
@@ -50,7 +49,7 @@ pub async fn serve(metrics: Arc<CollectorMetrics>, start: Instant, drain_trigger
     };
 
     let listener = match tokio::net::TcpListener::bind(bind).await {
-        Ok(l)  => l,
+        Ok(l) => l,
         Err(e) => {
             error!(%e, %bind, "failed to bind healthz listener");
             return;
@@ -60,13 +59,15 @@ pub async fn serve(metrics: Arc<CollectorMetrics>, start: Instant, drain_trigger
 
     loop {
         if let Ok((mut stream, _)) = listener.accept().await {
-            let m       = Arc::clone(&metrics);
+            let m = Arc::clone(&metrics);
             let trigger = Arc::clone(&drain_trigger);
-            let start   = start;
+            let start = start;
             tokio::spawn(async move {
                 use tokio::io::AsyncWriteExt;
                 let mut rbuf = [0u8; 512];
-                let n = tokio::io::AsyncReadExt::read(&mut stream, &mut rbuf).await.unwrap_or(0);
+                let n = tokio::io::AsyncReadExt::read(&mut stream, &mut rbuf)
+                    .await
+                    .unwrap_or(0);
                 let req = std::str::from_utf8(&rbuf[..n]).unwrap_or("");
 
                 let resp = if req.starts_with("POST /drain-dlq") {

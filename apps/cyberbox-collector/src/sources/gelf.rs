@@ -60,9 +60,9 @@ const CHUNK_TTL_SECS: u64 = 5;
 const MAX_CHUNKS: usize = 128;
 
 struct ChunkBuffer {
-    count:      u8,
-    received:   u8,
-    chunks:     Vec<Option<Vec<u8>>>,
+    count: u8,
+    received: u8,
+    chunks: Vec<Option<Vec<u8>>>,
     created_at: Instant,
 }
 
@@ -72,13 +72,15 @@ type ChunkMap = Arc<Mutex<HashMap<[u8; 8], ChunkBuffer>>>;
 /// Returns `Some(assembled_bytes)` when all chunks have arrived, `None` otherwise.
 fn handle_chunk(map: &ChunkMap, data: &[u8]) -> Option<Vec<u8>> {
     // Header: 2 magic + 8 id + 1 seq_num + 1 seq_count = 12 bytes minimum
-    if data.len() < 12 { return None; }
+    if data.len() < 12 {
+        return None;
+    }
 
     let mut id = [0u8; 8];
     id.copy_from_slice(&data[2..10]);
-    let seq_num   = data[10] as usize;
+    let seq_num = data[10] as usize;
     let seq_count = data[11];
-    let payload   = data[12..].to_vec();
+    let payload = data[12..].to_vec();
 
     if seq_count == 0 || seq_count as usize > MAX_CHUNKS || seq_num >= seq_count as usize {
         return None;
@@ -87,9 +89,9 @@ fn handle_chunk(map: &ChunkMap, data: &[u8]) -> Option<Vec<u8>> {
     let mut map = map.lock().unwrap_or_else(|e| e.into_inner());
 
     let buf = map.entry(id).or_insert_with(|| ChunkBuffer {
-        count:      seq_count,
-        received:   0,
-        chunks:     vec![None; seq_count as usize],
+        count: seq_count,
+        received: 0,
+        chunks: vec![None; seq_count as usize],
         created_at: Instant::now(),
     });
 
@@ -99,7 +101,9 @@ fn handle_chunk(map: &ChunkMap, data: &[u8]) -> Option<Vec<u8>> {
     }
 
     if buf.received == buf.count {
-        let assembled: Vec<u8> = buf.chunks.iter()
+        let assembled: Vec<u8> = buf
+            .chunks
+            .iter()
             .filter_map(|c| c.as_deref())
             .flat_map(|c| c.iter().copied())
             .collect();
@@ -129,9 +133,7 @@ fn decompress(data: &[u8]) -> Option<Vec<u8>> {
         let mut out = Vec::new();
         GzDecoder::new(data).read_to_end(&mut out).ok()?;
         Some(out)
-    } else if data.len() >= 2 && data[0] == 0x78
-        && matches!(data[1], 0x01 | 0x5e | 0x9c | 0xda)
-    {
+    } else if data.len() >= 2 && data[0] == 0x78 && matches!(data[1], 0x01 | 0x5e | 0x9c | 0xda) {
         // Zlib
         let mut out = Vec::new();
         ZlibDecoder::new(data).read_to_end(&mut out).ok()?;
@@ -158,7 +160,7 @@ fn wrap_gelf(payload: Value, tenant_id: &str, source_ip: &str) -> Value {
         .and_then(|o| o.get("timestamp"))
         .and_then(|v| v.as_f64())
         .and_then(|ts| {
-            let secs  = ts as i64;
+            let secs = ts as i64;
             let nanos = ((ts - secs as f64) * 1_000_000_000.0) as u32;
             DateTime::from_timestamp(secs, nanos).map(|dt| dt.to_rfc3339())
         })
@@ -166,7 +168,10 @@ fn wrap_gelf(payload: Value, tenant_id: &str, source_ip: &str) -> Value {
 
     let mut raw = payload.clone();
     if let Some(obj) = raw.as_object_mut() {
-        obj.insert("source_ip".to_string(), Value::String(source_ip.to_string()));
+        obj.insert(
+            "source_ip".to_string(),
+            Value::String(source_ip.to_string()),
+        );
     }
 
     json!({
@@ -179,11 +184,11 @@ fn wrap_gelf(payload: Value, tenant_id: &str, source_ip: &str) -> Value {
 
 /// Parse raw bytes as a GELF JSON object; emit to channel on success.
 fn emit_gelf(
-    data:      &[u8],
+    data: &[u8],
     source_ip: &str,
     tenant_id: &str,
-    tx:        &mpsc::Sender<Value>,
-    metrics:   &CollectorMetrics,
+    tx: &mpsc::Sender<Value>,
+    metrics: &CollectorMetrics,
 ) {
     use std::sync::atomic::Ordering::Relaxed;
 
@@ -193,7 +198,9 @@ fn emit_gelf(
             // Prefer try_send for UDP (non-blocking); fall back to best-effort.
             use tokio::sync::mpsc::error::TrySendError;
             match tx.try_send(ev) {
-                Ok(_) => { metrics.gelf_udp_received.fetch_add(1, Relaxed); }
+                Ok(_) => {
+                    metrics.gelf_udp_received.fetch_add(1, Relaxed);
+                }
                 Err(TrySendError::Full(_)) => {
                     metrics.channel_drops.fetch_add(1, Relaxed);
                     debug!(source_ip, "GELF event dropped — channel full");
@@ -203,12 +210,16 @@ fn emit_gelf(
         }
         Ok(_) => {
             metrics.parse_errors.fetch_add(1, Relaxed);
-            if let Some(dlq) = metrics.dlq.get() { dlq.write("gelf_udp", source_ip, data); }
+            if let Some(dlq) = metrics.dlq.get() {
+                dlq.write("gelf_udp", source_ip, data);
+            }
             debug!(source_ip, "GELF payload is not a JSON object");
         }
         Err(e) => {
             metrics.parse_errors.fetch_add(1, Relaxed);
-            if let Some(dlq) = metrics.dlq.get() { dlq.write("gelf_udp", source_ip, data); }
+            if let Some(dlq) = metrics.dlq.get() {
+                dlq.write("gelf_udp", source_ip, data);
+            }
             debug!(source_ip, err = %e, "GELF JSON parse error");
         }
     }
@@ -217,10 +228,10 @@ fn emit_gelf(
 // ─── UDP source ───────────────────────────────────────────────────────────────
 
 pub async fn run_udp(
-    bind:         SocketAddr,
-    tenant_id:    Arc<String>,
-    tx:           mpsc::Sender<Value>,
-    metrics:      Arc<CollectorMetrics>,
+    bind: SocketAddr,
+    tenant_id: Arc<String>,
+    tx: mpsc::Sender<Value>,
+    metrics: Arc<CollectorMetrics>,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
     let sock = UdpSocket::bind(bind)
@@ -229,8 +240,8 @@ pub async fn run_udp(
     info!(%bind, "GELF UDP listener ready");
 
     let chunks: ChunkMap = Arc::new(Mutex::new(HashMap::new()));
-    let mut buf          = vec![0u8; 65_535];
-    let mut tick         = tokio::time::interval(std::time::Duration::from_secs(1));
+    let mut buf = vec![0u8; 65_535];
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
 
     loop {
         tokio::select! {
@@ -278,11 +289,11 @@ pub async fn run_udp(
 /// `tls` is per-connection hot-reloaded from the `ArcSwap`.  Pass `None` for
 /// plain-text.
 pub async fn run_tcp(
-    bind:         SocketAddr,
-    tenant_id:    Arc<String>,
-    tx:           mpsc::Sender<Value>,
-    metrics:      Arc<CollectorMetrics>,
-    tls:          Option<Arc<ArcSwap<tokio_rustls::TlsAcceptor>>>,
+    bind: SocketAddr,
+    tenant_id: Arc<String>,
+    tx: mpsc::Sender<Value>,
+    metrics: Arc<CollectorMetrics>,
+    tls: Option<Arc<ArcSwap<tokio_rustls::TlsAcceptor>>>,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
     let listener = TcpListener::bind(bind)
@@ -304,9 +315,9 @@ pub async fn run_tcp(
         match accept_res {
             Ok((stream, peer)) => {
                 let source_ip = peer.ip().to_string();
-                let tx2  = tx.clone();
-                let tid  = Arc::clone(&tenant_id);
-                let m    = Arc::clone(&metrics);
+                let tx2 = tx.clone();
+                let tid = Arc::clone(&tenant_id);
+                let m = Arc::clone(&metrics);
                 let tls2: Option<Arc<tokio_rustls::TlsAcceptor>> =
                     tls.as_ref().map(|s| s.load_full());
 
@@ -335,11 +346,11 @@ pub async fn run_tcp(
 
 /// Read null-byte–terminated GELF messages from `stream`.
 async fn process_gelf_tcp<S>(
-    stream:    S,
+    stream: S,
     source_ip: String,
     tenant_id: Arc<String>,
-    tx:        mpsc::Sender<Value>,
-    metrics:   Arc<CollectorMetrics>,
+    tx: mpsc::Sender<Value>,
+    metrics: Arc<CollectorMetrics>,
 ) -> Result<()>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
@@ -347,32 +358,44 @@ where
     use std::sync::atomic::Ordering::Relaxed;
 
     let mut reader = tokio::io::BufReader::new(stream);
-    let mut buf    = Vec::with_capacity(8192);
+    let mut buf = Vec::with_capacity(8192);
 
     loop {
         buf.clear();
         // read_until includes the delimiter; GELF messages end with \0.
         let n = reader.read_until(b'\0', &mut buf).await?;
-        if n == 0 { break; } // EOF
+        if n == 0 {
+            break;
+        } // EOF
 
         // Strip the trailing null byte.
-        if buf.last() == Some(&0) { buf.pop(); }
-        if buf.is_empty() { continue; }
+        if buf.last() == Some(&0) {
+            buf.pop();
+        }
+        if buf.is_empty() {
+            continue;
+        }
 
         match serde_json::from_slice::<Value>(&buf) {
             Ok(payload) if payload.is_object() => {
                 let ev = wrap_gelf(payload, &tenant_id, &source_ip);
                 metrics.gelf_tcp_received.fetch_add(1, Relaxed);
-                if tx.send(ev).await.is_err() { return Ok(()); }
+                if tx.send(ev).await.is_err() {
+                    return Ok(());
+                }
             }
             Ok(_) => {
                 metrics.parse_errors.fetch_add(1, Relaxed);
-                if let Some(dlq) = metrics.dlq.get() { dlq.write("gelf_tcp", &source_ip, &buf); }
+                if let Some(dlq) = metrics.dlq.get() {
+                    dlq.write("gelf_tcp", &source_ip, &buf);
+                }
                 warn!(source_ip, "GELF TCP message is not a JSON object");
             }
             Err(e) => {
                 metrics.parse_errors.fetch_add(1, Relaxed);
-                if let Some(dlq) = metrics.dlq.get() { dlq.write("gelf_tcp", &source_ip, &buf); }
+                if let Some(dlq) = metrics.dlq.get() {
+                    dlq.write("gelf_tcp", &source_ip, &buf);
+                }
                 debug!(source_ip, err = %e, "GELF TCP JSON parse error");
             }
         }
@@ -399,7 +422,7 @@ mod tests {
             "timestamp": 1_700_000_000.5_f64,
         });
         let ev = wrap_gelf(payload, "t1", "10.0.0.1");
-        assert_eq!(ev["tenant_id"],  "t1");
+        assert_eq!(ev["tenant_id"], "t1");
         assert!(ev["source"].as_str().unwrap().starts_with("gelf:web-01"));
         assert!(ev["event_time"].as_str().unwrap().contains('T'));
         assert_eq!(ev["raw_payload"]["source_ip"], "10.0.0.1");
@@ -465,25 +488,25 @@ mod tests {
     #[tokio::test]
     async fn roundtrip_gelf_tcp_null_delimited() {
         let (tx, mut rx) = mpsc::channel(16);
-        let metrics      = CollectorMetrics::new("test-gelf-queue.jsonl".into());
-        let tenant       = Arc::new("gelf-tenant".to_string());
+        let metrics = CollectorMetrics::new("test-gelf-queue.jsonl".into());
+        let tenant = Arc::new("gelf-tenant".to_string());
 
         let std_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let bound_addr   = std_listener.local_addr().unwrap();
+        let bound_addr = std_listener.local_addr().unwrap();
         std_listener.set_nonblocking(true).unwrap();
-        let listener     = TcpListener::from_std(std_listener).unwrap();
+        let listener = TcpListener::from_std(std_listener).unwrap();
 
-        let tx2  = tx.clone();
-        let tid  = Arc::clone(&tenant);
-        let m    = Arc::clone(&metrics);
+        let tx2 = tx.clone();
+        let tid = Arc::clone(&tenant);
+        let m = Arc::clone(&metrics);
         let handle = tokio::spawn(async move {
             loop {
                 match listener.accept().await {
                     Ok((stream, peer)) => {
-                        let ip   = peer.ip().to_string();
-                        let tx3  = tx2.clone();
+                        let ip = peer.ip().to_string();
+                        let tx3 = tx2.clone();
                         let tid2 = Arc::clone(&tid);
-                        let m2   = Arc::clone(&m);
+                        let m2 = Arc::clone(&m);
                         tokio::spawn(async move {
                             let _ = process_gelf_tcp(stream, ip, tid2, tx3, m2).await;
                         });
@@ -497,16 +520,13 @@ mod tests {
         let gelf_msg = b"{\"version\":\"1.1\",\"host\":\"srv01\",\"short_message\":\"test msg\",\"level\":6}\0";
         stream.write_all(gelf_msg).await.unwrap();
 
-        let ev = tokio::time::timeout(
-            std::time::Duration::from_secs(3),
-            rx.recv(),
-        )
-        .await
-        .expect("timeout waiting for GELF event")
-        .expect("channel closed");
+        let ev = tokio::time::timeout(std::time::Duration::from_secs(3), rx.recv())
+            .await
+            .expect("timeout waiting for GELF event")
+            .expect("channel closed");
 
-        assert_eq!(ev["tenant_id"],  "gelf-tenant");
-        assert_eq!(ev["source"],     "gelf:srv01");
+        assert_eq!(ev["tenant_id"], "gelf-tenant");
+        assert_eq!(ev["source"], "gelf:srv01");
         assert_eq!(ev["raw_payload"]["short_message"], "test msg");
         assert_eq!(ev["raw_payload"]["level"], 6);
 
@@ -518,8 +538,8 @@ mod tests {
     #[tokio::test]
     async fn roundtrip_gelf_udp_plain() {
         let (tx, mut rx) = mpsc::channel(16);
-        let metrics      = CollectorMetrics::new("test-gelf-udp-queue.jsonl".into());
-        let tenant       = Arc::new("gelf-udp-tenant".to_string());
+        let metrics = CollectorMetrics::new("test-gelf-udp-queue.jsonl".into());
+        let tenant = Arc::new("gelf-udp-tenant".to_string());
 
         // Bind source on OS-assigned port.
         let std_sock = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -530,7 +550,7 @@ mod tests {
         let chunks: ChunkMap = Arc::new(Mutex::new(HashMap::new()));
         let tx2 = tx.clone();
         let tid = Arc::clone(&tenant);
-        let m   = Arc::clone(&metrics);
+        let m = Arc::clone(&metrics);
 
         let handle = tokio::spawn(async move {
             let mut buf = vec![0u8; 65_535];
@@ -538,7 +558,7 @@ mod tests {
                 match sock.recv_from(&mut buf).await {
                     Ok((len, peer)) => {
                         let source_ip = peer.ip().to_string();
-                        let data      = &buf[..len];
+                        let data = &buf[..len];
                         if data.len() >= 2 && data[..2] == GELF_CHUNK_MAGIC {
                             if let Some(assembled) = handle_chunk(&chunks, data) {
                                 if let Some(plain) = decompress(&assembled) {
@@ -555,23 +575,23 @@ mod tests {
         });
 
         let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        let gelf   = serde_json::json!({
+        let gelf = serde_json::json!({
             "version": "1.1",
             "host": "udp-host",
             "short_message": "udp gelf test",
         });
-        sender.send_to(gelf.to_string().as_bytes(), bound_addr).await.unwrap();
+        sender
+            .send_to(gelf.to_string().as_bytes(), bound_addr)
+            .await
+            .unwrap();
 
-        let ev = tokio::time::timeout(
-            std::time::Duration::from_secs(3),
-            rx.recv(),
-        )
-        .await
-        .expect("timeout waiting for GELF UDP event")
-        .expect("channel closed");
+        let ev = tokio::time::timeout(std::time::Duration::from_secs(3), rx.recv())
+            .await
+            .expect("timeout waiting for GELF UDP event")
+            .expect("channel closed");
 
         assert_eq!(ev["tenant_id"], "gelf-udp-tenant");
-        assert_eq!(ev["source"],    "gelf:udp-host");
+        assert_eq!(ev["source"], "gelf:udp-host");
         assert_eq!(ev["raw_payload"]["short_message"], "udp gelf test");
 
         handle.abort();

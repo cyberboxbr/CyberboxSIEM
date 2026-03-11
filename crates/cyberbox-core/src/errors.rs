@@ -43,11 +43,8 @@ impl IntoResponse for CyberboxError {
                 message,
                 retry_after_seconds,
             } => {
-                let mut response = (
-                    StatusCode::TOO_MANY_REQUESTS,
-                    Json(ErrorBody { message }),
-                )
-                    .into_response();
+                let mut response =
+                    (StatusCode::TOO_MANY_REQUESTS, Json(ErrorBody { message })).into_response();
                 let retry_after = retry_after_seconds.max(1).to_string();
                 if let Ok(value) = HeaderValue::from_str(&retry_after) {
                     response.headers_mut().insert(RETRY_AFTER, value);

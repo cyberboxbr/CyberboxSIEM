@@ -6,23 +6,18 @@
 //!
 //! Call `cleanup()` from a background task every ~60 s to evict stale buckets.
 
-use std::{
-    collections::HashMap,
-    net::IpAddr,
-    sync::Mutex,
-    time::Instant,
-};
+use std::{collections::HashMap, net::IpAddr, sync::Mutex, time::Instant};
 
 pub struct SourceRateLimiter {
     /// Tokens replenished per second. 0.0 = rate limiting disabled.
     max_eps: f64,
     /// Maximum token accumulation (burst capacity).
-    burst:   f64,
+    burst: f64,
     buckets: Mutex<HashMap<IpAddr, Bucket>>,
 }
 
 struct Bucket {
-    tokens:      f64,
+    tokens: f64,
     last_refill: Instant,
 }
 
@@ -31,24 +26,32 @@ impl SourceRateLimiter {
     /// `burst_multiplier` sets burst = max_eps × multiplier.
     pub fn new(max_eps_per_source: u64, burst_multiplier: u32) -> Self {
         let max_eps = max_eps_per_source as f64;
-        let burst   = if max_eps > 0.0 {
+        let burst = if max_eps > 0.0 {
             (max_eps * burst_multiplier as f64).max(1.0)
         } else {
             0.0
         };
-        Self { max_eps, burst, buckets: Mutex::new(HashMap::new()) }
+        Self {
+            max_eps,
+            burst,
+            buckets: Mutex::new(HashMap::new()),
+        }
     }
 
     /// Returns `true` → allow the event; `false` → drop (rate exceeded).
     pub fn check(&self, ip: IpAddr) -> bool {
-        if self.max_eps == 0.0 { return true; }
+        if self.max_eps == 0.0 {
+            return true;
+        }
 
         // try_lock: prefer allowing the packet over blocking a hot receiver task.
-        let Ok(mut map) = self.buckets.try_lock() else { return true; };
+        let Ok(mut map) = self.buckets.try_lock() else {
+            return true;
+        };
 
-        let now    = Instant::now();
+        let now = Instant::now();
         let bucket = map.entry(ip).or_insert(Bucket {
-            tokens:      self.burst,
+            tokens: self.burst,
             last_refill: now,
         });
 
@@ -67,7 +70,9 @@ impl SourceRateLimiter {
     /// Evict buckets that haven't received a packet in the last 2 minutes.
     /// Call periodically; skips gracefully under lock contention.
     pub fn cleanup(&self) {
-        if self.max_eps == 0.0 { return; }
+        if self.max_eps == 0.0 {
+            return;
+        }
         if let Ok(mut map) = self.buckets.try_lock() {
             let now = Instant::now();
             map.retain(|_, b| now.duration_since(b.last_refill).as_secs() < 120);

@@ -39,14 +39,14 @@ fn env_str(key: &str, default: &str) -> String {
 
 pub async fn run(
     tenant_id: Arc<String>,
-    tx:        mpsc::Sender<Value>,
-    metrics:   Arc<CollectorMetrics>,
+    tx: mpsc::Sender<Value>,
+    metrics: Arc<CollectorMetrics>,
 ) -> Result<()> {
     use std::sync::atomic::Ordering::Relaxed;
 
-    let brokers      = env_str("COLLECTOR_KAFKA_BROKERS",      "localhost:9092");
-    let topics_str   = env_str("COLLECTOR_KAFKA_TOPICS",       "");
-    let group_id     = env_str("COLLECTOR_KAFKA_GROUP_ID",     "cyberbox-collector");
+    let brokers = env_str("COLLECTOR_KAFKA_BROKERS", "localhost:9092");
+    let topics_str = env_str("COLLECTOR_KAFKA_TOPICS", "");
+    let group_id = env_str("COLLECTOR_KAFKA_GROUP_ID", "cyberbox-collector");
     let offset_reset = env_str("COLLECTOR_KAFKA_OFFSET_RESET", "latest");
 
     if topics_str.is_empty() {
@@ -54,23 +54,25 @@ pub async fn run(
         return Ok(());
     }
 
-    let topics: Vec<&str> = topics_str.split(',')
+    let topics: Vec<&str> = topics_str
+        .split(',')
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .collect();
 
     let consumer: StreamConsumer = ClientConfig::new()
-        .set("bootstrap.servers",     &brokers)
-        .set("group.id",              &group_id)
-        .set("auto.offset.reset",     &offset_reset)
-        .set("enable.auto.commit",    "true")
+        .set("bootstrap.servers", &brokers)
+        .set("group.id", &group_id)
+        .set("auto.offset.reset", &offset_reset)
+        .set("enable.auto.commit", "true")
         .set("auto.commit.interval.ms", "5000")
-        .set("session.timeout.ms",    "30000")
+        .set("session.timeout.ms", "30000")
         .create()
         .context("create Kafka StreamConsumer")?;
 
     let topic_refs: Vec<&str> = topics.iter().map(|s| *s).collect();
-    consumer.subscribe(&topic_refs)
+    consumer
+        .subscribe(&topic_refs)
         .context("subscribe to Kafka topics")?;
 
     info!(brokers = %brokers, topics = %topics_str, group = %group_id, "Kafka consumer started");
@@ -85,14 +87,19 @@ pub async fn run(
             Ok(msg) => {
                 let payload_bytes = match msg.payload() {
                     Some(b) => b,
-                    None    => { debug!("Kafka message with empty payload — skipping"); continue; }
+                    None => {
+                        debug!("Kafka message with empty payload — skipping");
+                        continue;
+                    }
                 };
 
                 let source_ip = msg.topic().to_string(); // use topic as "source"
                 let ev = parse_kafka_payload(payload_bytes, &tenant_id, &source_ip);
 
                 match tx.try_send(ev) {
-                    Ok(_) => { metrics.kafka_received.fetch_add(1, Relaxed); }
+                    Ok(_) => {
+                        metrics.kafka_received.fetch_add(1, Relaxed);
+                    }
                     Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
                         metrics.channel_drops.fetch_add(1, Relaxed);
                         debug!(topic = msg.topic(), "Kafka event dropped — channel full");

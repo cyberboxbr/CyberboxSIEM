@@ -18,19 +18,15 @@
 //! are silently dropped (the DLQ itself is never rotated — operators are
 //! expected to drain it).
 
-use std::{
-    io::Write,
-    path::PathBuf,
-    sync::Mutex,
-};
+use std::{io::Write, path::PathBuf, sync::Mutex};
 
 use tracing::error;
 
 pub struct Dlq {
-    path:      PathBuf,
+    path: PathBuf,
     max_bytes: u64,
     /// Serialise concurrent writes so we don't interleave partial lines.
-    lock:      Mutex<()>,
+    lock: Mutex<()>,
 }
 
 impl Dlq {
@@ -64,9 +60,9 @@ impl Dlq {
             .open(&self.path)
         {
             Ok(mut f) => {
-                let ts      = chrono::Utc::now().to_rfc3339();
+                let ts = chrono::Utc::now().to_rfc3339();
                 let raw_str = String::from_utf8_lossy(raw);
-                let entry   = serde_json::json!({
+                let entry = serde_json::json!({
                     "ts":        ts,
                     "source":    source,
                     "source_ip": source_ip,

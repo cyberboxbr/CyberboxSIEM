@@ -243,7 +243,9 @@ fn split_pattern_clauses(pattern: &str) -> Vec<&str> {
     while i < chars.len() {
         match chars[i] {
             '[' => {
-                if depth == 0 { start = i; }
+                if depth == 0 {
+                    start = i;
+                }
                 depth += 1;
             }
             ']' => {
@@ -274,7 +276,11 @@ fn extract_quoted_value(clause: &str) -> Option<String> {
     } else {
         after_eq.trim_matches('\'').trim_matches('"').to_string()
     };
-    if val.is_empty() { None } else { Some(val) }
+    if val.is_empty() {
+        None
+    } else {
+        Some(val)
+    }
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────

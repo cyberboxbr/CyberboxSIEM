@@ -41,9 +41,9 @@ use tracing::{debug, error, info, warn};
 
 pub async fn run(
     socket_path: String,
-    tenant_id:   String,
-    hostname:    String,
-    tx:          mpsc::Sender<Value>,
+    tenant_id: String,
+    hostname: String,
+    tx: mpsc::Sender<Value>,
     mut shutdown: watch::Receiver<bool>,
 ) {
     info!(socket = %socket_path, "docker event source starting");
@@ -56,11 +56,11 @@ pub async fn run(
         }
 
         // Run the blocking docker event stream in a spawn_blocking
-        let sp   = socket_path.clone();
-        let tid  = tenant_id.clone();
+        let sp = socket_path.clone();
+        let tid = tenant_id.clone();
         let host = hostname.clone();
-        let tx2  = tx.clone();
-        let sd   = shutdown.clone();
+        let tx2 = tx.clone();
+        let sd = shutdown.clone();
 
         let handle = tokio::task::spawn_blocking(move || {
             stream_events(&sp, &tid, &host, &tx2, &sd);
@@ -83,10 +83,10 @@ pub async fn run(
 
 fn stream_events(
     socket_path: &str,
-    tenant_id:   &str,
-    hostname:    &str,
-    tx:          &mpsc::Sender<Value>,
-    shutdown:    &watch::Receiver<bool>,
+    tenant_id: &str,
+    hostname: &str,
+    tx: &mpsc::Sender<Value>,
+    shutdown: &watch::Receiver<bool>,
 ) {
     let mut stream = match UnixStream::connect(socket_path) {
         Ok(s) => s,
@@ -177,38 +177,56 @@ fn stream_events(
 
 fn normalize_docker_event(raw: &Value, tenant_id: &str, hostname: &str) -> Option<Value> {
     let action = raw.get("Action").or_else(|| raw.get("status"))?.as_str()?;
-    let ev_type = raw.get("Type").and_then(|v| v.as_str()).unwrap_or("container");
+    let ev_type = raw
+        .get("Type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("container");
 
     // Only emit container events (skip image/network/volume events)
     if ev_type != "container" {
         return None;
     }
 
-    let actor = raw.get("Actor").or_else(|| raw.get("actor")).cloned().unwrap_or(json!({}));
-    let attrs = actor.get("Attributes").or_else(|| actor.get("attributes"))
-        .cloned().unwrap_or(json!({}));
+    let actor = raw
+        .get("Actor")
+        .or_else(|| raw.get("actor"))
+        .cloned()
+        .unwrap_or(json!({}));
+    let attrs = actor
+        .get("Attributes")
+        .or_else(|| actor.get("attributes"))
+        .cloned()
+        .unwrap_or(json!({}));
 
-    let container_id = actor.get("ID").or_else(|| actor.get("id"))
+    let container_id = actor
+        .get("ID")
+        .or_else(|| actor.get("id"))
         .and_then(|v| v.as_str())
         .unwrap_or("")
-        .chars().take(12).collect::<String>();
+        .chars()
+        .take(12)
+        .collect::<String>();
 
     let image = attrs.get("image").and_then(|v| v.as_str()).unwrap_or("");
-    let name  = attrs.get("name").and_then(|v| v.as_str()).unwrap_or("");
+    let name = attrs.get("name").and_then(|v| v.as_str()).unwrap_or("");
 
-    let timestamp = raw.get("time").or_else(|| raw.get("timeNano"))
+    let timestamp = raw
+        .get("time")
+        .or_else(|| raw.get("timeNano"))
         .and_then(|v| v.as_i64())
-        .map(|t| chrono::DateTime::from_timestamp(t, 0)
-            .map(|dt| dt.to_rfc3339())
-            .unwrap_or_else(|| Utc::now().to_rfc3339()))
+        .map(|t| {
+            chrono::DateTime::from_timestamp(t, 0)
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_else(|| Utc::now().to_rfc3339())
+        })
         .unwrap_or_else(|| Utc::now().to_rfc3339());
 
     let mitre = match action {
-        "start"                    => "T1610",
+        "start" => "T1610",
         "exec_start" | "exec_die" => "T1059",
-        "kill"                     => "T1489",
-        "destroy"                  => "T1070.004",
-        _                          => "",
+        "kill" => "T1489",
+        "destroy" => "T1070.004",
+        _ => "",
     };
 
     // Extract exec command if present

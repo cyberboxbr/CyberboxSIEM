@@ -28,7 +28,11 @@ use serde_json::json;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::{TcpListener, UdpSocket};
 
-use cyberbox_core::{normalize::{attach_enrichment, normalize_to_ocsf}, parsers::parse_log_line, AppConfig};
+use cyberbox_core::{
+    normalize::{attach_enrichment, normalize_to_ocsf},
+    parsers::parse_log_line,
+    AppConfig,
+};
 use cyberbox_models::{EventSource, IncomingEvent};
 use cyberbox_storage::EventStore;
 
@@ -150,7 +154,11 @@ async fn process_line(state: &AppState, tenant_id: &str, line: &str) {
     if let Some(write_buffer) = &state.clickhouse_write_buffer {
         let dropped = write_buffer.send_events(&[envelope]);
         if dropped > 0 {
-            tracing::warn!(dropped, tenant_id, "syslog: write buffer full — event dropped");
+            tracing::warn!(
+                dropped,
+                tenant_id,
+                "syslog: write buffer full — event dropped"
+            );
         }
     }
 }

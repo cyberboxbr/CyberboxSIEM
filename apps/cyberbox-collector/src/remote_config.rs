@@ -21,11 +21,11 @@ use tracing::{debug, info, warn};
 /// Subset of Config that can be updated at runtime without restart.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct RuntimeConfig {
-    pub batch_size:     Option<usize>,
-    pub flush_ms:       Option<u64>,
+    pub batch_size: Option<usize>,
+    pub flush_ms: Option<u64>,
     pub heartbeat_secs: Option<u64>,
     #[allow(dead_code)]
-    pub tail_poll_ms:   Option<u64>,
+    pub tail_poll_ms: Option<u64>,
 }
 
 pub type SharedRuntimeConfig = Arc<RwLock<RuntimeConfig>>;
@@ -45,7 +45,7 @@ pub async fn run(client: reqwest::Client, shared: SharedRuntimeConfig) {
         .filter(|s| !s.is_empty())
     {
         Some(u) => u,
-        None    => return,
+        None => return,
     };
 
     let poll_secs: u64 = std::env::var("COLLECTOR_REMOTE_CONFIG_POLL_SECS")

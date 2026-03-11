@@ -10,9 +10,14 @@ use metrics_exporter_prometheus::PrometheusHandle;
 use tokio::sync::broadcast;
 
 use cyberbox_auth::{JwtValidator, Role};
-use cyberbox_core::{AppConfig, CyberboxError, EpsLimiter, GeoIpEnricher, LookupStore, TeamsNotifier, threatintel::ThreatIntelFeed};
+use cyberbox_core::{
+    threatintel::ThreatIntelFeed, AppConfig, CyberboxError, EpsLimiter, GeoIpEnricher, LookupStore,
+    TeamsNotifier,
+};
 use cyberbox_detection::{RuleExecutor, SigmaCompiler};
-use cyberbox_models::{AgentRecord, AlertRecord, DetectionMode, DetectionRule, EventEnvelope, SourceInfo};
+use cyberbox_models::{
+    AgentRecord, AlertRecord, DetectionMode, DetectionRule, EventEnvelope, SourceInfo,
+};
 use cyberbox_storage::{ClickHouseEventStore, ClickHouseWriteBuffer, InMemoryStore};
 
 use crate::stream::RawEventPublisher;
@@ -32,16 +37,16 @@ pub struct DedupCache {
 }
 
 struct DedupCacheInner {
-    queue:   Mutex<VecDeque<(String, Instant)>>,
+    queue: Mutex<VecDeque<(String, Instant)>>,
     present: DashMap<String, Instant>,
-    window:  Duration,
+    window: Duration,
 }
 
 impl DedupCache {
     pub fn new(window: Duration) -> Self {
         Self {
             inner: Arc::new(DedupCacheInner {
-                queue:   Mutex::new(VecDeque::new()),
+                queue: Mutex::new(VecDeque::new()),
                 present: DashMap::new(),
                 window,
             }),

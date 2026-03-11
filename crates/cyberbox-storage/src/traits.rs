@@ -86,11 +86,7 @@ pub trait AlertStore: Send + Sync {
 #[async_trait]
 pub trait CaseStore: Send + Sync {
     async fn upsert_case(&self, case: CaseRecord) -> Result<CaseRecord, CyberboxError>;
-    async fn get_case(
-        &self,
-        tenant_id: &str,
-        case_id: Uuid,
-    ) -> Result<CaseRecord, CyberboxError>;
+    async fn get_case(&self, tenant_id: &str, case_id: Uuid) -> Result<CaseRecord, CyberboxError>;
     async fn list_cases(&self, tenant_id: &str) -> Result<Vec<CaseRecord>, CyberboxError>;
     async fn update_case(
         &self,
@@ -102,10 +98,7 @@ pub trait CaseStore: Send + Sync {
     async fn delete_case(&self, tenant_id: &str, case_id: Uuid) -> Result<(), CyberboxError>;
 
     /// Return all open cases whose `sla_due_at` is in the past.
-    async fn list_sla_breaches(
-        &self,
-        tenant_id: &str,
-    ) -> Result<Vec<CaseRecord>, CyberboxError> {
+    async fn list_sla_breaches(&self, tenant_id: &str) -> Result<Vec<CaseRecord>, CyberboxError> {
         let now = chrono::Utc::now();
         let cases = self.list_cases(tenant_id).await?;
         Ok(cases

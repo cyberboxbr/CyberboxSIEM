@@ -5,22 +5,32 @@ use std::time::Instant;
 use rayon::prelude::*;
 
 use axum::{
-    extract::{ConnectInfo, Path, Query, State, ws::{WebSocket, WebSocketUpgrade, Message}},
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        ConnectInfo, Path, Query, State,
+    },
     http::StatusCode,
-    response::{sse::{Event, KeepAlive, Sse}, IntoResponse},
+    response::{
+        sse::{Event, KeepAlive, Sse},
+        IntoResponse,
+    },
     routing::{delete, get, patch, post},
     Json, Router,
 };
-use tokio_stream::wrappers::BroadcastStream;
-use tokio_stream::StreamExt as _;
 use chrono::{DateTime, Utc};
 use metrics::{counter, histogram};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::StreamExt as _;
 use uuid::Uuid;
 
 use cyberbox_auth::{AuthContext, Role};
-use cyberbox_core::{CyberboxError, nlq::{GenerateSigmaRequest, NlqRequest}, threatintel::ThreatIntelFeed};
+use cyberbox_core::{
+    nlq::{GenerateSigmaRequest, NlqRequest},
+    threatintel::ThreatIntelFeed,
+    CyberboxError,
+};
 use cyberbox_models::{
     AckAlertRequest, AgentRecord, AlertRecord, AlertsPage, AssignAlertRequest, AuditLogRecord,
     AuditLogsResponse, BacktestRequest, BacktestResponse, CaseAlertIdsRequest, CaseRecord,
@@ -59,12 +69,20 @@ pub fn api_router() -> Router<AppState> {
         .route("/api/v1/lgpd/anonymize", post(lgpd_anonymize))
         .route("/api/v1/lgpd/breach", post(lgpd_report_breach))
         // Lookup table management
-        .route("/api/v1/lookups", get(list_lookup_tables).post(create_lookup_table))
+        .route(
+            "/api/v1/lookups",
+            get(list_lookup_tables).post(create_lookup_table),
+        )
         .route(
             "/api/v1/lookups/:name",
-            get(get_lookup_table).put(replace_lookup_table).delete(delete_lookup_table),
+            get(get_lookup_table)
+                .put(replace_lookup_table)
+                .delete(delete_lookup_table),
         )
-        .route("/api/v1/lookups/:name/entries", post(add_lookup_entries).delete(remove_lookup_entries))
+        .route(
+            "/api/v1/lookups/:name/entries",
+            post(add_lookup_entries).delete(remove_lookup_entries),
+        )
         // Case management
         .route("/api/v1/cases", post(create_case).get(list_cases))
         .route("/api/v1/cases/sla-breaches", get(list_sla_breaches))
@@ -72,7 +90,10 @@ pub fn api_router() -> Router<AppState> {
             "/api/v1/cases/:id",
             get(get_case).patch(update_case).delete(delete_case),
         )
-        .route("/api/v1/cases/:id/alerts", post(attach_alerts_to_case).delete(detach_alerts_from_case))
+        .route(
+            "/api/v1/cases/:id/alerts",
+            post(attach_alerts_to_case).delete(detach_alerts_from_case),
+        )
         // Natural Language Query + AI helpers
         .route("/api/v1/events/nlq", post(nlq_search))
         .route("/api/v1/rules/generate", post(generate_sigma_rule))
@@ -85,9 +106,15 @@ pub fn api_router() -> Router<AppState> {
         .route("/api/v1/alerts/ws", get(alert_ws))
         // Rule version history
         .route("/api/v1/rules/:id/versions", get(list_rule_versions))
-        .route("/api/v1/rules/:id/versions/:ver/restore", post(restore_rule_version))
+        .route(
+            "/api/v1/rules/:id/versions/:ver/restore",
+            post(restore_rule_version),
+        )
         // TAXII / STIX threat intelligence feeds
-        .route("/api/v1/threatintel/feeds", get(list_ti_feeds).post(create_ti_feed))
+        .route(
+            "/api/v1/threatintel/feeds",
+            get(list_ti_feeds).post(create_ti_feed),
+        )
         .route(
             "/api/v1/threatintel/feeds/:id",
             get(get_ti_feed).delete(delete_ti_feed),
@@ -97,7 +124,9 @@ pub fn api_router() -> Router<AppState> {
         .route("/api/v1/rbac/users", get(list_rbac_assignments))
         .route(
             "/api/v1/rbac/users/:user_id",
-            get(get_rbac_user).put(set_rbac_user).delete(delete_rbac_user),
+            get(get_rbac_user)
+                .put(set_rbac_user)
+                .delete(delete_rbac_user),
         )
         // Source tracking
         .route("/api/v1/sources", get(list_sources))
@@ -189,7 +218,10 @@ pub async fn ingest_events(
     }
     let accepted = raw_valid.len();
 
-    if matches!(state.raw_event_publisher, crate::stream::RawEventPublisher::Noop) {
+    if matches!(
+        state.raw_event_publisher,
+        crate::stream::RawEventPublisher::Noop
+    ) {
         use cyberbox_core::normalize;
 
         // Load stream rules from the lock-free cache (atomic pointer load, ~1 ns).
@@ -296,7 +328,8 @@ pub async fn ingest_events(
                         true
                     } else {
                         let counter_key = format!("{}:{}", alert.rule_id, entity);
-                        let mut entry = state.threshold_counters
+                        let mut entry = state
+                            .threshold_counters
                             .entry(counter_key.clone())
                             .or_insert(0);
                         *entry += 1;
@@ -313,22 +346,25 @@ pub async fn ingest_events(
                 };
                 // Suppression window: skip alert if the rule is still cooling down.
                 let suppressed = if let Some(rule) = rule {
-                    rule.suppression_window_secs.filter(|&s| s > 0).map_or(false, |secs| {
-                        let suppress_key = format!("{}:{}", alert.rule_id, entity);
-                        let now = std::time::Instant::now();
-                        let active = state.suppression_map
-                            .get(&suppress_key)
-                            .map(|exp| now < *exp)
-                            .unwrap_or(false);
-                        if !active {
-                            // Record the firing time so subsequent matches are suppressed.
-                            state.suppression_map.insert(
-                                suppress_key,
-                                now + std::time::Duration::from_secs(secs),
-                            );
-                        }
-                        active
-                    })
+                    rule.suppression_window_secs
+                        .filter(|&s| s > 0)
+                        .map_or(false, |secs| {
+                            let suppress_key = format!("{}:{}", alert.rule_id, entity);
+                            let now = std::time::Instant::now();
+                            let active = state
+                                .suppression_map
+                                .get(&suppress_key)
+                                .map(|exp| now < *exp)
+                                .unwrap_or(false);
+                            if !active {
+                                // Record the firing time so subsequent matches are suppressed.
+                                state.suppression_map.insert(
+                                    suppress_key,
+                                    now + std::time::Duration::from_secs(secs),
+                                );
+                            }
+                            active
+                        })
                 } else {
                     false
                 };
@@ -338,7 +374,8 @@ pub async fn ingest_events(
                     // registered agent in the same tenant.
                     let mut alert = alert;
                     {
-                        let event_hostname = event.raw_payload
+                        let event_hostname = event
+                            .raw_payload
                             .get("hostname")
                             .or_else(|| event.raw_payload.get("Computer"))
                             .and_then(|v| v.as_str())
@@ -377,7 +414,10 @@ pub async fn ingest_events(
         }
     } else {
         for incoming in &raw_valid {
-            state.raw_event_publisher.publish_raw_event(incoming).await?;
+            state
+                .raw_event_publisher
+                .publish_raw_event(incoming)
+                .await?;
         }
     }
 
@@ -592,7 +632,11 @@ pub async fn create_rule(
     };
 
     // Refresh the lock-free stream-rule cache so ingest immediately sees the new rule.
-    let fresh = state.storage.list_rules(&auth.tenant_id).await.unwrap_or_default();
+    let fresh = state
+        .storage
+        .list_rules(&auth.tenant_id)
+        .await
+        .unwrap_or_default();
     state.stream_rule_cache.refresh(&auth.tenant_id, fresh);
 
     tracing::info!(
@@ -655,8 +699,12 @@ pub async fn update_rule(
         enabled: payload.enabled.unwrap_or(existing.enabled),
         scheduler_health: existing.scheduler_health.clone(),
         threshold_count: payload.threshold_count.or(existing.threshold_count),
-        threshold_group_by: payload.threshold_group_by.or_else(|| existing.threshold_group_by.clone()),
-        suppression_window_secs: payload.suppression_window_secs.or(existing.suppression_window_secs),
+        threshold_group_by: payload
+            .threshold_group_by
+            .or_else(|| existing.threshold_group_by.clone()),
+        suppression_window_secs: payload
+            .suppression_window_secs
+            .or(existing.suppression_window_secs),
     };
 
     let saved = if let Some(clickhouse_store) = &state.clickhouse_event_store {
@@ -665,7 +713,11 @@ pub async fn update_rule(
         state.storage.upsert_rule(updated).await?
     };
 
-    let fresh = state.storage.list_rules(&auth.tenant_id).await.unwrap_or_default();
+    let fresh = state
+        .storage
+        .list_rules(&auth.tenant_id)
+        .await
+        .unwrap_or_default();
     state.stream_rule_cache.refresh(&auth.tenant_id, fresh);
     state.rule_executor.invalidate_rule(saved.rule_id);
 
@@ -710,7 +762,11 @@ pub async fn delete_rule(
         state.storage.delete_rule(&auth.tenant_id, rule_id).await?;
     }
 
-    let fresh = state.storage.list_rules(&auth.tenant_id).await.unwrap_or_default();
+    let fresh = state
+        .storage
+        .list_rules(&auth.tenant_id)
+        .await
+        .unwrap_or_default();
     state.stream_rule_cache.refresh(&auth.tenant_id, fresh);
     state.rule_executor.invalidate_rule(rule_id);
 
@@ -878,7 +934,8 @@ pub async fn list_alerts(
 ) -> Result<Json<AlertsPage>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst, Role::Viewer])?;
 
-    let mut alerts: Vec<AlertRecord> = if let Some(clickhouse_store) = &state.clickhouse_event_store {
+    let mut alerts: Vec<AlertRecord> = if let Some(clickhouse_store) = &state.clickhouse_event_store
+    {
         clickhouse_store.list_alerts(&auth.tenant_id).await?
     } else {
         state.storage.list_alerts(&auth.tenant_id).await?
@@ -895,7 +952,11 @@ pub async fn list_alerts(
     }
 
     // Sort deterministically: newest last_seen first, then by alert_id for stability.
-    alerts.sort_unstable_by(|a, b| b.last_seen.cmp(&a.last_seen).then(b.alert_id.cmp(&a.alert_id)));
+    alerts.sort_unstable_by(|a, b| {
+        b.last_seen
+            .cmp(&a.last_seen)
+            .then(b.alert_id.cmp(&a.alert_id))
+    });
 
     let total = alerts.len();
     let limit = q.limit.unwrap_or(100).clamp(1, 500) as usize;
@@ -904,7 +965,9 @@ pub async fn list_alerts(
     let start = if let Some(cursor_b64) = &q.after {
         decode_alert_cursor(cursor_b64)
             .and_then(|(ts, id)| {
-                alerts.iter().position(|a| a.last_seen < ts || (a.last_seen == ts && a.alert_id < id))
+                alerts
+                    .iter()
+                    .position(|a| a.last_seen < ts || (a.last_seen == ts && a.alert_id < id))
             })
             .unwrap_or(0)
     } else {
@@ -916,12 +979,18 @@ pub async fn list_alerts(
     let page: Vec<AlertRecord> = page.into_iter().take(limit).collect();
 
     let next_cursor = if has_more {
-        page.last().map(|a| encode_alert_cursor(a.last_seen, a.alert_id))
+        page.last()
+            .map(|a| encode_alert_cursor(a.last_seen, a.alert_id))
     } else {
         None
     };
 
-    Ok(Json(AlertsPage { alerts: page, next_cursor, has_more, total }))
+    Ok(Json(AlertsPage {
+        alerts: page,
+        next_cursor,
+        has_more,
+        total,
+    }))
 }
 
 /// Encode `(last_seen, alert_id)` as a cursor string: `{ts_micros_hex}.{uuid}`.
@@ -1214,7 +1283,10 @@ pub async fn backtest_rule(
             total_scanned += 1;
 
             // Reconstruct a minimal EventEnvelope from the search result row.
-            let raw = row.get("raw_payload").cloned().unwrap_or_else(|| row.clone());
+            let raw = row
+                .get("raw_payload")
+                .cloned()
+                .unwrap_or_else(|| row.clone());
             let ocsf = row.get("ocsf_record").cloned().unwrap_or(json!({}));
             let event = cyberbox_models::EventEnvelope {
                 event_id: row
@@ -1309,13 +1381,15 @@ pub async fn mitre_coverage(
 
     let mut covered_techniques: Vec<CoveredTechnique> = technique_map
         .into_iter()
-        .map(|(technique_id, (tactic, technique_name, rule_ids))| CoveredTechnique {
-            technique_id,
-            tactic,
-            technique_name,
-            rule_count: rule_ids.len(),
-            rule_ids,
-        })
+        .map(
+            |(technique_id, (tactic, technique_name, rule_ids))| CoveredTechnique {
+                technique_id,
+                tactic,
+                technique_name,
+                rule_count: rule_ids.len(),
+                rule_ids,
+            },
+        )
         .collect();
     covered_techniques.sort_by(|a, b| a.technique_id.cmp(&b.technique_id));
 
@@ -1462,9 +1536,10 @@ pub async fn lgpd_export(
 
     // Search in-memory store — full-text scan over raw_payload for the subject identifier.
     let epoch = chrono::DateTime::<Utc>::from_timestamp(0, 0).unwrap_or(Utc::now());
-    let all_events = state
-        .storage
-        .list_events_in_range(&auth.tenant_id, epoch, Utc::now(), usize::MAX);
+    let all_events =
+        state
+            .storage
+            .list_events_in_range(&auth.tenant_id, epoch, Utc::now(), usize::MAX);
 
     let matching: Vec<serde_json::Value> = all_events
         .iter()
@@ -1485,17 +1560,20 @@ pub async fn lgpd_export(
     let total = matching.len();
 
     // Write DSAR audit entry.
-    let _ = state.storage.append_audit_log(AuditLogRecord {
-        audit_id: uuid::Uuid::new_v4(),
-        tenant_id: auth.tenant_id.clone(),
-        actor: auth.user_id.clone(),
-        action: "lgpd_dsar_export".to_string(),
-        entity_type: "data_subject".to_string(),
-        entity_id: params.subject_id.clone(),
-        timestamp: Utc::now(),
-        before: serde_json::Value::Null,
-        after: json!({ "exported_events": total }),
-    }).await;
+    let _ = state
+        .storage
+        .append_audit_log(AuditLogRecord {
+            audit_id: uuid::Uuid::new_v4(),
+            tenant_id: auth.tenant_id.clone(),
+            actor: auth.user_id.clone(),
+            action: "lgpd_dsar_export".to_string(),
+            entity_type: "data_subject".to_string(),
+            entity_id: params.subject_id.clone(),
+            timestamp: Utc::now(),
+            before: serde_json::Value::Null,
+            after: json!({ "exported_events": total }),
+        })
+        .await;
 
     tracing::info!(
         tenant_id = %auth.tenant_id,
@@ -1586,7 +1664,10 @@ pub async fn lgpd_anonymize(
             // Replace every occurrence of the subject identifier in raw_payload
             // with the placeholder so that analysts can still correlate the
             // security timeline without seeing the real identity.
-            let masked = e.raw_payload.to_string().replace(&payload.subject_id, "[ANONYMIZED]");
+            let masked = e
+                .raw_payload
+                .to_string()
+                .replace(&payload.subject_id, "[ANONYMIZED]");
             e.raw_payload = serde_json::from_str(&masked).unwrap_or(json!({"msg": "[ANONYMIZED]"}));
             e.integrity_hash = "[anonymized]".to_string();
             e
@@ -1604,17 +1685,20 @@ pub async fn lgpd_anonymize(
     }
 
     // Write audit entry for the anonymization.
-    let _ = state.storage.append_audit_log(AuditLogRecord {
-        audit_id: uuid::Uuid::new_v4(),
-        tenant_id: auth.tenant_id.clone(),
-        actor: auth.user_id.clone(),
-        action: "lgpd_anonymize".to_string(),
-        entity_type: "data_subject".to_string(),
-        entity_id: payload.subject_id.clone(),
-        timestamp: Utc::now(),
-        before: serde_json::Value::Null,
-        after: json!({ "anonymized_events": anonymized_count }),
-    }).await;
+    let _ = state
+        .storage
+        .append_audit_log(AuditLogRecord {
+            audit_id: uuid::Uuid::new_v4(),
+            tenant_id: auth.tenant_id.clone(),
+            actor: auth.user_id.clone(),
+            action: "lgpd_anonymize".to_string(),
+            entity_type: "data_subject".to_string(),
+            entity_id: payload.subject_id.clone(),
+            timestamp: Utc::now(),
+            before: serde_json::Value::Null,
+            after: json!({ "anonymized_events": anonymized_count }),
+        })
+        .await;
 
     tracing::warn!(
         tenant_id = %auth.tenant_id,
@@ -1683,17 +1767,20 @@ pub async fn lgpd_report_breach(
         "dpo_email": state.lgpd_dpo_email,
     });
 
-    let _ = state.storage.append_audit_log(AuditLogRecord {
-        audit_id: uuid::Uuid::new_v4(),
-        tenant_id: auth.tenant_id.clone(),
-        actor: auth.user_id.clone(),
-        action: "lgpd_breach_notification".to_string(),
-        entity_type: "incident".to_string(),
-        entity_id: incident_id.to_string(),
-        timestamp: reported_at,
-        before: serde_json::Value::Null,
-        after: breach_record,
-    }).await;
+    let _ = state
+        .storage
+        .append_audit_log(AuditLogRecord {
+            audit_id: uuid::Uuid::new_v4(),
+            tenant_id: auth.tenant_id.clone(),
+            actor: auth.user_id.clone(),
+            action: "lgpd_breach_notification".to_string(),
+            entity_type: "incident".to_string(),
+            entity_id: incident_id.to_string(),
+            timestamp: reported_at,
+            before: serde_json::Value::Null,
+            after: breach_record,
+        })
+        .await;
 
     tracing::error!(
         tenant_id = %auth.tenant_id,
@@ -1757,7 +1844,9 @@ async fn create_lookup_table(
     auth.require_any(&[Role::Admin])?;
     let name = payload.name.trim().to_string();
     if name.is_empty() {
-        return Err(CyberboxError::BadRequest("lookup table name cannot be empty".to_string()));
+        return Err(CyberboxError::BadRequest(
+            "lookup table name cannot be empty".to_string(),
+        ));
     }
     let count = payload.entries.len();
     state.lookup_store.set_entries(&name, payload.entries);
@@ -1818,8 +1907,14 @@ async fn add_lookup_entries(
     let added = payload.entries.len();
     state.lookup_store.add_entries(&name, payload.entries);
     tracing::info!(actor = %auth.user_id, table = %name, added, "lookup entries added");
-    let total = state.lookup_store.get_entries(&name).map(|e| e.len()).unwrap_or(0);
-    Ok(Json(json!({ "name": name, "added": added, "entry_count": total })))
+    let total = state
+        .lookup_store
+        .get_entries(&name)
+        .map(|e| e.len())
+        .unwrap_or(0);
+    Ok(Json(
+        json!({ "name": name, "added": added, "entry_count": total }),
+    ))
 }
 
 /// DELETE /api/v1/lookups/:name/entries — remove specific entries from a table.
@@ -1833,8 +1928,14 @@ async fn remove_lookup_entries(
     let removed = payload.entries.len();
     state.lookup_store.remove_entries(&name, &payload.entries);
     tracing::info!(actor = %auth.user_id, table = %name, removed, "lookup entries removed");
-    let total = state.lookup_store.get_entries(&name).map(|e| e.len()).unwrap_or(0);
-    Ok(Json(json!({ "name": name, "removed": removed, "entry_count": total })))
+    let total = state
+        .lookup_store
+        .get_entries(&name)
+        .map(|e| e.len())
+        .unwrap_or(0);
+    Ok(Json(
+        json!({ "name": name, "removed": removed, "entry_count": total }),
+    ))
 }
 
 // ─── Case Management ──────────────────────────────────────────────────────────
@@ -1847,7 +1948,9 @@ async fn create_case(
 ) -> Result<Json<CaseRecord>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst])?;
     if payload.title.trim().is_empty() {
-        return Err(CyberboxError::BadRequest("title cannot be empty".to_string()));
+        return Err(CyberboxError::BadRequest(
+            "title cannot be empty".to_string(),
+        ));
     }
     let now = Utc::now();
     let case = CaseRecord {
@@ -1887,10 +1990,14 @@ async fn list_cases(
     auth.require_any(&[Role::Admin, Role::Analyst])?;
     let mut cases = state.storage.list_cases(&auth.tenant_id).await?;
     if let Some(status) = &q.status {
-        cases.retain(|c| format!("{:?}", c.status).to_ascii_lowercase() == status.to_ascii_lowercase());
+        cases.retain(|c| {
+            format!("{:?}", c.status).to_ascii_lowercase() == status.to_ascii_lowercase()
+        });
     }
     if let Some(sev) = &q.severity {
-        cases.retain(|c| format!("{:?}", c.severity).to_ascii_lowercase() == sev.to_ascii_lowercase());
+        cases.retain(|c| {
+            format!("{:?}", c.severity).to_ascii_lowercase() == sev.to_ascii_lowercase()
+        });
     }
     if let Some(assignee) = &q.assignee {
         cases.retain(|c| c.assignee.as_deref() == Some(assignee.as_str()));
@@ -1908,7 +2015,9 @@ async fn list_sla_breaches(
     let breaches = state.storage.list_sla_breaches(&auth.tenant_id).await?;
     counter!("cyberbox_case_sla_breaches_total", "tenant" => auth.tenant_id.clone())
         .absolute(breaches.len() as u64);
-    Ok(Json(json!({ "breaches": breaches, "total": breaches.len() })))
+    Ok(Json(
+        json!({ "breaches": breaches, "total": breaches.len() }),
+    ))
 }
 
 /// GET /api/v1/cases/:id — get a single case.
@@ -1931,7 +2040,10 @@ async fn update_case(
 ) -> Result<Json<CaseRecord>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst])?;
     let now = Utc::now();
-    let updated = state.storage.update_case(&auth.tenant_id, id, &patch, now).await?;
+    let updated = state
+        .storage
+        .update_case(&auth.tenant_id, id, &patch, now)
+        .await?;
     tracing::info!(actor = %auth.user_id, case_id = %id, "case updated");
     Ok(Json(updated))
 }
@@ -1978,7 +2090,8 @@ async fn detach_alerts_from_case(
     auth.require_any(&[Role::Admin, Role::Analyst])?;
     let now = Utc::now();
     let mut case = state.storage.get_case(&auth.tenant_id, id).await?;
-    case.alert_ids.retain(|aid| !payload.alert_ids.contains(aid));
+    case.alert_ids
+        .retain(|aid| !payload.alert_ids.contains(aid));
     case.updated_at = now;
     let saved = state.storage.upsert_case(case).await?;
     Ok(Json(saved))
@@ -2010,10 +2123,14 @@ async fn create_ti_feed(
 ) -> Result<Json<ThreatIntelFeed>, CyberboxError> {
     auth.require_any(&[Role::Admin])?;
     if feed.taxii_url.trim().is_empty() {
-        return Err(CyberboxError::BadRequest("taxii_url cannot be empty".to_string()));
+        return Err(CyberboxError::BadRequest(
+            "taxii_url cannot be empty".to_string(),
+        ));
     }
     if feed.target_table.trim().is_empty() {
-        return Err(CyberboxError::BadRequest("target_table cannot be empty".to_string()));
+        return Err(CyberboxError::BadRequest(
+            "target_table cannot be empty".to_string(),
+        ));
     }
     feed.feed_id = Uuid::new_v4();
     state.threat_intel_feeds.insert(feed.feed_id, feed.clone());
@@ -2068,7 +2185,9 @@ async fn sync_ti_feed(
         .map(|f| f.clone())
         .ok_or(CyberboxError::NotFound)?;
 
-    let result = feed.sync(&state.lookup_store, &state.http_client).await
+    let result = feed
+        .sync(&state.lookup_store, &state.http_client)
+        .await
         .map_err(|e| CyberboxError::Internal(e.to_string()))?;
 
     tracing::info!(
@@ -2083,8 +2202,9 @@ async fn sync_ti_feed(
     )
     .increment(result.indicators_added as u64);
 
-    Ok(Json(serde_json::to_value(&result)
-        .unwrap_or_else(|_| json!({ "feed_id": id, "indicators_added": result.indicators_added }))))
+    Ok(Json(serde_json::to_value(&result).unwrap_or_else(
+        |_| json!({ "feed_id": id, "indicators_added": result.indicators_added }),
+    )))
 }
 
 // ─── Natural Language Query ───────────────────────────────────────────────────
@@ -2113,12 +2233,15 @@ async fn nlq_search(
     })?;
 
     if req.query.trim().is_empty() {
-        return Err(CyberboxError::BadRequest("query cannot be empty".to_string()));
+        return Err(CyberboxError::BadRequest(
+            "query cannot be empty".to_string(),
+        ));
     }
 
-    let translation = cyberbox_core::nlq::translate(&req, &auth.tenant_id, api_key, &state.http_client)
-        .await
-        .map_err(|e| CyberboxError::Internal(format!("NLQ translation failed: {e}")))?;
+    let translation =
+        cyberbox_core::nlq::translate(&req, &auth.tenant_id, api_key, &state.http_client)
+            .await
+            .map_err(|e| CyberboxError::Internal(format!("NLQ translation failed: {e}")))?;
 
     tracing::info!(
         actor = %auth.user_id,
@@ -2170,7 +2293,9 @@ async fn generate_sigma_rule(
         CyberboxError::Internal("nlq_enabled but anthropic_api_key not configured".to_string())
     })?;
     if req.description.trim().is_empty() {
-        return Err(CyberboxError::BadRequest("description cannot be empty".to_string()));
+        return Err(CyberboxError::BadRequest(
+            "description cannot be empty".to_string(),
+        ));
     }
 
     let result = cyberbox_core::nlq::generate_sigma(&req, api_key, &state.http_client)
@@ -2212,7 +2337,9 @@ async fn explain_alert_handler(
 
     // Fetch the alert — list then find (no get_alert on trait).
     let alerts = state.storage.list_alerts(&auth.tenant_id).await?;
-    let alert = alerts.into_iter().find(|a| a.alert_id == id)
+    let alert = alerts
+        .into_iter()
+        .find(|a| a.alert_id == id)
         .ok_or(CyberboxError::NotFound)?;
 
     // Build a compact context string for Claude using available fields.
@@ -2227,13 +2354,10 @@ async fn explain_alert_handler(
         "evidence_refs": alert.evidence_refs,
     });
 
-    let explanation = cyberbox_core::nlq::explain_alert(
-        &context.to_string(),
-        api_key,
-        &state.http_client,
-    )
-    .await
-    .map_err(|e| CyberboxError::Internal(format!("Alert explanation failed: {e}")))?;
+    let explanation =
+        cyberbox_core::nlq::explain_alert(&context.to_string(), api_key, &state.http_client)
+            .await
+            .map_err(|e| CyberboxError::Internal(format!("Alert explanation failed: {e}")))?;
 
     tracing::info!(
         actor = %auth.user_id,
@@ -2241,8 +2365,9 @@ async fn explain_alert_handler(
         "AI alert explanation generated"
     );
 
-    Ok(Json(serde_json::to_value(&explanation)
-        .unwrap_or_else(|_| json!({ "summary": "explanation unavailable" }))))
+    Ok(Json(serde_json::to_value(&explanation).unwrap_or_else(
+        |_| json!({ "summary": "explanation unavailable" }),
+    )))
 }
 
 // ─── RBAC Management ──────────────────────────────────────────────────────────
@@ -2270,7 +2395,9 @@ async fn list_rbac_assignments(
         })
         .collect();
 
-    Ok(Json(json!({ "assignments": assignments, "total": assignments.len() })))
+    Ok(Json(
+        json!({ "assignments": assignments, "total": assignments.len() }),
+    ))
 }
 
 /// Get stored role overrides for a specific user within the tenant.
@@ -2406,7 +2533,9 @@ async fn issue_ws_token(
     let now = std::time::Instant::now();
     state.ws_tokens.retain(|_, exp| now < *exp);
     state.ws_tokens.insert(token.clone(), expiry);
-    Ok(Json(json!({ "token": token, "expires_in_seconds": 60, "tenant_id": auth.tenant_id })))
+    Ok(Json(
+        json!({ "token": token, "expires_in_seconds": 60, "tenant_id": auth.tenant_id }),
+    ))
 }
 
 // ─── WebSocket Alert Stream ───────────────────────────────────────────────────
@@ -2518,14 +2647,24 @@ async fn restore_rule_version(
 /// Group a fired alert into an existing open case for the same rule, or create
 /// a new case automatically.  Runs as a background task — never blocks ingest.
 async fn auto_correlate_alert(state: AppState, alert: AlertRecord) {
-    let rule = state.storage.get_rule(&alert.tenant_id, alert.rule_id).await.ok();
-    let severity = rule.as_ref().map(|r| r.severity.clone()).unwrap_or(Severity::Medium);
-    let rule_name = rule.as_ref().and_then(|r| {
-        r.sigma_source
-            .lines()
-            .find(|l| l.trim_start().starts_with("title:"))
-            .and_then(|l| l.splitn(2, ':').nth(1).map(|s| s.trim().to_string()))
-    }).unwrap_or_else(|| format!("Rule {}", alert.rule_id));
+    let rule = state
+        .storage
+        .get_rule(&alert.tenant_id, alert.rule_id)
+        .await
+        .ok();
+    let severity = rule
+        .as_ref()
+        .map(|r| r.severity.clone())
+        .unwrap_or(Severity::Medium);
+    let rule_name = rule
+        .as_ref()
+        .and_then(|r| {
+            r.sigma_source
+                .lines()
+                .find(|l| l.trim_start().starts_with("title:"))
+                .and_then(|l| l.splitn(2, ':').nth(1).map(|s| s.trim().to_string()))
+        })
+        .unwrap_or_else(|| format!("Rule {}", alert.rule_id));
 
     let correlation_tag = format!("rule:{}", alert.rule_id);
     let cutoff = Utc::now() - chrono::Duration::hours(1);
@@ -2533,7 +2672,11 @@ async fn auto_correlate_alert(state: AppState, alert: AlertRecord) {
     let cases: Vec<CaseRecord> = if let Some(ch) = &state.clickhouse_event_store {
         ch.list_cases(&alert.tenant_id).await.unwrap_or_default()
     } else {
-        state.storage.list_cases(&alert.tenant_id).await.unwrap_or_default()
+        state
+            .storage
+            .list_cases(&alert.tenant_id)
+            .await
+            .unwrap_or_default()
     };
 
     // Find an open/in-progress case with the same rule tag within the last hour.
@@ -2601,7 +2744,9 @@ async fn tune_rule_handler(
 
     // Fetch the rule.
     let rules = state.storage.list_rules(&auth.tenant_id).await?;
-    let rule = rules.into_iter().find(|r| r.rule_id == id)
+    let rule = rules
+        .into_iter()
+        .find(|r| r.rule_id == id)
         .ok_or(CyberboxError::NotFound)?;
 
     // Summarise recent alert history for this rule.
@@ -2610,14 +2755,16 @@ async fn tune_rule_handler(
         .into_iter()
         .filter(|a| a.rule_id == id)
         .take(50)
-        .map(|a| serde_json::json!({
-            "alert_id": a.alert_id,
-            "status": format!("{:?}", a.status),
-            "resolution": a.resolution,
-            "hit_count": a.hit_count,
-            "first_seen": a.first_seen,
-            "last_seen": a.last_seen,
-        }))
+        .map(|a| {
+            serde_json::json!({
+                "alert_id": a.alert_id,
+                "status": format!("{:?}", a.status),
+                "resolution": a.resolution,
+                "hit_count": a.hit_count,
+                "first_seen": a.first_seen,
+                "last_seen": a.last_seen,
+            })
+        })
         .collect();
 
     let history_json = serde_json::to_string(&recent).unwrap_or_else(|_| "[]".to_string());
@@ -2638,8 +2785,9 @@ async fn tune_rule_handler(
         "rule tuning suggestions generated"
     );
 
-    Ok(Json(serde_json::to_value(&response)
-        .unwrap_or_else(|_| json!({ "suggestions": [] }))))
+    Ok(Json(
+        serde_json::to_value(&response).unwrap_or_else(|_| json!({ "suggestions": [] })),
+    ))
 }
 
 // ─── Source tracking ──────────────────────────────────────────────────────────
@@ -2650,7 +2798,8 @@ async fn tune_rule_handler(
 pub(crate) fn record_source(state: &AppState, tenant_id: &str, source_type: &str) {
     let key = format!("{tenant_id}:{source_type}");
     let now = Utc::now();
-    state.sources
+    state
+        .sources
         .entry(key)
         .and_modify(|s| {
             s.last_seen = now;
@@ -2669,9 +2818,13 @@ pub(crate) fn record_source(state: &AppState, tenant_id: &str, source_type: &str
 
 fn source_status(last_seen: DateTime<Utc>) -> String {
     let age_secs = (Utc::now() - last_seen).num_seconds().max(0) as u64;
-    if age_secs < 60       { "active".to_string() }
-    else if age_secs < 300 { "stale".to_string() }
-    else                   { "silent".to_string() }
+    if age_secs < 60 {
+        "active".to_string()
+    } else if age_secs < 300 {
+        "stale".to_string()
+    } else {
+        "silent".to_string()
+    }
 }
 
 /// `GET /api/v1/sources` — list all sources seen by this tenant.
@@ -2698,11 +2851,11 @@ pub async fn list_sources(
 
 #[derive(Debug, serde::Deserialize)]
 pub struct RegisterAgentRequest {
-    pub agent_id:  String,
+    pub agent_id: String,
     pub tenant_id: String,
-    pub hostname:  String,
-    pub os:        String,
-    pub version:   String,
+    pub hostname: String,
+    pub os: String,
+    pub version: String,
 }
 
 /// `POST /api/v1/agents/register` — called by cyberbox-agent on startup.
@@ -2713,19 +2866,20 @@ pub async fn register_agent(
 ) -> Json<Value> {
     let now = Utc::now();
     // Preserve existing group/tags/pending_config if agent re-registers
-    let (group, tags, pending_config) = state.agents
+    let (group, tags, pending_config) = state
+        .agents
         .get(&body.agent_id)
         .map(|e| (e.group.clone(), e.tags.clone(), e.pending_config.clone()))
         .unwrap_or_default();
     let record = AgentRecord {
-        agent_id:       body.agent_id.clone(),
-        tenant_id:      body.tenant_id,
-        hostname:       body.hostname,
-        os:             body.os,
-        version:        body.version,
-        ip:             addr.map(|ConnectInfo(a)| a.ip().to_string()),
-        registered_at:  now,
-        last_seen:      now,
+        agent_id: body.agent_id.clone(),
+        tenant_id: body.tenant_id,
+        hostname: body.hostname,
+        os: body.os,
+        version: body.version,
+        ip: addr.map(|ConnectInfo(a)| a.ip().to_string()),
+        registered_at: now,
+        last_seen: now,
         group,
         tags,
         pending_config,
@@ -2757,7 +2911,7 @@ pub async fn agent_heartbeat(
 #[derive(Debug, serde::Deserialize)]
 pub struct PatchAgentRequest {
     pub group: Option<String>,
-    pub tags:  Option<Vec<String>>,
+    pub tags: Option<Vec<String>>,
 }
 
 /// `PATCH /api/v1/agents/:id` — update group and/or tags.
@@ -2771,13 +2925,21 @@ pub async fn patch_agent(
         if entry.tenant_id != auth.tenant_id {
             return StatusCode::FORBIDDEN.into_response();
         }
-        if let Some(g) = body.group { entry.group = Some(g); }
-        if let Some(t) = body.tags  { entry.tags = t; }
-        (StatusCode::OK, Json(json!({
-            "agent_id": entry.agent_id,
-            "group":    entry.group,
-            "tags":     entry.tags,
-        }))).into_response()
+        if let Some(g) = body.group {
+            entry.group = Some(g);
+        }
+        if let Some(t) = body.tags {
+            entry.tags = t;
+        }
+        (
+            StatusCode::OK,
+            Json(json!({
+                "agent_id": entry.agent_id,
+                "group":    entry.group,
+                "tags":     entry.tags,
+            })),
+        )
+            .into_response()
     } else {
         StatusCode::NOT_FOUND.into_response()
     }
@@ -2802,11 +2964,15 @@ pub async fn push_agent_config(
             return StatusCode::FORBIDDEN.into_response();
         }
         entry.pending_config = Some(body.config_toml);
-        (StatusCode::ACCEPTED, Json(json!({
-            "agent_id": id,
-            "status": "config_queued",
-            "note": "Config will be delivered on the agent's next heartbeat",
-        }))).into_response()
+        (
+            StatusCode::ACCEPTED,
+            Json(json!({
+                "agent_id": id,
+                "status": "config_queued",
+                "note": "Config will be delivered on the agent's next heartbeat",
+            })),
+        )
+            .into_response()
     } else {
         StatusCode::NOT_FOUND.into_response()
     }
@@ -2829,7 +2995,9 @@ pub async fn list_agents(
         .filter(|e| {
             let a = e.value();
             a.tenant_id == auth.tenant_id
-                && q.group.as_deref().map_or(true, |g| a.group.as_deref() == Some(g))
+                && q.group
+                    .as_deref()
+                    .map_or(true, |g| a.group.as_deref() == Some(g))
         })
         .map(|e| {
             let a = e.value();
@@ -2880,7 +3048,8 @@ pub async fn import_rule_pack(
     Json(req): Json<ImportPackRequest>,
 ) -> Result<Json<crate::rules_pack::ImportResult>, CyberboxError> {
     auth.require_any(&[Role::Admin])?;
-    let result = crate::rules_pack::import_rules_from_dir(&auth, &state, &req.path, req.prune).await?;
+    let result =
+        crate::rules_pack::import_rules_from_dir(&auth, &state, &req.path, req.prune).await?;
 
     append_audit_log(
         &state,

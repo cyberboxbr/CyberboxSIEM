@@ -30,8 +30,8 @@ use crate::ratelimit::SourceRateLimiter;
 /// Rustls server-side TLS acceptor, built from PEM-encoded files.
 pub fn build_tls_acceptor(
     cert_pem: &[u8],
-    key_pem:  &[u8],
-    ca_pem:   Option<&[u8]>,
+    key_pem: &[u8],
+    ca_pem: Option<&[u8]>,
 ) -> Result<Arc<tokio_rustls::TlsAcceptor>> {
     use rustls::{
         pki_types::{CertificateDer, PrivateKeyDer},
@@ -44,10 +44,9 @@ pub fn build_tls_acceptor(
         .collect::<std::result::Result<_, _>>()
         .context("invalid TLS certificate PEM")?;
 
-    let key: PrivateKeyDer<'static> =
-        private_key(&mut std::io::Cursor::new(key_pem))
-            .context("read TLS private key")?
-            .context("no private key found in TLS key PEM")?;
+    let key: PrivateKeyDer<'static> = private_key(&mut std::io::Cursor::new(key_pem))
+        .context("read TLS private key")?
+        .context("no private key found in TLS key PEM")?;
 
     let config = if let Some(ca) = ca_pem {
         // Mutual TLS: clients must present a certificate signed by the CA
@@ -81,16 +80,16 @@ pub fn build_tls_acceptor(
 /// SIGUSR1 without restarting the listener.  Each new connection loads the
 /// current acceptor; existing connections are unaffected.
 pub async fn run(
-    bind:            SocketAddr,
-    tenant_id:       Arc<String>,
-    tx:              mpsc::Sender<Value>,
-    max_msg_bytes:   usize,
-    tls:             Option<Arc<ArcSwap<tokio_rustls::TlsAcceptor>>>,
-    ml_cfg:          MultilineConfig,
-    metrics:         Arc<CollectorMetrics>,
+    bind: SocketAddr,
+    tenant_id: Arc<String>,
+    tx: mpsc::Sender<Value>,
+    max_msg_bytes: usize,
+    tls: Option<Arc<ArcSwap<tokio_rustls::TlsAcceptor>>>,
+    ml_cfg: MultilineConfig,
+    metrics: Arc<CollectorMetrics>,
     max_connections: usize,
-    rate_limiter:    Arc<SourceRateLimiter>,
-    mut shutdown:    watch::Receiver<bool>,
+    rate_limiter: Arc<SourceRateLimiter>,
+    mut shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
     let listener = TcpListener::bind(bind)
         .await
@@ -112,36 +111,56 @@ pub async fn run(
         };
         match accept_res {
             Ok((stream, peer)) => {
-                let ip        = peer.ip();
+                let ip = peer.ip();
                 let source_ip = ip.to_string();
 
                 // Connection limit: try_acquire so we never block the accept loop
                 let permit: OwnedSemaphorePermit = match Arc::clone(&sem).try_acquire_owned() {
-                    Ok(p)  => p,
+                    Ok(p) => p,
                     Err(_) => {
-                        warn!(source_ip, max_connections, "TCP connection limit reached — dropping connection");
-                        metrics.channel_drops.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        warn!(
+                            source_ip,
+                            max_connections, "TCP connection limit reached — dropping connection"
+                        );
+                        metrics
+                            .channel_drops
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         continue;
                     }
                 };
 
-                let tx2   = tx.clone();
-                let tid   = Arc::clone(&tenant_id);
+                let tx2 = tx.clone();
+                let tid = Arc::clone(&tenant_id);
                 let tls2: Option<Arc<tokio_rustls::TlsAcceptor>> =
                     tls.as_ref().map(|s| s.load_full());
-                let m2    = Arc::clone(&metrics);
-                let rl2   = Arc::clone(&rate_limiter);
+                let m2 = Arc::clone(&metrics);
+                let rl2 = Arc::clone(&rate_limiter);
                 let ml_cfg2 = MultilineConfig {
-                    pattern:    ml_cfg.pattern.as_ref()
+                    pattern: ml_cfg
+                        .pattern
+                        .as_ref()
                         .map(|r| regex::Regex::new(r.as_str()).unwrap()),
-                    negate:     ml_cfg.negate,
-                    max_lines:  ml_cfg.max_lines,
+                    negate: ml_cfg.negate,
+                    max_lines: ml_cfg.max_lines,
                     timeout_ms: ml_cfg.timeout_ms,
                 };
 
                 tokio::spawn(async move {
                     let _permit = permit; // released when this task ends
-                    if let Err(err) = handle_conn(stream, source_ip, ip, tid, tx2, max_msg_bytes, tls2, ml_cfg2, m2, rl2).await {
+                    if let Err(err) = handle_conn(
+                        stream,
+                        source_ip,
+                        ip,
+                        tid,
+                        tx2,
+                        max_msg_bytes,
+                        tls2,
+                        ml_cfg2,
+                        m2,
+                        rl2,
+                    )
+                    .await
+                    {
                         debug!(%err, "TCP connection closed");
                     }
                 });
@@ -153,35 +172,57 @@ pub async fn run(
 }
 
 async fn handle_conn(
-    stream:        TcpStream,
-    source_ip:     String,
+    stream: TcpStream,
+    source_ip: String,
     source_ip_addr: std::net::IpAddr,
-    tenant_id:     Arc<String>,
-    tx:            mpsc::Sender<Value>,
+    tenant_id: Arc<String>,
+    tx: mpsc::Sender<Value>,
     max_msg_bytes: usize,
-    tls:           Option<Arc<tokio_rustls::TlsAcceptor>>,
-    ml_cfg:        MultilineConfig,
-    metrics:       Arc<CollectorMetrics>,
-    rate_limiter:  Arc<SourceRateLimiter>,
+    tls: Option<Arc<tokio_rustls::TlsAcceptor>>,
+    ml_cfg: MultilineConfig,
+    metrics: Arc<CollectorMetrics>,
+    rate_limiter: Arc<SourceRateLimiter>,
 ) -> Result<()> {
     if let Some(acceptor) = tls {
         let tls_stream = acceptor.accept(stream).await.context("TLS handshake")?;
-        process_lines(tls_stream, source_ip, source_ip_addr, tenant_id, tx, max_msg_bytes, ml_cfg, metrics, rate_limiter).await
+        process_lines(
+            tls_stream,
+            source_ip,
+            source_ip_addr,
+            tenant_id,
+            tx,
+            max_msg_bytes,
+            ml_cfg,
+            metrics,
+            rate_limiter,
+        )
+        .await
     } else {
-        process_lines(stream, source_ip, source_ip_addr, tenant_id, tx, max_msg_bytes, ml_cfg, metrics, rate_limiter).await
+        process_lines(
+            stream,
+            source_ip,
+            source_ip_addr,
+            tenant_id,
+            tx,
+            max_msg_bytes,
+            ml_cfg,
+            metrics,
+            rate_limiter,
+        )
+        .await
     }
 }
 
 async fn process_lines<S>(
-    stream:         S,
-    source_ip:      String,
+    stream: S,
+    source_ip: String,
     source_ip_addr: std::net::IpAddr,
-    tenant_id:      Arc<String>,
-    tx:             mpsc::Sender<Value>,
-    max_msg_bytes:  usize,
-    ml_cfg:         MultilineConfig,
-    metrics:        Arc<CollectorMetrics>,
-    rate_limiter:   Arc<SourceRateLimiter>,
+    tenant_id: Arc<String>,
+    tx: mpsc::Sender<Value>,
+    max_msg_bytes: usize,
+    ml_cfg: MultilineConfig,
+    metrics: Arc<CollectorMetrics>,
+    rate_limiter: Arc<SourceRateLimiter>,
 ) -> Result<()>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
@@ -196,7 +237,12 @@ where
         // Hard-enforce maximum line size at a valid UTF-8 char boundary.
         let line = if line.len() > max_msg_bytes {
             let end = line.floor_char_boundary(max_msg_bytes);
-            warn!(source_ip, bytes = line.len(), max = max_msg_bytes, "syslog TCP line truncated");
+            warn!(
+                source_ip,
+                bytes = line.len(),
+                max = max_msg_bytes,
+                "syslog TCP line truncated"
+            );
             metrics.parse_errors.fetch_add(1, Relaxed);
             line[..end].to_string()
         } else {

@@ -241,31 +241,23 @@ fn bench_throughput(c: &mut Criterion) {
     group.sample_size(20);
 
     for n in [10u64, 100, 1_000, 10_000] {
-        group.bench_with_input(
-            BenchmarkId::new("stream_rule/events", n),
-            &n,
-            |b, &n| {
-                b.iter(|| {
-                    for _ in 0..n {
-                        executor.evaluate(&stream_rule, &event);
-                    }
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("stream_rule/events", n), &n, |b, &n| {
+            b.iter(|| {
+                for _ in 0..n {
+                    executor.evaluate(&stream_rule, &event);
+                }
+            })
+        });
     }
 
     for n in [10u64, 100, 1_000, 10_000] {
-        group.bench_with_input(
-            BenchmarkId::new("aggregate_rule/events", n),
-            &n,
-            |b, &n| {
-                b.iter(|| {
-                    for _ in 0..n {
-                        executor.evaluate(&agg_rule, &event);
-                    }
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("aggregate_rule/events", n), &n, |b, &n| {
+            b.iter(|| {
+                for _ in 0..n {
+                    executor.evaluate(&agg_rule, &event);
+                }
+            })
+        });
     }
 
     group.finish();

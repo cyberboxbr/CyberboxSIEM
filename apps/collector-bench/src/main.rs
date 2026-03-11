@@ -34,12 +34,12 @@ use std::{
 };
 
 use axum::{
-    Router,
     body::Body,
     extract::{Request, State},
     http::StatusCode,
     response::IntoResponse,
     routing::post,
+    Router,
 };
 use clap::{Parser, Subcommand, ValueEnum};
 use tokio::{net::UdpSocket, time};
@@ -112,7 +112,13 @@ async fn main() {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::MockApi { bind, delay_ms } => mock_api(bind, delay_ms).await,
-        Cmd::Send { target, protocol, concurrency, rate, duration } => {
+        Cmd::Send {
+            target,
+            protocol,
+            concurrency,
+            rate,
+            duration,
+        } => {
             send(target, protocol, concurrency, rate, duration).await;
         }
         Cmd::Snapshot { url } => snapshot(url).await,
@@ -123,14 +129,14 @@ async fn main() {
 
 #[derive(Clone)]
 struct MockState {
-    batches:  Arc<AtomicU64>,
+    batches: Arc<AtomicU64>,
     bytes_rx: Arc<AtomicU64>,
     delay_ms: u64,
 }
 
 async fn mock_api(bind: String, delay_ms: u64) {
     let state = MockState {
-        batches:  Arc::new(AtomicU64::new(0)),
+        batches: Arc::new(AtomicU64::new(0)),
         bytes_rx: Arc::new(AtomicU64::new(0)),
         delay_ms,
     };
@@ -139,7 +145,8 @@ async fn mock_api(bind: String, delay_ms: u64) {
         .route("/api/v1/events:ingest", post(ingest_handler))
         .with_state(state.clone());
 
-    let listener = tokio::net::TcpListener::bind(&bind).await
+    let listener = tokio::net::TcpListener::bind(&bind)
+        .await
         .unwrap_or_else(|e| panic!("mock-api: cannot bind {bind}: {e}"));
 
     eprintln!("[mock-api] listening on {bind} (delay={delay_ms}ms)");
@@ -159,10 +166,7 @@ async fn mock_api(bind: String, delay_ms: u64) {
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn ingest_handler(
-    State(state): State<MockState>,
-    req: Request<Body>,
-) -> impl IntoResponse {
+async fn ingest_handler(State(state): State<MockState>, req: Request<Body>) -> impl IntoResponse {
     let content_len = req
         .headers()
         .get("content-length")
@@ -186,8 +190,7 @@ async fn ingest_handler(
 // ── Sender ───────────────────────────────────────────────────────────────────
 
 /// Standard syslog RFC3164 datagram — ~105 bytes, realistic payload.
-const SYSLOG_MSG: &[u8] =
-    b"<134>Jan  1 00:00:00 perfhost cyberbox-bench: benchmark event payload \
+const SYSLOG_MSG: &[u8] = b"<134>Jan  1 00:00:00 perfhost cyberbox-bench: benchmark event payload \
       for collector performance testing run AAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 async fn send(target: String, protocol: Protocol, concurrency: usize, rate: u64, duration: u64) {
@@ -195,8 +198,8 @@ async fn send(target: String, protocol: Protocol, concurrency: usize, rate: u64,
         .parse()
         .unwrap_or_else(|_| panic!("invalid target address: {target}"));
 
-    let sent  = Arc::new(AtomicU64::new(0));
-    let stop  = Arc::new(AtomicBool::new(false));
+    let sent = Arc::new(AtomicU64::new(0));
+    let stop = Arc::new(AtomicBool::new(false));
 
     let mut handles = Vec::with_capacity(concurrency);
     for _ in 0..concurrency {
@@ -204,16 +207,12 @@ async fn send(target: String, protocol: Protocol, concurrency: usize, rate: u64,
         let stop2 = Arc::clone(&stop);
 
         let handle = match protocol {
-            Protocol::Udp => {
-                tokio::spawn(async move {
-                    send_udp_task(addr, rate, sent2, stop2).await;
-                })
-            }
-            Protocol::Tcp => {
-                tokio::spawn(async move {
-                    send_tcp_task(addr, rate, sent2, stop2).await;
-                })
-            }
+            Protocol::Udp => tokio::spawn(async move {
+                send_udp_task(addr, rate, sent2, stop2).await;
+            }),
+            Protocol::Tcp => tokio::spawn(async move {
+                send_tcp_task(addr, rate, sent2, stop2).await;
+            }),
         };
         handles.push(handle);
     }
@@ -239,27 +238,28 @@ async fn send(target: String, protocol: Protocol, concurrency: usize, rate: u64,
     }
 
     let total = sent.load(Relaxed);
-    let secs  = t_start.elapsed().as_secs_f64();
+    let secs = t_start.elapsed().as_secs_f64();
     eprintln!(
         "[sender] done  total={total}  avg_eps={:.0}",
         total as f64 / secs
     );
 }
 
-async fn send_udp_task(
-    target: SocketAddr,
-    rate:   u64,
-    sent:   Arc<AtomicU64>,
-    stop:   Arc<AtomicBool>,
-) {
+async fn send_udp_task(target: SocketAddr, rate: u64, sent: Arc<AtomicU64>, stop: Arc<AtomicBool>) {
     let sock = UdpSocket::bind("0.0.0.0:0").await.unwrap();
 
     // If rate==0 we spin; otherwise we pace per task.
     // delay_ns = 1_000_000_000 / rate  (rate is per-task, not total)
-    let delay_ns = if rate == 0 { 0u64 } else { 1_000_000_000 / rate };
+    let delay_ns = if rate == 0 {
+        0u64
+    } else {
+        1_000_000_000 / rate
+    };
 
     loop {
-        if stop.load(Relaxed) { break; }
+        if stop.load(Relaxed) {
+            break;
+        }
         let _ = sock.send_to(SYSLOG_MSG, target).await;
         sent.fetch_add(1, Relaxed);
         if delay_ns > 0 {
@@ -268,24 +268,25 @@ async fn send_udp_task(
     }
 }
 
-async fn send_tcp_task(
-    target: SocketAddr,
-    rate:   u64,
-    sent:   Arc<AtomicU64>,
-    stop:   Arc<AtomicBool>,
-) {
+async fn send_tcp_task(target: SocketAddr, rate: u64, sent: Arc<AtomicU64>, stop: Arc<AtomicBool>) {
     use tokio::io::AsyncWriteExt;
 
-    let delay_ns = if rate == 0 { 0u64 } else { 1_000_000_000 / rate };
+    let delay_ns = if rate == 0 {
+        0u64
+    } else {
+        1_000_000_000 / rate
+    };
     // A newline-terminated syslog line for TCP framing
     let mut msg = SYSLOG_MSG.to_vec();
     msg.push(b'\n');
 
     loop {
-        if stop.load(Relaxed) { break; }
+        if stop.load(Relaxed) {
+            break;
+        }
 
         let mut stream = match tokio::net::TcpStream::connect(target).await {
-            Ok(s)  => s,
+            Ok(s) => s,
             Err(_) => {
                 time::sleep(Duration::from_millis(100)).await;
                 continue;
@@ -294,9 +295,11 @@ async fn send_tcp_task(
 
         // Write until connection drops or stop is set
         loop {
-            if stop.load(Relaxed) { return; }
+            if stop.load(Relaxed) {
+                return;
+            }
             match stream.write_all(&msg).await {
-                Ok(_)  => {
+                Ok(_) => {
                     sent.fetch_add(1, Relaxed);
                     if delay_ns > 0 {
                         time::sleep(Duration::from_nanos(delay_ns)).await;
@@ -327,12 +330,12 @@ async fn snapshot(url: String) {
         .await
         .unwrap_or_else(|e| panic!("snapshot: invalid JSON from {url}: {e}"));
 
-    let udp_rx        = json["events_received"]["udp"].as_u64().unwrap_or(0);
-    let tcp_rx        = json["events_received"]["tcp"].as_u64().unwrap_or(0);
-    let forwarded     = json["events_forwarded"].as_u64().unwrap_or(0);
-    let channel_full  = json["events_dropped"]["channel_full"].as_u64().unwrap_or(0);
-    let batches_ok    = json["batches_ok"].as_u64().unwrap_or(0);
-    let batches_err   = json["batches_err"].as_u64().unwrap_or(0);
+    let udp_rx = json["events_received"]["udp"].as_u64().unwrap_or(0);
+    let tcp_rx = json["events_received"]["tcp"].as_u64().unwrap_or(0);
+    let forwarded = json["events_forwarded"].as_u64().unwrap_or(0);
+    let channel_full = json["events_dropped"]["channel_full"].as_u64().unwrap_or(0);
+    let batches_ok = json["batches_ok"].as_u64().unwrap_or(0);
+    let batches_err = json["batches_err"].as_u64().unwrap_or(0);
     let channel_depth = json["channel_depth"].as_u64().unwrap_or(0);
 
     // Tab-separated for easy shell consumption

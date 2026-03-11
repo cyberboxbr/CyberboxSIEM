@@ -59,15 +59,23 @@ impl LookupStore {
     /// Create or completely replace a table with the given entries.
     /// Entries are stored lowercase for case-insensitive matching.
     pub fn set_entries(&self, name: &str, entries: impl IntoIterator<Item = String>) {
-        let set: HashSet<String> = entries.into_iter().map(|s| s.to_ascii_lowercase()).collect();
+        let set: HashSet<String> = entries
+            .into_iter()
+            .map(|s| s.to_ascii_lowercase())
+            .collect();
         self.tables.insert(name.to_string(), Arc::new(set));
     }
 
     /// Add entries to an existing table (creates the table if it does not exist).
     pub fn add_entries(&self, name: &str, entries: impl IntoIterator<Item = String>) {
-        let new_values: Vec<String> =
-            entries.into_iter().map(|s| s.to_ascii_lowercase()).collect();
-        let mut entry = self.tables.entry(name.to_string()).or_insert_with(|| Arc::new(HashSet::new()));
+        let new_values: Vec<String> = entries
+            .into_iter()
+            .map(|s| s.to_ascii_lowercase())
+            .collect();
+        let mut entry = self
+            .tables
+            .entry(name.to_string())
+            .or_insert_with(|| Arc::new(HashSet::new()));
         let mut set: HashSet<String> = (**entry).clone();
         set.extend(new_values);
         *entry = Arc::new(set);
@@ -76,10 +84,12 @@ impl LookupStore {
     /// Remove specific entries from a table.  No-op if the table does not exist.
     pub fn remove_entries(&self, name: &str, entries: &[String]) {
         if let Some(mut entry) = self.tables.get_mut(name) {
-            let lower: HashSet<String> =
-                entries.iter().map(|s| s.to_ascii_lowercase()).collect();
-            let set: HashSet<String> =
-                (**entry).iter().filter(|v| !lower.contains(*v)).cloned().collect();
+            let lower: HashSet<String> = entries.iter().map(|s| s.to_ascii_lowercase()).collect();
+            let set: HashSet<String> = (**entry)
+                .iter()
+                .filter(|v| !lower.contains(*v))
+                .cloned()
+                .collect();
             *entry = Arc::new(set);
         }
     }
@@ -138,7 +148,10 @@ mod tests {
     #[test]
     fn contains_case_insensitive() {
         let store = LookupStore::new();
-        store.set_entries("ioc_ips", vec!["1.2.3.4".to_string(), "10.0.0.1".to_string()]);
+        store.set_entries(
+            "ioc_ips",
+            vec!["1.2.3.4".to_string(), "10.0.0.1".to_string()],
+        );
         assert!(store.contains("ioc_ips", "1.2.3.4"));
         assert!(store.contains("ioc_ips", "1.2.3.4"));
         assert!(!store.contains("ioc_ips", "5.5.5.5"));

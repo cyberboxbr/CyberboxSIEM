@@ -328,11 +328,17 @@ fn collect_condition_field_names(node: &ConditionNode, out: &mut HashSet<String>
         }
         ConditionNode::Not { inner } => collect_condition_field_names(inner, out),
         ConditionNode::Aggregate { agg, .. } => {
-            if let Some(f) = &agg.group_by { out.insert(f.clone()); }
-            if let Some(f) = &agg.field { out.insert(f.clone()); }
+            if let Some(f) = &agg.group_by {
+                out.insert(f.clone());
+            }
+            if let Some(f) = &agg.field {
+                out.insert(f.clone());
+            }
         }
         ConditionNode::Near { entity_field, .. } => {
-            if let Some(f) = entity_field { out.insert(f.clone()); }
+            if let Some(f) = entity_field {
+                out.insert(f.clone());
+            }
         }
         _ => {}
     }
@@ -377,7 +383,12 @@ pub fn build_event_context<'a>(
             field_cache.insert(field.clone(), vals);
         }
     }
-    EventContext { event, raw_payload_lower, field_cache, lookup_store: None }
+    EventContext {
+        event,
+        raw_payload_lower,
+        field_cache,
+        lookup_store: None,
+    }
 }
 
 // ─── SigmaCompiler ────────────────────────────────────────────────────────────
@@ -413,9 +424,7 @@ impl SigmaCompiler {
             .get("detection")
             .and_then(|v| v.as_mapping())
             .ok_or_else(|| {
-                CyberboxError::BadRequest(
-                    "sigma rule must have a 'detection' block".to_string(),
-                )
+                CyberboxError::BadRequest("sigma rule must have a 'detection' block".to_string())
             })?;
 
         let condition_str = detection
@@ -450,9 +459,8 @@ impl SigmaCompiler {
             selections.insert(key_str.to_string(), group);
         }
 
-        let condition = parse_condition_expr(condition_str).map_err(|e| {
-            CyberboxError::BadRequest(format!("condition '{condition_str}': {e}"))
-        })?;
+        let condition = parse_condition_expr(condition_str)
+            .map_err(|e| CyberboxError::BadRequest(format!("condition '{condition_str}': {e}")))?;
 
         let plan = CompiledSigmaPlan {
             engine_version: "cyberbox-sigma-v2".to_string(),
@@ -478,9 +486,7 @@ fn yaml_str<'a>(map: &'a serde_yaml::Mapping, key: &str) -> Option<&'a str> {
 
 fn parse_sigma_logsource(root: &serde_yaml::Mapping) -> LogSource {
     let ls = root.get("logsource").and_then(|v| v.as_mapping());
-    let get = |key: &str| -> Option<String> {
-        ls?.get(key)?.as_str().map(|s| s.to_string())
-    };
+    let get = |key: &str| -> Option<String> { ls?.get(key)?.as_str().map(|s| s.to_string()) };
     LogSource {
         category: get("category"),
         product: get("product"),
@@ -508,107 +514,155 @@ fn parse_sigma_tags(root: &serde_yaml::Mapping) -> Vec<String> {
 /// Sub-techniques are listed explicitly; the base technique entry serves as a fallback.
 static MITRE_TECHNIQUES: &[(&str, &str, &str)] = &[
     // ── Execution ────────────────────────────────────────────────────────────
-    ("T1059",     "execution",            "Command and Scripting Interpreter"),
-    ("T1059.001", "execution",            "PowerShell"),
-    ("T1059.002", "execution",            "AppleScript"),
-    ("T1059.003", "execution",            "Windows Command Shell"),
-    ("T1059.004", "execution",            "Unix Shell"),
-    ("T1059.005", "execution",            "Visual Basic"),
-    ("T1059.006", "execution",            "Python"),
-    ("T1059.007", "execution",            "JavaScript"),
-    ("T1106",     "execution",            "Native API"),
-    ("T1569",     "execution",            "System Services"),
-    ("T1569.002", "execution",            "Service Execution"),
-    ("T1204",     "execution",            "User Execution"),
-    ("T1204.001", "execution",            "Malicious Link"),
-    ("T1204.002", "execution",            "Malicious File"),
+    ("T1059", "execution", "Command and Scripting Interpreter"),
+    ("T1059.001", "execution", "PowerShell"),
+    ("T1059.002", "execution", "AppleScript"),
+    ("T1059.003", "execution", "Windows Command Shell"),
+    ("T1059.004", "execution", "Unix Shell"),
+    ("T1059.005", "execution", "Visual Basic"),
+    ("T1059.006", "execution", "Python"),
+    ("T1059.007", "execution", "JavaScript"),
+    ("T1106", "execution", "Native API"),
+    ("T1569", "execution", "System Services"),
+    ("T1569.002", "execution", "Service Execution"),
+    ("T1204", "execution", "User Execution"),
+    ("T1204.001", "execution", "Malicious Link"),
+    ("T1204.002", "execution", "Malicious File"),
     // ── Persistence ──────────────────────────────────────────────────────────
-    ("T1547",     "persistence",          "Boot or Logon Autostart Execution"),
-    ("T1547.001", "persistence",          "Registry Run Keys / Startup Folder"),
-    ("T1547.004", "persistence",          "Winlogon Helper DLL"),
-    ("T1547.009", "persistence",          "Shortcut Modification"),
-    ("T1543",     "persistence",          "Create or Modify System Process"),
-    ("T1543.003", "persistence",          "Windows Service"),
-    ("T1574",     "persistence",          "Hijack Execution Flow"),
-    ("T1574.002", "persistence",          "DLL Side-Loading"),
-    ("T1098",     "persistence",          "Account Manipulation"),
-    ("T1078",     "persistence",          "Valid Accounts"),
+    ("T1547", "persistence", "Boot or Logon Autostart Execution"),
+    (
+        "T1547.001",
+        "persistence",
+        "Registry Run Keys / Startup Folder",
+    ),
+    ("T1547.004", "persistence", "Winlogon Helper DLL"),
+    ("T1547.009", "persistence", "Shortcut Modification"),
+    ("T1543", "persistence", "Create or Modify System Process"),
+    ("T1543.003", "persistence", "Windows Service"),
+    ("T1574", "persistence", "Hijack Execution Flow"),
+    ("T1574.002", "persistence", "DLL Side-Loading"),
+    ("T1098", "persistence", "Account Manipulation"),
+    ("T1078", "persistence", "Valid Accounts"),
     // ── Privilege Escalation ─────────────────────────────────────────────────
-    ("T1055",     "privilege_escalation", "Process Injection"),
-    ("T1055.001", "privilege_escalation", "Dynamic-link Library Injection"),
-    ("T1055.002", "privilege_escalation", "Portable Executable Injection"),
+    ("T1055", "privilege_escalation", "Process Injection"),
+    (
+        "T1055.001",
+        "privilege_escalation",
+        "Dynamic-link Library Injection",
+    ),
+    (
+        "T1055.002",
+        "privilege_escalation",
+        "Portable Executable Injection",
+    ),
     ("T1055.012", "privilege_escalation", "Process Hollowing"),
-    ("T1548",     "privilege_escalation", "Abuse Elevation Control Mechanism"),
-    ("T1548.002", "privilege_escalation", "Bypass User Account Control"),
-    ("T1134",     "privilege_escalation", "Access Token Manipulation"),
-    ("T1134.001", "privilege_escalation", "Token Impersonation/Theft"),
+    (
+        "T1548",
+        "privilege_escalation",
+        "Abuse Elevation Control Mechanism",
+    ),
+    (
+        "T1548.002",
+        "privilege_escalation",
+        "Bypass User Account Control",
+    ),
+    ("T1134", "privilege_escalation", "Access Token Manipulation"),
+    (
+        "T1134.001",
+        "privilege_escalation",
+        "Token Impersonation/Theft",
+    ),
     // ── Defense Evasion ──────────────────────────────────────────────────────
-    ("T1027",     "defense_evasion",      "Obfuscated Files or Information"),
-    ("T1027.010", "defense_evasion",      "Command Obfuscation"),
-    ("T1036",     "defense_evasion",      "Masquerading"),
-    ("T1036.003", "defense_evasion",      "Rename System Utilities"),
-    ("T1070",     "defense_evasion",      "Indicator Removal"),
-    ("T1070.001", "defense_evasion",      "Clear Windows Event Logs"),
-    ("T1070.004", "defense_evasion",      "File Deletion"),
-    ("T1112",     "defense_evasion",      "Modify Registry"),
-    ("T1218",     "defense_evasion",      "System Binary Proxy Execution"),
-    ("T1218.007", "defense_evasion",      "Msiexec"),
-    ("T1218.010", "defense_evasion",      "Regsvr32"),
-    ("T1218.011", "defense_evasion",      "Rundll32"),
-    ("T1562",     "defense_evasion",      "Impair Defenses"),
-    ("T1562.001", "defense_evasion",      "Disable or Modify Tools"),
-    ("T1564",     "defense_evasion",      "Hide Artifacts"),
-    ("T1564.001", "defense_evasion",      "Hidden Files and Directories"),
+    (
+        "T1027",
+        "defense_evasion",
+        "Obfuscated Files or Information",
+    ),
+    ("T1027.010", "defense_evasion", "Command Obfuscation"),
+    ("T1036", "defense_evasion", "Masquerading"),
+    ("T1036.003", "defense_evasion", "Rename System Utilities"),
+    ("T1070", "defense_evasion", "Indicator Removal"),
+    ("T1070.001", "defense_evasion", "Clear Windows Event Logs"),
+    ("T1070.004", "defense_evasion", "File Deletion"),
+    ("T1112", "defense_evasion", "Modify Registry"),
+    ("T1218", "defense_evasion", "System Binary Proxy Execution"),
+    ("T1218.007", "defense_evasion", "Msiexec"),
+    ("T1218.010", "defense_evasion", "Regsvr32"),
+    ("T1218.011", "defense_evasion", "Rundll32"),
+    ("T1562", "defense_evasion", "Impair Defenses"),
+    ("T1562.001", "defense_evasion", "Disable or Modify Tools"),
+    ("T1564", "defense_evasion", "Hide Artifacts"),
+    (
+        "T1564.001",
+        "defense_evasion",
+        "Hidden Files and Directories",
+    ),
     // ── Credential Access ────────────────────────────────────────────────────
-    ("T1003",     "credential_access",    "OS Credential Dumping"),
-    ("T1003.001", "credential_access",    "LSASS Memory"),
-    ("T1003.002", "credential_access",    "Security Account Manager"),
-    ("T1003.003", "credential_access",    "NTDS"),
-    ("T1110",     "credential_access",    "Brute Force"),
-    ("T1110.001", "credential_access",    "Password Guessing"),
-    ("T1110.003", "credential_access",    "Password Spraying"),
-    ("T1552",     "credential_access",    "Unsecured Credentials"),
-    ("T1558",     "credential_access",    "Steal or Forge Kerberos Tickets"),
-    ("T1558.003", "credential_access",    "Kerberoasting"),
+    ("T1003", "credential_access", "OS Credential Dumping"),
+    ("T1003.001", "credential_access", "LSASS Memory"),
+    ("T1003.002", "credential_access", "Security Account Manager"),
+    ("T1003.003", "credential_access", "NTDS"),
+    ("T1110", "credential_access", "Brute Force"),
+    ("T1110.001", "credential_access", "Password Guessing"),
+    ("T1110.003", "credential_access", "Password Spraying"),
+    ("T1552", "credential_access", "Unsecured Credentials"),
+    (
+        "T1558",
+        "credential_access",
+        "Steal or Forge Kerberos Tickets",
+    ),
+    ("T1558.003", "credential_access", "Kerberoasting"),
     // ── Discovery ────────────────────────────────────────────────────────────
-    ("T1012",     "discovery",            "Query Registry"),
-    ("T1016",     "discovery",            "System Network Configuration Discovery"),
-    ("T1033",     "discovery",            "System Owner/User Discovery"),
-    ("T1049",     "discovery",            "System Network Connections Discovery"),
-    ("T1057",     "discovery",            "Process Discovery"),
-    ("T1069",     "discovery",            "Permission Groups Discovery"),
-    ("T1082",     "discovery",            "System Information Discovery"),
-    ("T1083",     "discovery",            "File and Directory Discovery"),
-    ("T1087",     "discovery",            "Account Discovery"),
+    ("T1012", "discovery", "Query Registry"),
+    (
+        "T1016",
+        "discovery",
+        "System Network Configuration Discovery",
+    ),
+    ("T1033", "discovery", "System Owner/User Discovery"),
+    ("T1049", "discovery", "System Network Connections Discovery"),
+    ("T1057", "discovery", "Process Discovery"),
+    ("T1069", "discovery", "Permission Groups Discovery"),
+    ("T1082", "discovery", "System Information Discovery"),
+    ("T1083", "discovery", "File and Directory Discovery"),
+    ("T1087", "discovery", "Account Discovery"),
     // ── Lateral Movement ─────────────────────────────────────────────────────
-    ("T1021",     "lateral_movement",     "Remote Services"),
-    ("T1021.001", "lateral_movement",     "Remote Desktop Protocol"),
-    ("T1021.002", "lateral_movement",     "SMB/Windows Admin Shares"),
-    ("T1021.006", "lateral_movement",     "Windows Remote Management"),
-    ("T1570",     "lateral_movement",     "Lateral Tool Transfer"),
+    ("T1021", "lateral_movement", "Remote Services"),
+    ("T1021.001", "lateral_movement", "Remote Desktop Protocol"),
+    ("T1021.002", "lateral_movement", "SMB/Windows Admin Shares"),
+    ("T1021.006", "lateral_movement", "Windows Remote Management"),
+    ("T1570", "lateral_movement", "Lateral Tool Transfer"),
     // ── Collection ───────────────────────────────────────────────────────────
-    ("T1005",     "collection",           "Data from Local System"),
-    ("T1119",     "collection",           "Automated Collection"),
+    ("T1005", "collection", "Data from Local System"),
+    ("T1119", "collection", "Automated Collection"),
     // ── Command and Control ──────────────────────────────────────────────────
-    ("T1071",     "command_and_control",  "Application Layer Protocol"),
-    ("T1071.001", "command_and_control",  "Web Protocols"),
-    ("T1105",     "command_and_control",  "Ingress Tool Transfer"),
-    ("T1571",     "command_and_control",  "Non-Standard Port"),
-    ("T1572",     "command_and_control",  "Protocol Tunneling"),
+    ("T1071", "command_and_control", "Application Layer Protocol"),
+    ("T1071.001", "command_and_control", "Web Protocols"),
+    ("T1105", "command_and_control", "Ingress Tool Transfer"),
+    ("T1571", "command_and_control", "Non-Standard Port"),
+    ("T1572", "command_and_control", "Protocol Tunneling"),
     // ── Exfiltration ─────────────────────────────────────────────────────────
-    ("T1041",     "exfiltration",         "Exfiltration Over C2 Channel"),
-    ("T1048",     "exfiltration",         "Exfiltration Over Alternative Protocol"),
+    ("T1041", "exfiltration", "Exfiltration Over C2 Channel"),
+    (
+        "T1048",
+        "exfiltration",
+        "Exfiltration Over Alternative Protocol",
+    ),
     // ── Initial Access ───────────────────────────────────────────────────────
-    ("T1190",     "initial_access",       "Exploit Public-Facing Application"),
-    ("T1566",     "initial_access",       "Phishing"),
-    ("T1566.001", "initial_access",       "Spearphishing Attachment"),
-    ("T1566.002", "initial_access",       "Spearphishing Link"),
-    ("T1133",     "initial_access",       "External Remote Services"),
+    (
+        "T1190",
+        "initial_access",
+        "Exploit Public-Facing Application",
+    ),
+    ("T1566", "initial_access", "Phishing"),
+    ("T1566.001", "initial_access", "Spearphishing Attachment"),
+    ("T1566.002", "initial_access", "Spearphishing Link"),
+    ("T1133", "initial_access", "External Remote Services"),
     // ── Impact ───────────────────────────────────────────────────────────────
-    ("T1486",     "impact",               "Data Encrypted for Impact"),
-    ("T1496",     "impact",               "Resource Hijacking"),
-    ("T1489",     "impact",               "Service Stop"),
-    ("T1490",     "impact",               "Inhibit System Recovery"),
+    ("T1486", "impact", "Data Encrypted for Impact"),
+    ("T1496", "impact", "Resource Hijacking"),
+    ("T1489", "impact", "Service Stop"),
+    ("T1490", "impact", "Inhibit System Recovery"),
 ];
 
 /// Look up the (tactic, technique_name) for a canonical technique ID like `"T1059.001"`.
@@ -663,7 +717,11 @@ pub fn parse_mitre_from_tags(tags: &[String]) -> Vec<MitreAttack> {
             // Canonicalise: "t1059.001" → "T1059.001"
             let technique_id = format!("T{}", after_t);
             let (tactic, technique_name) = mitre_lookup(&technique_id);
-            Some(MitreAttack { technique_id, tactic, technique_name })
+            Some(MitreAttack {
+                technique_id,
+                tactic,
+                technique_name,
+            })
         })
         .collect()
 }
@@ -696,10 +754,7 @@ fn parse_sigma_timeframe(s: &str) -> Option<u64> {
 /// `product` or `category` are only evaluated against matching event sources,
 /// preventing Windows rules from running on Linux or firewall events and vice-versa.
 pub fn logsource_matches_event(logsource: &LogSource, source: &EventSource) -> bool {
-    if logsource.product.is_none()
-        && logsource.category.is_none()
-        && logsource.service.is_none()
-    {
+    if logsource.product.is_none() && logsource.category.is_none() && logsource.service.is_none() {
         return true;
     }
 
@@ -741,11 +796,21 @@ pub fn logsource_matches_event(logsource: &LogSource, source: &EventSource) -> b
 
     if let Some(category) = &logsource.category {
         match category.to_ascii_lowercase().as_str() {
-            "process_creation" | "process_access" | "process_tampering"
-            | "image_load" | "driver_load" | "file_event"
-            | "registry_add" | "registry_delete" | "registry_event"
-            | "registry_rename" | "registry_set" | "create_remote_thread"
-            | "create_stream_hash" | "pipe_created" | "wmi_event"
+            "process_creation"
+            | "process_access"
+            | "process_tampering"
+            | "image_load"
+            | "driver_load"
+            | "file_event"
+            | "registry_add"
+            | "registry_delete"
+            | "registry_event"
+            | "registry_rename"
+            | "registry_set"
+            | "create_remote_thread"
+            | "create_stream_hash"
+            | "pipe_created"
+            | "wmi_event"
             | "raw_access_read" => {
                 if !matches!(
                     source,
@@ -830,32 +895,30 @@ fn parse_field_matcher(key: &str, value: &serde_yaml::Value) -> Result<FieldMatc
 
     for &part in &parts[1..] {
         match part.to_lowercase().as_str() {
-            "contains"         => modifiers.push(FieldModifier::Contains),
-            "startswith"       => modifiers.push(FieldModifier::StartsWith),
-            "endswith"         => modifiers.push(FieldModifier::EndsWith),
-            "re" | "regex"     => modifiers.push(FieldModifier::Re),
-            "cidr"             => modifiers.push(FieldModifier::Cidr),
-            "base64"           => modifiers.push(FieldModifier::Base64),
-            "base64offset"     => modifiers.push(FieldModifier::Base64Offset),
-            "wide"             => modifiers.push(FieldModifier::Wide),
-            "windash"          => modifiers.push(FieldModifier::Windash),
-            "lt"               => modifiers.push(FieldModifier::Lt),
-            "lte"              => modifiers.push(FieldModifier::Lte),
-            "gt"               => modifiers.push(FieldModifier::Gt),
-            "gte"              => modifiers.push(FieldModifier::Gte),
-            "all"              => match_all = true,
+            "contains" => modifiers.push(FieldModifier::Contains),
+            "startswith" => modifiers.push(FieldModifier::StartsWith),
+            "endswith" => modifiers.push(FieldModifier::EndsWith),
+            "re" | "regex" => modifiers.push(FieldModifier::Re),
+            "cidr" => modifiers.push(FieldModifier::Cidr),
+            "base64" => modifiers.push(FieldModifier::Base64),
+            "base64offset" => modifiers.push(FieldModifier::Base64Offset),
+            "wide" => modifiers.push(FieldModifier::Wide),
+            "windash" => modifiers.push(FieldModifier::Windash),
+            "lt" => modifiers.push(FieldModifier::Lt),
+            "lte" => modifiers.push(FieldModifier::Lte),
+            "gt" => modifiers.push(FieldModifier::Gt),
+            "gte" => modifiers.push(FieldModifier::Gte),
+            "all" => match_all = true,
             "i" | "ignorecase" => {} // always case-insensitive — no-op
-            "exists"           => modifiers.push(FieldModifier::Exists),
-            "fieldref"         => modifiers.push(FieldModifier::FieldRef),
-            "lookup"           => modifiers.push(FieldModifier::Lookup),
+            "exists" => modifiers.push(FieldModifier::Exists),
+            "fieldref" => modifiers.push(FieldModifier::FieldRef),
+            "lookup" => modifiers.push(FieldModifier::Lookup),
             other => return Err(format!("unknown modifier '{other}'")),
         }
     }
 
     let values = match value {
-        serde_yaml::Value::Sequence(seq) => {
-            seq.iter().filter_map(yaml_value_to_string).collect()
-        }
+        serde_yaml::Value::Sequence(seq) => seq.iter().filter_map(yaml_value_to_string).collect(),
         serde_yaml::Value::Null => vec!["__null__".to_string()],
         other => match yaml_value_to_string(other) {
             Some(s) => vec![s],
@@ -945,7 +1008,11 @@ impl ConditionParser {
 
     fn parse_or(&mut self) -> Result<ConditionNode, String> {
         let mut left = self.parse_and()?;
-        while self.peek().map(|t| t.eq_ignore_ascii_case("or")).unwrap_or(false) {
+        while self
+            .peek()
+            .map(|t| t.eq_ignore_ascii_case("or"))
+            .unwrap_or(false)
+        {
             self.pos += 1;
             let right = self.parse_and()?;
             left = ConditionNode::Or {
@@ -958,7 +1025,11 @@ impl ConditionParser {
 
     fn parse_and(&mut self) -> Result<ConditionNode, String> {
         let mut left = self.parse_unary()?;
-        while self.peek().map(|t| t.eq_ignore_ascii_case("and")).unwrap_or(false) {
+        while self
+            .peek()
+            .map(|t| t.eq_ignore_ascii_case("and"))
+            .unwrap_or(false)
+        {
             self.pos += 1;
             let right = self.parse_unary()?;
             left = ConditionNode::And {
@@ -970,7 +1041,11 @@ impl ConditionParser {
     }
 
     fn parse_unary(&mut self) -> Result<ConditionNode, String> {
-        if self.peek().map(|t| t.eq_ignore_ascii_case("not")).unwrap_or(false) {
+        if self
+            .peek()
+            .map(|t| t.eq_ignore_ascii_case("not"))
+            .unwrap_or(false)
+        {
             self.pos += 1;
             let inner = self.parse_unary()?;
             return Ok(ConditionNode::Not {
@@ -1021,7 +1096,11 @@ impl ConditionParser {
                     });
                 }
                 // Temporal correlation: `sel_a near sel_b within 30s [by entity_field]`
-                if self.peek().map(|t| t.eq_ignore_ascii_case("near")).unwrap_or(false) {
+                if self
+                    .peek()
+                    .map(|t| t.eq_ignore_ascii_case("near"))
+                    .unwrap_or(false)
+                {
                     self.pos += 1; // consume "near"
                     let nearby = self
                         .advance()
@@ -1034,17 +1113,20 @@ impl ConditionParser {
                         .to_string();
                     let within_seconds = parse_sigma_timeframe(&tf_tok)
                         .ok_or_else(|| format!("invalid timeframe '{tf_tok}'"))?;
-                    let entity_field =
-                        if self.peek().map(|t| t.eq_ignore_ascii_case("by")).unwrap_or(false) {
-                            self.pos += 1;
-                            Some(
-                                self.advance()
-                                    .ok_or_else(|| "expected field name after 'by'".to_string())?
-                                    .to_string(),
-                            )
-                        } else {
-                            None
-                        };
+                    let entity_field = if self
+                        .peek()
+                        .map(|t| t.eq_ignore_ascii_case("by"))
+                        .unwrap_or(false)
+                    {
+                        self.pos += 1;
+                        Some(
+                            self.advance()
+                                .ok_or_else(|| "expected field name after 'by'".to_string())?
+                                .to_string(),
+                        )
+                    } else {
+                        None
+                    };
                     return Ok(ConditionNode::Near {
                         base: name,
                         nearby,
@@ -1066,13 +1148,13 @@ impl ConditionParser {
             .ok_or_else(|| "expected aggregate function name after '|'".to_string())?
             .to_lowercase();
         let function = match func_tok.as_str() {
-            "count"          => AggregateFunction::Count,
+            "count" => AggregateFunction::Count,
             "count_distinct" => AggregateFunction::CountDistinct,
-            "sum"            => AggregateFunction::Sum,
-            "min"            => AggregateFunction::Min,
-            "max"            => AggregateFunction::Max,
-            "avg"            => AggregateFunction::Avg,
-            other            => return Err(format!("unknown aggregate function '{other}'")),
+            "sum" => AggregateFunction::Sum,
+            "min" => AggregateFunction::Min,
+            "max" => AggregateFunction::Max,
+            "avg" => AggregateFunction::Avg,
+            other => return Err(format!("unknown aggregate function '{other}'")),
         };
 
         // Argument list: `(field?)` or `()`
@@ -1110,9 +1192,9 @@ impl ConditionParser {
             .ok_or_else(|| "expected comparison operator (>, >=, <, <=, ==)".to_string())?
             .to_string();
         let operator = match op_tok.as_str() {
-            ">"  => AggCompareOp::Gt,
+            ">" => AggCompareOp::Gt,
             ">=" => AggCompareOp::Gte,
-            "<"  => AggCompareOp::Lt,
+            "<" => AggCompareOp::Lt,
             "<=" => AggCompareOp::Lte,
             "==" => AggCompareOp::Eq,
             other => return Err(format!("unknown comparison operator '{other}'")),
@@ -1129,7 +1211,10 @@ impl ConditionParser {
 
         // count() ignores the field arg; count_distinct requires one
         if matches!(function, AggregateFunction::CountDistinct) && field.is_none() {
-            return Err("count_distinct requires a field argument, e.g. count_distinct(TargetUserName)".to_string());
+            return Err(
+                "count_distinct requires a field argument, e.g. count_distinct(TargetUserName)"
+                    .to_string(),
+            );
         }
         let field = match function {
             AggregateFunction::Count => None,
@@ -1176,8 +1261,13 @@ fn tokenize_condition(input: &str) -> Vec<String> {
         // Word token (identifiers, numbers, wildcards)
         let mut word = String::new();
         while let Some(&c) = chars.peek() {
-            if c.is_whitespace() || c == '(' || c == ')' || c == '|'
-                || c == '>' || c == '<' || c == '='
+            if c.is_whitespace()
+                || c == '('
+                || c == ')'
+                || c == '|'
+                || c == '>'
+                || c == '<'
+                || c == '='
             {
                 break;
             }
@@ -1204,7 +1294,9 @@ struct AggEntry {
 impl AggEntry {
     fn evict_stale(&mut self, now: std::time::Instant, window: std::time::Duration) {
         while let Some((ts, _)) = self.deque.front() {
-            if now.duration_since(*ts) < window { break; }
+            if now.duration_since(*ts) < window {
+                break;
+            }
             let (_, val) = self.deque.pop_front().unwrap();
             self.running_sum -= val;
         }
@@ -1215,17 +1307,31 @@ impl AggEntry {
         self.deque.push_back((ts, val));
     }
 
-    fn count(&self) -> usize { self.deque.len() }
-    fn sum(&self) -> f64 { self.running_sum }
+    fn count(&self) -> usize {
+        self.deque.len()
+    }
+    fn sum(&self) -> f64 {
+        self.running_sum
+    }
     fn avg(&self) -> f64 {
         let n = self.deque.len();
-        if n == 0 { 0.0 } else { self.running_sum / n as f64 }
+        if n == 0 {
+            0.0
+        } else {
+            self.running_sum / n as f64
+        }
     }
     fn min(&self) -> f64 {
-        self.deque.iter().map(|(_, v)| *v).fold(f64::INFINITY, f64::min)
+        self.deque
+            .iter()
+            .map(|(_, v)| *v)
+            .fold(f64::INFINITY, f64::min)
     }
     fn max(&self) -> f64 {
-        self.deque.iter().map(|(_, v)| *v).fold(f64::NEG_INFINITY, f64::max)
+        self.deque
+            .iter()
+            .map(|(_, v)| *v)
+            .fold(f64::NEG_INFINITY, f64::max)
     }
 }
 
@@ -1240,10 +1346,16 @@ struct DistinctEntry {
 impl DistinctEntry {
     fn evict_stale(&mut self, now: std::time::Instant, window: std::time::Duration) {
         while let Some((ts, _)) = self.deque.front() {
-            if now.duration_since(*ts) < window { break; }
+            if now.duration_since(*ts) < window {
+                break;
+            }
             let (_, val) = self.deque.pop_front().unwrap();
             if let Some(c) = self.counts.get_mut(&val) {
-                if *c <= 1 { self.counts.remove(&val); } else { *c -= 1; }
+                if *c <= 1 {
+                    self.counts.remove(&val);
+                } else {
+                    *c -= 1;
+                }
             }
         }
     }
@@ -1253,7 +1365,9 @@ impl DistinctEntry {
         self.deque.push_back((ts, val));
     }
 
-    fn distinct_count(&self) -> usize { self.counts.len() }
+    fn distinct_count(&self) -> usize {
+        self.counts.len()
+    }
 }
 
 // ─── RuleExecutor ─────────────────────────────────────────────────────────────
@@ -1386,9 +1500,14 @@ impl RuleExecutor {
     /// [`build_event_context`] and pass a shared reference into each rule in
     /// the `par_iter`.  Field values and the lowercased payload string are
     /// computed only once and reused across all rules.
-    pub fn evaluate_with_context(&self, rule: &DetectionRule, ctx: &EventContext) -> RuleTestResult {
+    pub fn evaluate_with_context(
+        &self,
+        rule: &DetectionRule,
+        ctx: &EventContext,
+    ) -> RuleTestResult {
         // Fast path: return cached plan (avoids JSON clone + deserialization on every event).
-        let plan: Arc<CompiledSigmaPlan> = if let Some(cached) = self.plan_cache.get(&rule.rule_id) {
+        let plan: Arc<CompiledSigmaPlan> = if let Some(cached) = self.plan_cache.get(&rule.rule_id)
+        {
             Arc::clone(cached.value())
         } else {
             match serde_json::from_value::<CompiledSigmaPlan>(rule.compiled_plan.clone()) {
@@ -1489,7 +1608,6 @@ impl RuleExecutor {
             agent_meta: None,
         })
     }
-
 }
 
 // ─── Condition Evaluation ─────────────────────────────────────────────────────
@@ -1516,16 +1634,52 @@ fn eval_condition(
             }
         }
         ConditionNode::And { left, right } => {
-            eval_condition(left, selections, ctx, rule_id, executor, agg_window, matched_info)
-                && eval_condition(right, selections, ctx, rule_id, executor, agg_window, matched_info)
+            eval_condition(
+                left,
+                selections,
+                ctx,
+                rule_id,
+                executor,
+                agg_window,
+                matched_info,
+            ) && eval_condition(
+                right,
+                selections,
+                ctx,
+                rule_id,
+                executor,
+                agg_window,
+                matched_info,
+            )
         }
         ConditionNode::Or { left, right } => {
-            eval_condition(left, selections, ctx, rule_id, executor, agg_window, matched_info)
-                || eval_condition(right, selections, ctx, rule_id, executor, agg_window, matched_info)
+            eval_condition(
+                left,
+                selections,
+                ctx,
+                rule_id,
+                executor,
+                agg_window,
+                matched_info,
+            ) || eval_condition(
+                right,
+                selections,
+                ctx,
+                rule_id,
+                executor,
+                agg_window,
+                matched_info,
+            )
         }
-        ConditionNode::Not { inner } => {
-            !eval_condition(inner, selections, ctx, rule_id, executor, agg_window, &mut Vec::new())
-        }
+        ConditionNode::Not { inner } => !eval_condition(
+            inner,
+            selections,
+            ctx,
+            rule_id,
+            executor,
+            agg_window,
+            &mut Vec::new(),
+        ),
         ConditionNode::OneOf { pattern } => {
             let candidates = glob_selections(selections, pattern);
             candidates.iter().any(|name| {
@@ -1559,22 +1713,32 @@ fn eval_condition(
             }
             hit
         }
-        ConditionNode::Aggregate { selection, agg } => {
-            eval_aggregate(selection, agg, selections, ctx, rule_id, executor, agg_window, matched_info)
-        }
-        ConditionNode::Near { base, nearby, entity_field, within_seconds } => {
-            eval_near(
-                base,
-                nearby,
-                entity_field.as_deref(),
-                *within_seconds,
-                selections,
-                ctx,
-                rule_id,
-                executor,
-                matched_info,
-            )
-        }
+        ConditionNode::Aggregate { selection, agg } => eval_aggregate(
+            selection,
+            agg,
+            selections,
+            ctx,
+            rule_id,
+            executor,
+            agg_window,
+            matched_info,
+        ),
+        ConditionNode::Near {
+            base,
+            nearby,
+            entity_field,
+            within_seconds,
+        } => eval_near(
+            base,
+            nearby,
+            entity_field.as_deref(),
+            *within_seconds,
+            selections,
+            ctx,
+            rule_id,
+            executor,
+            matched_info,
+        ),
     }
 }
 
@@ -1601,14 +1765,22 @@ fn eval_near(
     let now = std::time::Instant::now();
 
     let entity_val = entity_field
-        .and_then(|f| get_field_values(ctx, f).into_iter().next().map(|s| s.to_string()))
+        .and_then(|f| {
+            get_field_values(ctx, f)
+                .into_iter()
+                .next()
+                .map(|s| s.to_string())
+        })
         .unwrap_or_else(|| "__global__".to_string());
 
     // Record match + evict stale entries for each selection.
     for sel_name in [base, nearby] {
         if let Some(group) = selections.get(sel_name) {
             let buf_key = format!("{rule_id}:{sel_name}");
-            let mut entry = executor.temporal_buffers.entry(buf_key).or_insert_with(VecDeque::new);
+            let mut entry = executor
+                .temporal_buffers
+                .entry(buf_key)
+                .or_insert_with(VecDeque::new);
             // Evict stale entries from the front (entries are always appended in time order).
             while let Some((ts, _)) = entry.front() {
                 if now.duration_since(*ts) >= window {
@@ -1671,7 +1843,12 @@ fn eval_aggregate(
     let group_val = agg
         .group_by
         .as_ref()
-        .and_then(|field| get_field_values(ctx, field).into_iter().next().map(|s| s.to_string()))
+        .and_then(|field| {
+            get_field_values(ctx, field)
+                .into_iter()
+                .next()
+                .map(|s| s.to_string())
+        })
         .unwrap_or_else(|| "__all__".to_string());
 
     let buf_key = format!("{rule_id}:{selection}:{group_val}");
@@ -1683,39 +1860,48 @@ fn eval_aggregate(
         let field_val = agg
             .field
             .as_ref()
-            .and_then(|f| get_field_values(ctx, f).into_iter().next().map(|s| s.to_string()))
+            .and_then(|f| {
+                get_field_values(ctx, f)
+                    .into_iter()
+                    .next()
+                    .map(|s| s.to_string())
+            })
             .unwrap_or_default();
 
         let distinct_key = format!("{buf_key}:distinct");
         // ShardedMap::with_entry locks exactly one of 64 shards for the duration
         // of the closure, then releases it — no two-phase DashMap dance needed.
-        let distinct_count: usize = executor.distinct_buffers.with_entry(&distinct_key, |entry| {
-            entry.evict_stale(now, window);
-            entry.push(now, field_val);
-            entry.distinct_count()
-        });
+        let distinct_count: usize = executor
+            .distinct_buffers
+            .with_entry(&distinct_key, |entry| {
+                entry.evict_stale(now, window);
+                entry.push(now, field_val);
+                entry.distinct_count()
+            });
 
         let result = distinct_count as f64;
         let hit = match agg.operator {
-            AggCompareOp::Gt  => result > agg.threshold,
+            AggCompareOp::Gt => result > agg.threshold,
             AggCompareOp::Gte => result >= agg.threshold,
-            AggCompareOp::Lt  => result < agg.threshold,
+            AggCompareOp::Lt => result < agg.threshold,
             AggCompareOp::Lte => result <= agg.threshold,
-            AggCompareOp::Eq  => (result - agg.threshold).abs() < 0.5,
+            AggCompareOp::Eq => (result - agg.threshold).abs() < 0.5,
         };
         if hit {
             let field_name = agg.field.as_deref().unwrap_or("");
-            let group_label = agg.group_by.as_ref()
+            let group_label = agg
+                .group_by
+                .as_ref()
                 .map(|f| format!(" by {f}={group_val}"))
                 .unwrap_or_default();
             matched_info.push(format!(
                 "count_distinct({field_name}){group_label} = {result:.0} (threshold {} {:.0})",
                 match agg.operator {
-                    AggCompareOp::Gt  => ">",
+                    AggCompareOp::Gt => ">",
                     AggCompareOp::Gte => ">=",
-                    AggCompareOp::Lt  => "<",
+                    AggCompareOp::Lt => "<",
                     AggCompareOp::Lte => "<=",
-                    AggCompareOp::Eq  => "==",
+                    AggCompareOp::Eq => "==",
                 },
                 agg.threshold
             ));
@@ -1729,7 +1915,12 @@ fn eval_aggregate(
         _ => agg
             .field
             .as_ref()
-            .and_then(|f| get_field_values(ctx, f).into_iter().next().map(|s| s.to_string()))
+            .and_then(|f| {
+                get_field_values(ctx, f)
+                    .into_iter()
+                    .next()
+                    .map(|s| s.to_string())
+            })
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(0.0),
     };
@@ -1749,28 +1940,30 @@ fn eval_aggregate(
 
     // Compare against threshold
     let hit = match agg.operator {
-        AggCompareOp::Gt  => result > agg.threshold,
+        AggCompareOp::Gt => result > agg.threshold,
         AggCompareOp::Gte => result >= agg.threshold,
-        AggCompareOp::Lt  => result < agg.threshold,
+        AggCompareOp::Lt => result < agg.threshold,
         AggCompareOp::Lte => result <= agg.threshold,
-        AggCompareOp::Eq  => (result - agg.threshold).abs() < 0.5,
+        AggCompareOp::Eq => (result - agg.threshold).abs() < 0.5,
     };
 
     if hit {
         let func_label = match &agg.function {
-            AggregateFunction::Count         => "count()".to_string(),
-            AggregateFunction::CountDistinct => format!("count_distinct({})", agg.field.as_deref().unwrap_or("")),
-            AggregateFunction::Sum           => format!("sum({})", agg.field.as_deref().unwrap_or("")),
-            AggregateFunction::Min           => format!("min({})", agg.field.as_deref().unwrap_or("")),
-            AggregateFunction::Max           => format!("max({})", agg.field.as_deref().unwrap_or("")),
-            AggregateFunction::Avg           => format!("avg({})", agg.field.as_deref().unwrap_or("")),
+            AggregateFunction::Count => "count()".to_string(),
+            AggregateFunction::CountDistinct => {
+                format!("count_distinct({})", agg.field.as_deref().unwrap_or(""))
+            }
+            AggregateFunction::Sum => format!("sum({})", agg.field.as_deref().unwrap_or("")),
+            AggregateFunction::Min => format!("min({})", agg.field.as_deref().unwrap_or("")),
+            AggregateFunction::Max => format!("max({})", agg.field.as_deref().unwrap_or("")),
+            AggregateFunction::Avg => format!("avg({})", agg.field.as_deref().unwrap_or("")),
         };
         let op_label = match agg.operator {
-            AggCompareOp::Gt  => ">",
+            AggCompareOp::Gt => ">",
             AggCompareOp::Gte => ">=",
-            AggCompareOp::Lt  => "<",
+            AggCompareOp::Lt => "<",
             AggCompareOp::Lte => "<=",
-            AggCompareOp::Eq  => "==",
+            AggCompareOp::Eq => "==",
         };
         let group_label = agg
             .group_by
@@ -1820,9 +2013,10 @@ fn eval_field_matcher(matcher: &FieldMatcher, ctx: &EventContext) -> bool {
             if matcher.modifiers.contains(&FieldModifier::Exists) {
                 let field_exists = !get_field_values(ctx, field).is_empty();
                 // The YAML value is `true` or `false`; "true" → field must exist.
-                let want_exists = matcher.values.iter().any(|v| {
-                    !matches!(v.to_ascii_lowercase().as_str(), "false" | "no" | "0")
-                });
+                let want_exists = matcher
+                    .values
+                    .iter()
+                    .any(|v| !matches!(v.to_ascii_lowercase().as_str(), "false" | "no" | "0"));
                 return field_exists == want_exists;
             }
 
@@ -1853,14 +2047,15 @@ fn eval_field_matcher(matcher: &FieldMatcher, ctx: &EventContext) -> bool {
                 if let Some(store) = &ctx.lookup_store {
                     return if matcher.match_all {
                         // Every listed table must contain at least one field value
-                        matcher.values.iter().all(|table| {
-                            field_vals.iter().any(|fv| store.contains(table, fv))
-                        })
+                        matcher
+                            .values
+                            .iter()
+                            .all(|table| field_vals.iter().any(|fv| store.contains(table, fv)))
                     } else {
                         // Any field value found in any listed table
-                        field_vals.iter().any(|fv| {
-                            matcher.values.iter().any(|table| store.contains(table, fv))
-                        })
+                        field_vals
+                            .iter()
+                            .any(|fv| matcher.values.iter().any(|table| store.contains(table, fv)))
                     };
                 }
                 // No lookup store wired — treat as no-match
@@ -1910,7 +2105,11 @@ fn glob_match(pattern: &str, text: &str) -> bool {
 
     // Leading `*`s match the empty prefix of text.
     for i in 1..=pm {
-        if p[i - 1] == b'*' { dp[i][0] = dp[i - 1][0]; } else { break; }
+        if p[i - 1] == b'*' {
+            dp[i][0] = dp[i - 1][0];
+        } else {
+            break;
+        }
     }
 
     for i in 1..=pm {
@@ -1942,10 +2141,10 @@ fn apply_modifiers(field_val: &str, pattern: &str, modifiers: &[FieldModifier]) 
         };
     }
 
-    let has_windash     = modifiers.contains(&FieldModifier::Windash);
-    let has_wide        = modifiers.contains(&FieldModifier::Wide);
-    let has_base64      = modifiers.contains(&FieldModifier::Base64);
-    let has_b64offset   = modifiers.contains(&FieldModifier::Base64Offset);
+    let has_windash = modifiers.contains(&FieldModifier::Windash);
+    let has_wide = modifiers.contains(&FieldModifier::Wide);
+    let has_base64 = modifiers.contains(&FieldModifier::Base64);
+    let has_b64offset = modifiers.contains(&FieldModifier::Base64Offset);
 
     // Normalise field value
     let fv = if has_windash {
@@ -1972,7 +2171,10 @@ fn apply_modifiers(field_val: &str, pattern: &str, modifiers: &[FieldModifier]) 
     //  (none of the above) → single candidate = pat_base
     let candidates: Vec<String> = if has_b64offset {
         let raw_bytes: Vec<u8> = if has_wide {
-            pat_base.encode_utf16().flat_map(|c| c.to_le_bytes()).collect()
+            pat_base
+                .encode_utf16()
+                .flat_map(|c| c.to_le_bytes())
+                .collect()
         } else {
             pat_base.as_bytes().to_vec()
         };
@@ -1986,10 +2188,7 @@ fn apply_modifiers(field_val: &str, pattern: &str, modifiers: &[FieldModifier]) 
         vec![encoded]
     } else if has_wide {
         // UTF-16LE interleaved: "ab" → "a\x00b\x00"
-        let wide: String = pat_base
-            .chars()
-            .flat_map(|c| [c, '\x00'])
-            .collect();
+        let wide: String = pat_base.chars().flat_map(|c| [c, '\x00']).collect();
         vec![wide]
     } else {
         vec![pat_base]
@@ -1998,7 +2197,10 @@ fn apply_modifiers(field_val: &str, pattern: &str, modifiers: &[FieldModifier]) 
     // base64 output is mixed-case; since `fv` is already lowercased we must
     // lowercase the candidates too so contains/startswith/endswith work.
     let candidates: Vec<String> = if has_base64 || has_b64offset {
-        candidates.into_iter().map(|c| c.to_ascii_lowercase()).collect()
+        candidates
+            .into_iter()
+            .map(|c| c.to_ascii_lowercase())
+            .collect()
     } else {
         candidates
     };
@@ -2006,21 +2208,33 @@ fn apply_modifiers(field_val: &str, pattern: &str, modifiers: &[FieldModifier]) 
     // Primary matching modifier
     for modifier in modifiers {
         match modifier {
-            FieldModifier::Contains   =>
-                return candidates.iter().any(|p| fv.contains(p.as_str())),
-            FieldModifier::StartsWith =>
-                return candidates.iter().any(|p| fv.starts_with(p.as_str())),
-            FieldModifier::EndsWith   =>
-                return candidates.iter().any(|p| fv.ends_with(p.as_str())),
-            FieldModifier::Re =>
+            FieldModifier::Contains => return candidates.iter().any(|p| fv.contains(p.as_str())),
+            FieldModifier::StartsWith => {
+                return candidates.iter().any(|p| fv.starts_with(p.as_str()))
+            }
+            FieldModifier::EndsWith => return candidates.iter().any(|p| fv.ends_with(p.as_str())),
+            FieldModifier::Re => {
                 return compiled_regex(pattern)
                     .map(|re| re.is_match(field_val))
-                    .unwrap_or(false),
-            FieldModifier::Cidr  => return cidr_contains(field_val, pattern),
-            FieldModifier::Lt    => { let (a, b) = parse_pair(field_val, pattern); return a < b; }
-            FieldModifier::Lte   => { let (a, b) = parse_pair(field_val, pattern); return a <= b; }
-            FieldModifier::Gt    => { let (a, b) = parse_pair(field_val, pattern); return a > b; }
-            FieldModifier::Gte   => { let (a, b) = parse_pair(field_val, pattern); return a >= b; }
+                    .unwrap_or(false)
+            }
+            FieldModifier::Cidr => return cidr_contains(field_val, pattern),
+            FieldModifier::Lt => {
+                let (a, b) = parse_pair(field_val, pattern);
+                return a < b;
+            }
+            FieldModifier::Lte => {
+                let (a, b) = parse_pair(field_val, pattern);
+                return a <= b;
+            }
+            FieldModifier::Gt => {
+                let (a, b) = parse_pair(field_val, pattern);
+                return a > b;
+            }
+            FieldModifier::Gte => {
+                let (a, b) = parse_pair(field_val, pattern);
+                return a >= b;
+            }
             // Pre-processing / structural modifiers — handled elsewhere
             FieldModifier::Base64
             | FieldModifier::Base64Offset
@@ -2046,80 +2260,80 @@ fn apply_modifiers(field_val: &str, pattern: &str, modifiers: &[FieldModifier]) 
 /// `json_lookup`.
 static SIGMA_TO_OCSF: &[(&str, &str)] = &[
     // ── Windows process (Sysmon EventID 1, 10, …) ──────────────────────────
-    ("CommandLine",        "process.cmd_line"),
-    ("Image",              "process.file.path"),
-    ("OriginalFileName",   "process.file.name"),
-    ("CurrentDirectory",   "process.file.parent_folder"),
-    ("ParentCommandLine",  "process.parent_process.cmd_line"),
-    ("ParentImage",        "process.parent_process.file.path"),
-    ("ProcessId",          "process.pid"),
-    ("ParentProcessId",    "process.parent_process.pid"),
-    ("ProcessGuid",        "process.uid"),
-    ("ParentProcessGuid",  "process.parent_process.uid"),
+    ("CommandLine", "process.cmd_line"),
+    ("Image", "process.file.path"),
+    ("OriginalFileName", "process.file.name"),
+    ("CurrentDirectory", "process.file.parent_folder"),
+    ("ParentCommandLine", "process.parent_process.cmd_line"),
+    ("ParentImage", "process.parent_process.file.path"),
+    ("ProcessId", "process.pid"),
+    ("ParentProcessId", "process.parent_process.pid"),
+    ("ProcessGuid", "process.uid"),
+    ("ParentProcessGuid", "process.parent_process.uid"),
     // ── Windows hashes ───────────────────────────────────────────────────────
-    ("Hashes",             "process.file.hashes"),
-    ("MD5",                "process.file.hashes.md5"),
-    ("SHA1",               "process.file.hashes.sha1"),
-    ("SHA256",             "process.file.hashes.sha256"),
-    ("Imphash",            "process.file.hashes.imphash"),
+    ("Hashes", "process.file.hashes"),
+    ("MD5", "process.file.hashes.md5"),
+    ("SHA1", "process.file.hashes.sha1"),
+    ("SHA256", "process.file.hashes.sha256"),
+    ("Imphash", "process.file.hashes.imphash"),
     // ── Windows user / session ───────────────────────────────────────────────
-    ("User",               "actor.user.name"),
-    ("SubjectUserName",    "actor.user.name"),
-    ("SubjectDomainName",  "actor.user.domain"),
-    ("SubjectLogonId",     "actor.session.uid"),
-    ("TargetUserName",     "dst_endpoint.user.name"),
-    ("TargetDomainName",   "dst_endpoint.domain"),
-    ("TargetLogonId",      "dst_endpoint.session.uid"),
-    ("LogonType",          "auth.logon_type"),
-    ("LogonGuid",          "actor.session.uid"),
+    ("User", "actor.user.name"),
+    ("SubjectUserName", "actor.user.name"),
+    ("SubjectDomainName", "actor.user.domain"),
+    ("SubjectLogonId", "actor.session.uid"),
+    ("TargetUserName", "dst_endpoint.user.name"),
+    ("TargetDomainName", "dst_endpoint.domain"),
+    ("TargetLogonId", "dst_endpoint.session.uid"),
+    ("LogonType", "auth.logon_type"),
+    ("LogonGuid", "actor.session.uid"),
     // ── Windows event metadata ────────────────────────────────────────────────
-    ("EventID",            "metadata.uid"),
-    ("Channel",            "metadata.log_name"),
-    ("Provider_Name",      "metadata.product.name"),
-    ("ComputerName",       "device.hostname"),
-    ("MachineName",        "device.hostname"),
-    ("WorkstationName",    "src_endpoint.hostname"),
-    ("IpAddress",          "src_endpoint.ip"),
-    ("IpPort",             "src_endpoint.port"),
+    ("EventID", "metadata.uid"),
+    ("Channel", "metadata.log_name"),
+    ("Provider_Name", "metadata.product.name"),
+    ("ComputerName", "device.hostname"),
+    ("MachineName", "device.hostname"),
+    ("WorkstationName", "src_endpoint.hostname"),
+    ("IpAddress", "src_endpoint.ip"),
+    ("IpPort", "src_endpoint.port"),
     // ── Network connection (Sysmon EventID 3 / firewall) ─────────────────────
-    ("src_ip",             "src_endpoint.ip"),
-    ("dst_ip",             "dst_endpoint.ip"),
-    ("src_port",           "src_endpoint.port"),
-    ("dst_port",           "dst_endpoint.port"),
-    ("SourceIp",           "src_endpoint.ip"),
-    ("DestinationIp",      "dst_endpoint.ip"),
-    ("SourcePort",         "src_endpoint.port"),
-    ("DestinationPort",    "dst_endpoint.port"),
-    ("SourceHostname",     "src_endpoint.hostname"),
-    ("DestinationHostname","dst_endpoint.hostname"),
-    ("Protocol",           "connection_info.protocol_name"),
-    ("Initiated",          "connection_info.direction"),
+    ("src_ip", "src_endpoint.ip"),
+    ("dst_ip", "dst_endpoint.ip"),
+    ("src_port", "src_endpoint.port"),
+    ("dst_port", "dst_endpoint.port"),
+    ("SourceIp", "src_endpoint.ip"),
+    ("DestinationIp", "dst_endpoint.ip"),
+    ("SourcePort", "src_endpoint.port"),
+    ("DestinationPort", "dst_endpoint.port"),
+    ("SourceHostname", "src_endpoint.hostname"),
+    ("DestinationHostname", "dst_endpoint.hostname"),
+    ("Protocol", "connection_info.protocol_name"),
+    ("Initiated", "connection_info.direction"),
     // ── File (Sysmon EventID 11 / EDR) ───────────────────────────────────────
-    ("TargetFilename",     "file.path"),
-    ("FileName",           "file.name"),
-    ("FileSize",           "file.size"),
+    ("TargetFilename", "file.path"),
+    ("FileName", "file.name"),
+    ("FileSize", "file.size"),
     // ── Registry (Sysmon EventID 12-14) ──────────────────────────────────────
-    ("TargetObject",       "registry.key"),
-    ("Details",            "registry.value"),
-    ("NewName",            "registry.new_key"),
-    ("EventType",          "metadata.event_type"),
+    ("TargetObject", "registry.key"),
+    ("Details", "registry.value"),
+    ("NewName", "registry.new_key"),
+    ("EventType", "metadata.event_type"),
     // ── DNS (Sysmon EventID 22) ───────────────────────────────────────────────
-    ("QueryName",          "dns_query.hostname"),
-    ("QueryResults",       "dns_answer.rdata"),
-    ("query",              "dns_query.hostname"),
+    ("QueryName", "dns_query.hostname"),
+    ("QueryResults", "dns_answer.rdata"),
+    ("query", "dns_query.hostname"),
     // ── Pipe / named pipe (Sysmon EventID 17-18) ─────────────────────────────
-    ("PipeName",           "process.file.path"),
+    ("PipeName", "process.file.path"),
     // ── WMI (Sysmon EventID 19-21) ────────────────────────────────────────────
-    ("EventNamespace",     "metadata.log_name"),
-    ("Name",               "metadata.event_type"),
+    ("EventNamespace", "metadata.log_name"),
+    ("Name", "metadata.event_type"),
     // ── Generic host ─────────────────────────────────────────────────────────
-    ("Hostname",           "device.hostname"),
-    ("ProcessName",        "process.file.path"),
-    ("IntegrityLevel",     "process.integrity_info"),
+    ("Hostname", "device.hostname"),
+    ("ProcessName", "process.file.path"),
+    ("IntegrityLevel", "process.integrity_info"),
     // ── winlog.* dotted prefix aliases ───────────────────────────────────────
-    ("winlog.event_id",    "metadata.uid"),
+    ("winlog.event_id", "metadata.uid"),
     ("winlog.computer_name", "device.hostname"),
-    ("winlog.task",        "metadata.log_name"),
+    ("winlog.task", "metadata.log_name"),
 ];
 
 /// Extract all string representations of `field` from the event.
@@ -2182,12 +2396,12 @@ fn json_lookup<'a>(value: &'a Value, field: &str) -> Option<&'a Value> {
 
 fn flatten_json_strings(value: &Value, out: &mut Vec<String>) {
     match value {
-        Value::String(s)  => out.push(s.clone()),
-        Value::Number(n)  => out.push(n.to_string()),
-        Value::Bool(b)    => out.push(b.to_string()),
-        Value::Null       => out.push("__null__".to_string()),
+        Value::String(s) => out.push(s.clone()),
+        Value::Number(n) => out.push(n.to_string()),
+        Value::Bool(b) => out.push(b.to_string()),
+        Value::Null => out.push("__null__".to_string()),
         Value::Array(arr) => arr.iter().for_each(|v| flatten_json_strings(v, out)),
-        Value::Object(_)  => out.push(value.to_string()),
+        Value::Object(_) => out.push(value.to_string()),
     }
 }
 
@@ -2249,15 +2463,22 @@ fn base64_offset_variants(bytes: &[u8]) -> [String; 3] {
     [variant(0), variant(1), variant(2)]
 }
 
-const BASE64_ALPHABET: &[u8] =
-    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const BASE64_ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 fn base64_encode(data: &[u8]) -> String {
     let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
     for chunk in data.chunks(3) {
         let b0 = chunk[0] as usize;
-        let b1 = if chunk.len() > 1 { chunk[1] as usize } else { 0 };
-        let b2 = if chunk.len() > 2 { chunk[2] as usize } else { 0 };
+        let b1 = if chunk.len() > 1 {
+            chunk[1] as usize
+        } else {
+            0
+        };
+        let b2 = if chunk.len() > 2 {
+            chunk[2] as usize
+        } else {
+            0
+        };
         out.push(BASE64_ALPHABET[b0 >> 2] as char);
         out.push(BASE64_ALPHABET[((b0 & 3) << 4) | (b1 >> 4)] as char);
         out.push(if chunk.len() > 1 {
@@ -2319,9 +2540,9 @@ fn parse_pair(a: &str, b: &str) -> (f64, f64) {
 fn severity_destinations(severity: &Severity) -> Vec<String> {
     match severity {
         Severity::Critical => vec!["teams".to_string(), "pagerduty".to_string()],
-        Severity::High     => vec!["teams".to_string()],
-        Severity::Medium   => vec!["teams".to_string()],
-        Severity::Low      => vec![],
+        Severity::High => vec!["teams".to_string()],
+        Severity::Medium => vec!["teams".to_string()],
+        Severity::Low => vec![],
     }
 }
 
@@ -2474,7 +2695,11 @@ mod tests {
         assert!(RuleExecutor::default().evaluate(&rule, &ev_match).matched);
 
         let ev_filtered = make_event(json!({ "CommandLine": "powershell -File legitimate.ps1" }));
-        assert!(!RuleExecutor::default().evaluate(&rule, &ev_filtered).matched);
+        assert!(
+            !RuleExecutor::default()
+                .evaluate(&rule, &ev_filtered)
+                .matched
+        );
     }
 
     #[test]
@@ -2539,12 +2764,18 @@ mod tests {
         );
         assert!(
             RuleExecutor::default()
-                .evaluate(&rule, &make_event(json!({ "ProcessName": "C:\\malware.exe" })))
+                .evaluate(
+                    &rule,
+                    &make_event(json!({ "ProcessName": "C:\\malware.exe" }))
+                )
                 .matched
         );
         assert!(
             RuleExecutor::default()
-                .evaluate(&rule, &make_event(json!({ "CommandLine": "inject -shellcode 0xDEAD" })))
+                .evaluate(
+                    &rule,
+                    &make_event(json!({ "CommandLine": "inject -shellcode 0xDEAD" }))
+                )
                 .matched
         );
         assert!(
@@ -2593,8 +2824,7 @@ mod tests {
             .maybe_build_alert(&rule, &ev, "evt:2".to_string())
             .expect("second call should also return Some — storage handles dedup");
         assert_eq!(
-            a1.routing_state.dedupe_key,
-            a2.routing_state.dedupe_key,
+            a1.routing_state.dedupe_key, a2.routing_state.dedupe_key,
             "both alerts must share the same dedupe_key for storage-level suppression to work"
         );
     }
@@ -2649,10 +2879,16 @@ mod tests {
         // First 5 events must NOT trigger (count not yet > 5)
         let ev = make_event(json!({ "event_type": "failed_login" }));
         for _ in 0..5 {
-            assert!(!executor.evaluate(&rule, &ev).matched, "should not match before threshold");
+            assert!(
+                !executor.evaluate(&rule, &ev).matched,
+                "should not match before threshold"
+            );
         }
         // 6th event crosses count > 5
-        assert!(executor.evaluate(&rule, &ev).matched, "should match at count == 6");
+        assert!(
+            executor.evaluate(&rule, &ev).matched,
+            "should match at count == 6"
+        );
     }
 
     #[test]
@@ -2695,7 +2931,10 @@ mod tests {
         // Events that don't match the selection should never count
         let ev_ok = make_event(json!({ "event_type": "success_login" }));
         for _ in 0..100 {
-            assert!(!executor.evaluate(&rule, &ev_ok).matched, "non-matching event must not count");
+            assert!(
+                !executor.evaluate(&rule, &ev_ok).matched,
+                "non-matching event must not count"
+            );
         }
     }
 
@@ -2772,7 +3011,8 @@ mod tests {
 
     #[test]
     fn count_distinct_parser_roundtrip() {
-        let node = parse_condition_expr("sel | count_distinct(TargetUserName) by IpAddress > 5").unwrap();
+        let node =
+            parse_condition_expr("sel | count_distinct(TargetUserName) by IpAddress > 5").unwrap();
         match node {
             ConditionNode::Aggregate { selection, agg } => {
                 assert_eq!(selection, "sel");
@@ -2802,27 +3042,43 @@ mod tests {
 
         // 3 distinct targets from attacker — should NOT trigger (need > 3)
         for host in ["host-a", "host-b", "host-c"] {
-            assert!(!executor.evaluate(&rule, &make_ev("10.0.0.1", host)).matched,
-                "3 distinct targets must not trigger");
+            assert!(
+                !executor.evaluate(&rule, &make_ev("10.0.0.1", host)).matched,
+                "3 distinct targets must not trigger"
+            );
         }
         // Same target again — still 3 distinct, no trigger
-        assert!(!executor.evaluate(&rule, &make_ev("10.0.0.1", "host-a")).matched,
-            "repeated target must not increase distinct count");
+        assert!(
+            !executor
+                .evaluate(&rule, &make_ev("10.0.0.1", "host-a"))
+                .matched,
+            "repeated target must not increase distinct count"
+        );
         // 4th distinct target → triggers
-        assert!(executor.evaluate(&rule, &make_ev("10.0.0.1", "host-d")).matched,
-            "4th distinct target must trigger");
+        assert!(
+            executor
+                .evaluate(&rule, &make_ev("10.0.0.1", "host-d"))
+                .matched,
+            "4th distinct target must trigger"
+        );
 
         // Different src_ip with same 4 targets should ALSO trigger independently
         for host in ["host-a", "host-b", "host-c"] {
             executor.evaluate(&rule, &make_ev("192.168.1.5", host));
         }
-        assert!(executor.evaluate(&rule, &make_ev("192.168.1.5", "host-z")).matched,
-            "independent src_ip group must trigger on its own 4th distinct target");
+        assert!(
+            executor
+                .evaluate(&rule, &make_ev("192.168.1.5", "host-z"))
+                .matched,
+            "independent src_ip group must trigger on its own 4th distinct target"
+        );
 
         // Completely different attacker stays isolated
         let innocent = make_ev("172.16.0.1", "host-x");
-        assert!(!executor.evaluate(&rule, &innocent).matched,
-            "new src_ip with 1 connection must not trigger");
+        assert!(
+            !executor.evaluate(&rule, &innocent).matched,
+            "new src_ip with 1 connection must not trigger"
+        );
     }
 
     #[test]
@@ -2857,8 +3113,10 @@ mod tests {
         // Second call should use cache (same result expected)
         assert!(executor.evaluate(&rule, &event).matched);
         // Cache should contain one entry for this rule
-        assert!(executor.plan_cache.contains_key(&rule.rule_id),
-            "plan_cache must hold an entry for the rule after evaluate()");
+        assert!(
+            executor.plan_cache.contains_key(&rule.rule_id),
+            "plan_cache must hold an entry for the rule after evaluate()"
+        );
     }
 
     #[test]
@@ -2871,8 +3129,10 @@ mod tests {
         executor.evaluate(&rule, &event);
         assert!(executor.plan_cache.contains_key(&rule.rule_id));
         executor.invalidate_rule(rule.rule_id);
-        assert!(!executor.plan_cache.contains_key(&rule.rule_id),
-            "plan_cache entry must be removed after invalidate_rule()");
+        assert!(
+            !executor.plan_cache.contains_key(&rule.rule_id),
+            "plan_cache entry must be removed after invalidate_rule()"
+        );
     }
 
     // ── Timeframe ─────────────────────────────────────────────────────────────
@@ -2924,10 +3184,16 @@ mod tests {
              \x20 condition: selection | count() > 10\n\
              \x20 timeframe: 15m",
         );
-        assert!(result.is_ok(), "rule with timeframe inside detection must compile: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "rule with timeframe inside detection must compile: {:?}",
+            result
+        );
         let plan: CompiledSigmaPlan = serde_json::from_value(result.unwrap()).unwrap();
-        assert!(!plan.selections.contains_key("timeframe"),
-            "timeframe must not appear as a selection name");
+        assert!(
+            !plan.selections.contains_key("timeframe"),
+            "timeframe must not appear as a selection name"
+        );
         assert_eq!(plan.timeframe_seconds, Some(900));
     }
 
@@ -2945,8 +3211,7 @@ mod tests {
              timeframe: 5m",
         );
         // Executor has a near-zero global window — would break agg if used
-        let executor =
-            RuleExecutor::default().with_agg_window(std::time::Duration::from_millis(1));
+        let executor = RuleExecutor::default().with_agg_window(std::time::Duration::from_millis(1));
 
         let ev = make_event(json!({ "event_type": "failed_login" }));
 
@@ -3022,12 +3287,16 @@ mod tests {
              detection:\n  sel:\n    CommandLine|exists: true\n  condition: sel",
         );
         let executor = RuleExecutor::default();
-        let ev_has  = make_event(json!({ "CommandLine": "powershell -enc abc" }));
+        let ev_has = make_event(json!({ "CommandLine": "powershell -enc abc" }));
         let ev_none = make_event(json!({ "ProcessName": "cmd.exe" }));
-        assert!(executor.evaluate(&rule, &ev_has).matched,
-            "|exists: true must match when field is present");
-        assert!(!executor.evaluate(&rule, &ev_none).matched,
-            "|exists: true must not match when field is absent");
+        assert!(
+            executor.evaluate(&rule, &ev_has).matched,
+            "|exists: true must match when field is present"
+        );
+        assert!(
+            !executor.evaluate(&rule, &ev_none).matched,
+            "|exists: true must not match when field is absent"
+        );
     }
 
     #[test]
@@ -3038,11 +3307,16 @@ mod tests {
         );
         let executor = RuleExecutor::default();
         let ev_no_parent = make_event(json!({ "CommandLine": "cmd.exe /c whoami" }));
-        let ev_has_parent = make_event(json!({ "CommandLine": "cmd.exe", "ParentCommandLine": "explorer.exe" }));
-        assert!(executor.evaluate(&rule, &ev_no_parent).matched,
-            "|exists: false must match when field is absent");
-        assert!(!executor.evaluate(&rule, &ev_has_parent).matched,
-            "|exists: false must not match when field is present");
+        let ev_has_parent =
+            make_event(json!({ "CommandLine": "cmd.exe", "ParentCommandLine": "explorer.exe" }));
+        assert!(
+            executor.evaluate(&rule, &ev_no_parent).matched,
+            "|exists: false must match when field is absent"
+        );
+        assert!(
+            !executor.evaluate(&rule, &ev_has_parent).matched,
+            "|exists: false must not match when field is present"
+        );
     }
 
     #[test]
@@ -3057,8 +3331,9 @@ mod tests {
         );
         let executor = RuleExecutor::default();
         let ev_match = make_event(json!({ "CommandLine": "evil.exe" }));
-        let ev_no    = make_event(json!({ "CommandLine": "evil.exe", "ParentCommandLine": "explorer.exe" }));
-        let ev_no2   = make_event(json!({ "ProcessName": "svchost.exe" }));
+        let ev_no =
+            make_event(json!({ "CommandLine": "evil.exe", "ParentCommandLine": "explorer.exe" }));
+        let ev_no2 = make_event(json!({ "ProcessName": "svchost.exe" }));
         assert!(executor.evaluate(&rule, &ev_match).matched);
         assert!(!executor.evaluate(&rule, &ev_no).matched);
         assert!(!executor.evaluate(&rule, &ev_no2).matched);
@@ -3071,7 +3346,11 @@ mod tests {
             "title: ExistsCompile\n\
              detection:\n  sel:\n    Image|exists: true\n  condition: sel",
         );
-        assert!(result.is_ok(), "rule with |exists must compile: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "rule with |exists must compile: {:?}",
+            result
+        );
     }
 
     // ── `timeframe` inside detection block ───────────────────────────────────
@@ -3087,15 +3366,22 @@ mod tests {
              \x20 condition: selection | count() > 2\n\
              \x20 timeframe: 1m",
         );
-        let executor = RuleExecutor::default()
-            .with_agg_window(std::time::Duration::from_millis(1)); // tiny global window
+        let executor = RuleExecutor::default().with_agg_window(std::time::Duration::from_millis(1)); // tiny global window
 
         // With a 1-minute rule timeframe, all 3 events fall in window → triggers.
         for _ in 0..2 {
-            assert!(!executor.evaluate(&rule, &make_event(json!({ "EventID": "4625" }))).matched);
+            assert!(
+                !executor
+                    .evaluate(&rule, &make_event(json!({ "EventID": "4625" })))
+                    .matched
+            );
         }
-        assert!(executor.evaluate(&rule, &make_event(json!({ "EventID": "4625" }))).matched,
-            "3rd event must trigger when rule timeframe is 1m (overrides tiny executor window)");
+        assert!(
+            executor
+                .evaluate(&rule, &make_event(json!({ "EventID": "4625" })))
+                .matched,
+            "3rd event must trigger when rule timeframe is 1m (overrides tiny executor window)"
+        );
     }
 
     // ── Glob wildcard patterns ────────────────────────────────────────────────
@@ -3103,7 +3389,10 @@ mod tests {
     #[test]
     fn glob_match_trailing_wildcard() {
         // '*\powershell.exe' — the most common Sigma glob pattern
-        assert!(glob_match(r"*\powershell.exe", r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"));
+        assert!(glob_match(
+            r"*\powershell.exe",
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+        ));
         assert!(!glob_match(r"*\powershell.exe", r"C:\tools\nc.exe"));
     }
 
@@ -3117,7 +3406,10 @@ mod tests {
     #[test]
     fn glob_match_both_ends() {
         assert!(glob_match("* -enc *", "powershell -enc YWJj"));
-        assert!(glob_match("* -enc *", "cmd /c powershell -enc YWJj trailing"));
+        assert!(glob_match(
+            "* -enc *",
+            "cmd /c powershell -enc YWJj trailing"
+        ));
         assert!(!glob_match("* -enc *", "powershell -noprofile"));
     }
 
@@ -3156,9 +3448,11 @@ mod tests {
         );
         let executor = RuleExecutor::default();
         let ev_match = make_event(json!({ "Image": "C:\\Windows\\System32\\powershell.exe" }));
-        let ev_no    = make_event(json!({ "Image": "C:\\tools\\nc.exe" }));
-        assert!(executor.evaluate(&rule, &ev_match).matched,
-            "bare glob '*\\powershell.exe' must match path ending with powershell.exe");
+        let ev_no = make_event(json!({ "Image": "C:\\tools\\nc.exe" }));
+        assert!(
+            executor.evaluate(&rule, &ev_match).matched,
+            "bare glob '*\\powershell.exe' must match path ending with powershell.exe"
+        );
         assert!(!executor.evaluate(&rule, &ev_no).matched);
     }
 
@@ -3170,7 +3464,7 @@ mod tests {
         );
         let executor = RuleExecutor::default();
         let ev_match = make_event(json!({ "CommandLine": "powershell.exe -enc YWJj" }));
-        let ev_no    = make_event(json!({ "CommandLine": "powershell.exe -noprofile" }));
+        let ev_no = make_event(json!({ "CommandLine": "powershell.exe -noprofile" }));
         assert!(executor.evaluate(&rule, &ev_match).matched);
         assert!(!executor.evaluate(&rule, &ev_no).matched);
     }
@@ -3183,9 +3477,27 @@ mod tests {
             "title: MultiGlob\ndetection:\n  sel:\n    Image:\n      - '*\\powershell.exe'\n      - '*\\cmd.exe'\n  condition: sel",
         );
         let executor = RuleExecutor::default();
-        assert!(executor.evaluate(&rule, &make_event(json!({ "Image": "C:\\Windows\\cmd.exe" }))).matched);
-        assert!(executor.evaluate(&rule, &make_event(json!({ "Image": "C:\\Windows\\powershell.exe" }))).matched);
-        assert!(!executor.evaluate(&rule, &make_event(json!({ "Image": "C:\\tools\\nc.exe" }))).matched);
+        assert!(
+            executor
+                .evaluate(
+                    &rule,
+                    &make_event(json!({ "Image": "C:\\Windows\\cmd.exe" }))
+                )
+                .matched
+        );
+        assert!(
+            executor
+                .evaluate(
+                    &rule,
+                    &make_event(json!({ "Image": "C:\\Windows\\powershell.exe" }))
+                )
+                .matched
+        );
+        assert!(
+            !executor
+                .evaluate(&rule, &make_event(json!({ "Image": "C:\\tools\\nc.exe" })))
+                .matched
+        );
     }
 
     #[test]
@@ -3197,11 +3509,15 @@ mod tests {
         let executor = RuleExecutor::default();
         // Only matches if the literal string "* -enc" appears in the value.
         let ev_literal = make_event(json!({ "CommandLine": "invoke-expression * -enc" }));
-        let ev_glob    = make_event(json!({ "CommandLine": "powershell -enc abc" }));
-        assert!(executor.evaluate(&rule, &ev_literal).matched,
-            "|contains must find the literal '* -enc' substring");
-        assert!(!executor.evaluate(&rule, &ev_glob).matched,
-            "|contains must NOT treat * as wildcard");
+        let ev_glob = make_event(json!({ "CommandLine": "powershell -enc abc" }));
+        assert!(
+            executor.evaluate(&rule, &ev_literal).matched,
+            "|contains must find the literal '* -enc' substring"
+        );
+        assert!(
+            !executor.evaluate(&rule, &ev_glob).matched,
+            "|contains must NOT treat * as wildcard"
+        );
     }
 
     // ── Sprint B: modifier correctness ────────────────────────────────────────
@@ -3231,7 +3547,10 @@ mod tests {
         // We verify that the function produces 3 distinct non-empty variants.
         let variants = base64_offset_variants(b"IEX");
         assert_eq!(variants.len(), 3);
-        assert!(variants.iter().all(|v| !v.is_empty()), "all variants must be non-empty");
+        assert!(
+            variants.iter().all(|v| !v.is_empty()),
+            "all variants must be non-empty"
+        );
         // All three variants must be distinct strings
         assert_ne!(variants[0], variants[1]);
         assert_ne!(variants[1], variants[2]);
@@ -3261,14 +3580,14 @@ mod tests {
             "title: SW\ndetection:\n  sel:\n    CommandLine|startswith: powershell\n  condition: sel",
         );
         let ev_match = make_event(json!({ "CommandLine": "powershell -enc abc" }));
-        let ev_no    = make_event(json!({ "CommandLine": "cmd /c whoami" }));
+        let ev_no = make_event(json!({ "CommandLine": "cmd /c whoami" }));
         assert!(executor.evaluate(&rule_sw, &ev_match).matched);
         assert!(!executor.evaluate(&rule_sw, &ev_no).matched);
 
         let rule_ew = make_rule(
             "title: EW\ndetection:\n  sel:\n    CommandLine|endswith: .exe\n  condition: sel",
         );
-        let ev_exe   = make_event(json!({ "CommandLine": "C:\\system32\\calc.exe" }));
+        let ev_exe = make_event(json!({ "CommandLine": "C:\\system32\\calc.exe" }));
         let ev_noexe = make_event(json!({ "CommandLine": "python script.py" }));
         assert!(executor.evaluate(&rule_ew, &ev_exe).matched);
         assert!(!executor.evaluate(&rule_ew, &ev_noexe).matched);
@@ -3309,9 +3628,7 @@ mod tests {
 
     #[test]
     fn logsource_routing_no_logsource_matches_all_sources() {
-        let rule = make_rule(
-            "title: Any\ndetection:\n  sel:\n    - malware\n  condition: sel",
-        );
+        let rule = make_rule("title: Any\ndetection:\n  sel:\n    - malware\n  condition: sel");
         let executor = RuleExecutor::default();
         for source in [
             EventSource::WindowsSysmon,
@@ -3360,7 +3677,11 @@ mod tests {
             .maybe_build_alert(&rule, &event, "evt:1".to_string())
             .expect("should build alert");
 
-        assert_eq!(alert.mitre_attack.len(), 1, "one technique tag should produce one entry");
+        assert_eq!(
+            alert.mitre_attack.len(),
+            1,
+            "one technique tag should produce one entry"
+        );
         let m = &alert.mitre_attack[0];
         assert_eq!(m.technique_id, "T1059.001");
         assert_eq!(m.tactic.as_deref(), Some("execution"));
@@ -3378,7 +3699,10 @@ mod tests {
         let alert = executor
             .maybe_build_alert(&rule, &event, "evt:1".to_string())
             .expect("should build alert");
-        assert!(alert.mitre_attack.is_empty(), "no tags → empty mitre_attack");
+        assert!(
+            alert.mitre_attack.is_empty(),
+            "no tags → empty mitre_attack"
+        );
     }
 
     #[test]
@@ -3424,7 +3748,10 @@ mod tests {
         let result = parse_mitre_from_tags(&tags);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].technique_id, "T9999.999");
-        assert!(result[0].tactic.is_none(), "unknown technique → tactic should be None");
+        assert!(
+            result[0].tactic.is_none(),
+            "unknown technique → tactic should be None"
+        );
         assert!(result[0].technique_name.is_none());
     }
 
@@ -3514,8 +3841,7 @@ mod tests {
     // ── `near` temporal correlation ───────────────────────────────────────────
 
     /// Rule that matches a process event near a network event on the same host.
-    const NEAR_RULE: &str =
-        "title: PS Near Net\n\
+    const NEAR_RULE: &str = "title: PS Near Net\n\
          detection:\n  sel_proc:\n    Image|contains: powershell\n  \
          sel_net:\n    DestinationPort: '443'\n  \
          condition: sel_proc near sel_net within 30s by ComputerName";
@@ -3588,7 +3914,7 @@ mod tests {
         }));
 
         executor.evaluate(&rule, &proc_ws01); // record ws01 process
-        // ws02 network alone → no alert (ws02 never had a process event)
+                                              // ws02 network alone → no alert (ws02 never had a process event)
         assert!(!executor.evaluate(&rule, &net_ws02).matched);
         // ws01 network → alert (ws01 had both)
         assert!(executor.evaluate(&rule, &net_ws01).matched);
@@ -3633,8 +3959,7 @@ mod tests {
 
     // ── |lookup modifier tests ──────────────────────────────────────────────
 
-    const LOOKUP_RULE: &str =
-        "title: IOC IP Hit\n\
+    const LOOKUP_RULE: &str = "title: IOC IP Hit\n\
          detection:\n  selection:\n    src_ip|lookup: ioc_ips\n  \
          condition: selection";
 
@@ -3650,7 +3975,10 @@ mod tests {
     fn lookup_matches_value_in_table() {
         let rule = make_rule(LOOKUP_RULE);
         let store = Arc::new(LookupStore::new());
-        store.set_entries("ioc_ips", vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()]);
+        store.set_entries(
+            "ioc_ips",
+            vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()],
+        );
 
         let event = make_event(json!({ "src_ip": "1.2.3.4" }));
         let executor = RuleExecutor::default();
