@@ -354,7 +354,8 @@ where
         };
 
         // Single-tenant override — replace whatever the token said
-        if let Some(TenantOverride(ref forced)) = parts.extensions.get::<TenantOverride>().cloned() {
+        if let Some(TenantOverride(ref forced)) = parts.extensions.get::<TenantOverride>().cloned()
+        {
             ctx.tenant_id = forced.clone();
         }
 
