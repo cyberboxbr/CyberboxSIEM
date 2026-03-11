@@ -1,0 +1,22 @@
+title: SSH Brute Force Detected
+id: 0907f5d6-c2a5-4e3a-bf72-3b3f7a4c5e19
+status: stable
+description: |
+  Detects multiple failed SSH login attempts from the same source within
+  a short time window, indicating a brute force attack.
+  Requires log events with "Failed password" from sshd.
+logsource:
+  product: linux
+  service: sshd
+detection:
+  selection:
+    message|contains: 'Failed password'
+  condition: selection | count() by SourceIp > 10
+  timeframe: 5m
+level: high
+tags:
+  - attack.credential_access
+  - attack.t1110.001
+falsepositives:
+  - Users mistyping passwords repeatedly
+  - Automated key rotation scripts

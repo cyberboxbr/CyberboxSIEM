@@ -1,0 +1,53 @@
+title: Suspicious PowerShell Command Line
+id: 0907f5d6-c2a5-4e3a-bf72-3b3f7a4c5e02
+status: stable
+description: |
+  Detects PowerShell execution with encoded commands, download cradles,
+  or bypass flags commonly used in fileless attacks.
+  Sysmon EventID 1 (ProcessCreate).
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection_process:
+    event_type: ProcessCreate
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+  selection_encoded:
+    CommandLine|contains:
+      - '-enc '
+      - '-EncodedCommand'
+      - '-e JAB'
+      - '-e SQBF'
+      - 'FromBase64String'
+  selection_download:
+    CommandLine|contains:
+      - 'Invoke-WebRequest'
+      - 'IWR '
+      - 'wget '
+      - 'curl '
+      - 'Net.WebClient'
+      - 'DownloadString'
+      - 'DownloadFile'
+      - 'Invoke-Expression'
+      - 'IEX '
+      - 'IEX('
+  selection_bypass:
+    CommandLine|contains:
+      - '-ExecutionPolicy Bypass'
+      - '-ep bypass'
+      - '-nop '
+      - '-NoProfile'
+      - '-WindowStyle Hidden'
+      - '-w hidden'
+  condition: selection_process and (selection_encoded or selection_download or selection_bypass)
+level: high
+tags:
+  - attack.execution
+  - attack.t1059.001
+  - attack.defense_evasion
+  - attack.t1027
+falsepositives:
+  - Legitimate automation scripts
+  - Software deployment tools (SCCM, Intune)

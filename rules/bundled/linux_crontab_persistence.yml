@@ -1,0 +1,26 @@
+title: Crontab Modification for Persistence
+id: 0907f5d6-c2a5-4e3a-bf72-3b3f7a4c5e10
+status: stable
+description: |
+  Detects execution of crontab commands that modify scheduled tasks,
+  a common persistence technique on Linux.
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: '/crontab'
+    CommandLine|contains:
+      - '-e'    # edit
+      - '-r'    # remove (also suspicious)
+      - '-l'    # list (info gathering)
+  filter_list_only:
+    CommandLine|endswith: '-l'
+  condition: selection and not filter_list_only
+level: medium
+tags:
+  - attack.persistence
+  - attack.t1053.003
+falsepositives:
+  - Legitimate cron job management
+  - System automation

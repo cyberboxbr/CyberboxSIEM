@@ -1,6 +1,7 @@
 pub mod extractors;
 pub mod persist;
 pub mod routes;
+pub mod rules_pack;
 pub mod scheduler;
 pub mod state;
 pub mod stream;

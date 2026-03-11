@@ -1,0 +1,51 @@
+title: DNS TXT Record Query for Potential C2
+id: 0907f5d6-c2a5-4e3a-bf72-3b3f7a4c5e04
+status: stable
+description: |
+  Detects DNS queries to suspicious TLD patterns or high-entropy domains
+  that may indicate DNS-based command and control or data exfiltration.
+  Sysmon EventID 22 (DnsQuery).
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection:
+    event_type: DnsQuery
+  filter_benign:
+    QueryName|endswith:
+      - '.microsoft.com'
+      - '.windows.com'
+      - '.windowsupdate.com'
+      - '.office.com'
+      - '.office365.com'
+      - '.live.com'
+      - '.bing.com'
+      - '.googleapis.com'
+      - '.gstatic.com'
+      - '.google.com'
+      - '.amazon.com'
+      - '.amazonaws.com'
+  suspicious_tld:
+    QueryName|endswith:
+      - '.top'
+      - '.xyz'
+      - '.tk'
+      - '.ml'
+      - '.ga'
+      - '.cf'
+      - '.gq'
+      - '.cc'
+      - '.pw'
+      - '.onion.ly'
+      - '.duckdns.org'
+      - '.no-ip.org'
+      - '.ddns.net'
+  condition: selection and suspicious_tld and not filter_benign
+level: medium
+tags:
+  - attack.command_and_control
+  - attack.t1071.004
+  - attack.exfiltration
+  - attack.t1048.003
+falsepositives:
+  - Legitimate services using dynamic DNS

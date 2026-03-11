@@ -182,6 +182,10 @@ pub struct AlertRecord {
     /// Optional analyst note captured at close time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub close_note: Option<String>,
+    /// Metadata injected at alert-fire time when the source event came from a
+    /// registered cyberbox-agent (agent_id, hostname, os, version, group, tags).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_meta: Option<serde_json::Value>,
 }
 
 fn default_one() -> u64 {
@@ -483,6 +487,45 @@ pub struct SourceInfo {
     pub total_events: u64,
     /// Status derived from last_seen: "active" (<60 s), "stale" (<5 min), "silent".
     pub status: String,
+}
+
+// ─── Agent registry ───────────────────────────────────────────────────────────
+
+/// Record for a cyberbox-agent that has registered with the API.
+/// Status is computed on read: "active" (<90s), "stale" (<5min), "offline".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentRecord {
+    /// Stable agent identifier (UUID or hostname-based string sent at registration)
+    pub agent_id:      String,
+    pub tenant_id:     String,
+    pub hostname:      String,
+    /// OS name (e.g. "linux", "windows")
+    pub os:            String,
+    /// Agent version string
+    pub version:       String,
+    /// Source IP of the registration request
+    pub ip:            Option<String>,
+    pub registered_at: DateTime<Utc>,
+    pub last_seen:     DateTime<Utc>,
+    /// Logical group this agent belongs to (e.g. "prod-web", "dc-emea")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group:         Option<String>,
+    /// Arbitrary labels for filtering/display (e.g. ["linux", "critical"])
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags:          Vec<String>,
+    /// Pending TOML config to deliver on the next heartbeat. Cleared after delivery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_config: Option<String>,
+}
+
+impl AgentRecord {
+    /// Computed status based on time since last heartbeat.
+    pub fn status(&self) -> &'static str {
+        let secs = (Utc::now() - self.last_seen).num_seconds();
+        if secs < 90      { "active"  }
+        else if secs < 300 { "stale"   }
+        else               { "offline" }
+    }
 }
 
 // ─── Rule versioning ──────────────────────────────────────────────────────────

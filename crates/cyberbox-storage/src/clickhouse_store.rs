@@ -1696,6 +1696,7 @@ fn parse_alert_row(row: &Value) -> Result<AlertRecord, CyberboxError> {
         mitre_attack,
         resolution,
         close_note,
+        agent_meta: None,
     })
 }
 

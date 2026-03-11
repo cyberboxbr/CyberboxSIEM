@@ -5,7 +5,8 @@ use std::time::Instant;
 use rayon::prelude::*;
 
 use axum::{
-    extract::{Path, Query, State, ws::{WebSocket, WebSocketUpgrade, Message}},
+    extract::{ConnectInfo, Path, Query, State, ws::{WebSocket, WebSocketUpgrade, Message}},
+    http::StatusCode,
     response::{sse::{Event, KeepAlive, Sse}, IntoResponse},
     routing::{delete, get, patch, post},
     Json, Router,
@@ -21,12 +22,13 @@ use uuid::Uuid;
 use cyberbox_auth::{AuthContext, Role};
 use cyberbox_core::{CyberboxError, nlq::{GenerateSigmaRequest, NlqRequest}, threatintel::ThreatIntelFeed};
 use cyberbox_models::{
-    AckAlertRequest, AlertRecord, AlertsPage, AssignAlertRequest, AuditLogRecord, AuditLogsResponse,
-    BacktestRequest, BacktestResponse, CaseAlertIdsRequest, CaseRecord, CaseStatus, CloseAlertRequest,
-    CoverageReport, CoveredTechnique, CreateCaseRequest, DetectionMode, DetectionRule, DryRunRequest,
-    DryRunResponse, EventEnvelope, EventIngestRequest, EventIngestResponse, ListAlertsQuery,
-    Pagination, RuleScheduleConfig, RuleTestRequest, RuleTestResult, RuleVersion,
-    SearchQueryRequest, Severity, SourceInfo, TimeRange, UpdateCaseRequest,
+    AckAlertRequest, AgentRecord, AlertRecord, AlertsPage, AssignAlertRequest, AuditLogRecord,
+    AuditLogsResponse, BacktestRequest, BacktestResponse, CaseAlertIdsRequest, CaseRecord,
+    CaseStatus, CloseAlertRequest, CoverageReport, CoveredTechnique, CreateCaseRequest,
+    DetectionMode, DetectionRule, DryRunRequest, DryRunResponse, EventEnvelope, EventIngestRequest,
+    EventIngestResponse, ListAlertsQuery, Pagination, RuleScheduleConfig, RuleTestRequest,
+    RuleTestResult, RuleVersion, SearchQueryRequest, Severity, SourceInfo, TimeRange,
+    UpdateCaseRequest,
 };
 use cyberbox_storage::{sla_due_at, AlertStore, CaseStore, EventStore, RuleStore};
 
@@ -41,6 +43,8 @@ pub fn api_router() -> Router<AppState> {
         .route("/api/v1/rules", post(create_rule).get(list_rules))
         // Detection engineering helpers (static routes before parameterised ones)
         .route("/api/v1/rules/dry-run", post(dry_run_rule))
+        .route("/api/v1/rules/import-pack", post(import_rule_pack))
+        .route("/api/v1/rules/sync-dir", post(sync_rules_from_dir))
         .route("/api/v1/rules/:id", patch(update_rule).delete(delete_rule))
         .route("/api/v1/rules/:id/test", post(test_rule))
         .route("/api/v1/rules/:id/backtest", post(backtest_rule))
@@ -74,7 +78,8 @@ pub fn api_router() -> Router<AppState> {
         .route("/api/v1/rules/generate", post(generate_sigma_rule))
         .route("/api/v1/rules/:id/tune", post(tune_rule_handler))
         .route("/api/v1/explain/alert/:id", post(explain_alert_handler))
-        // Live alert stream (SSE + WebSocket)
+        // Live event + alert streams (SSE + WebSocket)
+        .route("/api/v1/events/stream", get(event_stream))
         .route("/api/v1/alerts/stream", get(alert_stream))
         .route("/api/v1/alerts/ws-token", get(issue_ws_token))
         .route("/api/v1/alerts/ws", get(alert_ws))
@@ -96,6 +101,12 @@ pub fn api_router() -> Router<AppState> {
         )
         // Source tracking
         .route("/api/v1/sources", get(list_sources))
+        // Agent registry
+        .route("/api/v1/agents", get(list_agents))
+        .route("/api/v1/agents/register", post(register_agent))
+        .route("/api/v1/agents/:id", patch(patch_agent))
+        .route("/api/v1/agents/:id/heartbeat", post(agent_heartbeat))
+        .route("/api/v1/agents/:id/config", post(push_agent_config))
 }
 
 pub async fn healthz() -> Json<Value> {
@@ -204,6 +215,11 @@ pub async fn ingest_events(
             }
         }).collect();
         let _ = state.storage.insert_events(&normalized).await;
+
+        // Broadcast events to live-tail SSE subscribers (best-effort, never blocks ingest).
+        for event in &normalized {
+            let _ = state.event_tx.send(event.clone());
+        }
 
         // Persist durably to ClickHouse via the async write buffer (non-blocking ~1 µs).
         // send_events() returns the number of events dropped when the channel is full,
@@ -317,6 +333,34 @@ pub async fn ingest_events(
                     false
                 };
                 if passes_threshold && !suppressed {
+                    // ── Agent enrichment ──────────────────────────────────────
+                    // Attach agent metadata when the event hostname matches a
+                    // registered agent in the same tenant.
+                    let mut alert = alert;
+                    {
+                        let event_hostname = event.raw_payload
+                            .get("hostname")
+                            .or_else(|| event.raw_payload.get("Computer"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        if !event_hostname.is_empty() {
+                            let tenant = &alert.tenant_id;
+                            if let Some(agent) = state.agents.iter().find(|e| {
+                                e.value().tenant_id == *tenant
+                                    && e.value().hostname == event_hostname
+                            }) {
+                                let a = agent.value();
+                                alert.agent_meta = Some(json!({
+                                    "agent_id": a.agent_id,
+                                    "hostname": a.hostname,
+                                    "os":       a.os,
+                                    "version":  a.version,
+                                    "group":    a.group,
+                                    "tags":     a.tags,
+                                }));
+                            }
+                        }
+                    }
                     if let Ok(saved) = state.storage.suppress_or_create_alert(alert).await {
                         counter!("cyberbox_alerts_fired_total", "tenant" => saved.tenant_id.clone())
                             .increment(1);
@@ -2289,6 +2333,34 @@ async fn delete_rbac_user(
     Ok(Json(json!({ "user_id": user_id, "removed": true })))
 }
 
+// ─── SSE Event Stream (Live Tail) ─────────────────────────────────────────────
+
+/// GET /api/v1/events/stream — live SSE push of ingested events for the authenticated tenant.
+///
+/// Each SSE event carries a JSON-serialised `EventEnvelope`.  The stream never ends
+/// (clients should reconnect on disconnect).  Lagging consumers silently drop
+/// overflowed messages (broadcast channel capacity = 4 096).
+async fn event_stream(
+    auth: AuthContext,
+    State(state): State<AppState>,
+) -> Sse<impl futures::Stream<Item = Result<Event, Infallible>>> {
+    let rx = state.event_tx.subscribe();
+    let tenant_id = auth.tenant_id.clone();
+
+    let stream = BroadcastStream::new(rx).filter_map(move |item| {
+        let tenant = tenant_id.clone();
+        match item {
+            Ok(event) if event.tenant_id == tenant => {
+                let data = serde_json::to_string(&event).unwrap_or_default();
+                Some(Ok::<Event, Infallible>(Event::default().data(data)))
+            }
+            _ => None,
+        }
+    });
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
 // ─── SSE Alert Stream ─────────────────────────────────────────────────────────
 
 /// GET /api/v1/alerts/stream — live SSE push of new alerts for the authenticated tenant.
@@ -2620,4 +2692,234 @@ pub async fn list_sources(
     // Most recently active first
     sources.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
     Json(sources)
+}
+
+// ── Agent registry ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, serde::Deserialize)]
+pub struct RegisterAgentRequest {
+    pub agent_id:  String,
+    pub tenant_id: String,
+    pub hostname:  String,
+    pub os:        String,
+    pub version:   String,
+}
+
+/// `POST /api/v1/agents/register` — called by cyberbox-agent on startup.
+pub async fn register_agent(
+    State(state): State<AppState>,
+    addr: Option<ConnectInfo<std::net::SocketAddr>>,
+    Json(body): Json<RegisterAgentRequest>,
+) -> Json<Value> {
+    let now = Utc::now();
+    // Preserve existing group/tags/pending_config if agent re-registers
+    let (group, tags, pending_config) = state.agents
+        .get(&body.agent_id)
+        .map(|e| (e.group.clone(), e.tags.clone(), e.pending_config.clone()))
+        .unwrap_or_default();
+    let record = AgentRecord {
+        agent_id:       body.agent_id.clone(),
+        tenant_id:      body.tenant_id,
+        hostname:       body.hostname,
+        os:             body.os,
+        version:        body.version,
+        ip:             addr.map(|ConnectInfo(a)| a.ip().to_string()),
+        registered_at:  now,
+        last_seen:      now,
+        group,
+        tags,
+        pending_config,
+    };
+    state.agents.insert(body.agent_id.clone(), record);
+    Json(json!({ "agent_id": body.agent_id, "status": "registered" }))
+}
+
+/// `POST /api/v1/agents/:id/heartbeat` — updates `last_seen`; returns any
+/// queued config in `{"pending_config": "..."}` and clears it after delivery.
+pub async fn agent_heartbeat(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    if let Some(mut entry) = state.agents.get_mut(&id) {
+        entry.last_seen = Utc::now();
+        let cfg = entry.pending_config.take(); // deliver once, then clear
+        let body = if let Some(toml) = cfg {
+            json!({ "pending_config": toml })
+        } else {
+            json!({})
+        };
+        (StatusCode::OK, Json(body)).into_response()
+    } else {
+        StatusCode::NOT_FOUND.into_response()
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct PatchAgentRequest {
+    pub group: Option<String>,
+    pub tags:  Option<Vec<String>>,
+}
+
+/// `PATCH /api/v1/agents/:id` — update group and/or tags.
+pub async fn patch_agent(
+    auth: AuthContext,
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(body): Json<PatchAgentRequest>,
+) -> impl IntoResponse {
+    if let Some(mut entry) = state.agents.get_mut(&id) {
+        if entry.tenant_id != auth.tenant_id {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+        if let Some(g) = body.group { entry.group = Some(g); }
+        if let Some(t) = body.tags  { entry.tags = t; }
+        (StatusCode::OK, Json(json!({
+            "agent_id": entry.agent_id,
+            "group":    entry.group,
+            "tags":     entry.tags,
+        }))).into_response()
+    } else {
+        StatusCode::NOT_FOUND.into_response()
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct PushAgentConfigRequest {
+    /// Full TOML content of the new agent.toml to deliver
+    pub config_toml: String,
+}
+
+/// `POST /api/v1/agents/:id/config` — queue a new config for delivery on the
+/// agent's next heartbeat. The agent writes it to disk and logs a restart notice.
+pub async fn push_agent_config(
+    auth: AuthContext,
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(body): Json<PushAgentConfigRequest>,
+) -> impl IntoResponse {
+    if let Some(mut entry) = state.agents.get_mut(&id) {
+        if entry.tenant_id != auth.tenant_id {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+        entry.pending_config = Some(body.config_toml);
+        (StatusCode::ACCEPTED, Json(json!({
+            "agent_id": id,
+            "status": "config_queued",
+            "note": "Config will be delivered on the agent's next heartbeat",
+        }))).into_response()
+    } else {
+        StatusCode::NOT_FOUND.into_response()
+    }
+}
+
+#[derive(Debug, serde::Deserialize, Default)]
+pub struct ListAgentsQuery {
+    pub group: Option<String>,
+}
+
+/// `GET /api/v1/agents[?group=<name>]` — list registered agents for this tenant.
+pub async fn list_agents(
+    auth: AuthContext,
+    State(state): State<AppState>,
+    Query(q): Query<ListAgentsQuery>,
+) -> Json<Vec<Value>> {
+    let mut agents: Vec<Value> = state
+        .agents
+        .iter()
+        .filter(|e| {
+            let a = e.value();
+            a.tenant_id == auth.tenant_id
+                && q.group.as_deref().map_or(true, |g| a.group.as_deref() == Some(g))
+        })
+        .map(|e| {
+            let a = e.value();
+            json!({
+                "agent_id":      a.agent_id,
+                "tenant_id":     a.tenant_id,
+                "hostname":      a.hostname,
+                "os":            a.os,
+                "version":       a.version,
+                "ip":            a.ip,
+                "group":         a.group,
+                "tags":          a.tags,
+                "registered_at": a.registered_at,
+                "last_seen":     a.last_seen,
+                "status":        a.status(),
+            })
+        })
+        .collect();
+    agents.sort_by(|a, b| {
+        let la = a["last_seen"].as_str().unwrap_or("");
+        let lb = b["last_seen"].as_str().unwrap_or("");
+        lb.cmp(la)
+    });
+    Json(agents)
+}
+
+// =============================================================================
+// Rule Packs: import-pack + sync-dir (detection-as-code)
+// =============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct ImportPackRequest {
+    /// Filesystem path to a directory of `.yml` / `.yaml` Sigma rule files.
+    pub path: String,
+    /// If true, disable rules that exist in DB but not in the directory (default: false).
+    #[serde(default)]
+    pub prune: bool,
+}
+
+/// POST /api/v1/rules/import-pack
+///
+/// Bulk-import Sigma rules from a directory on the API server filesystem.
+/// Each `.yml` / `.yaml` file is compiled and upserted.
+/// Existing rules with the same `rule_id` are updated if the source changed.
+pub async fn import_rule_pack(
+    auth: AuthContext,
+    State(state): State<AppState>,
+    Json(req): Json<ImportPackRequest>,
+) -> Result<Json<crate::rules_pack::ImportResult>, CyberboxError> {
+    auth.require_any(&[Role::Admin])?;
+    let result = crate::rules_pack::import_rules_from_dir(&auth, &state, &req.path, req.prune).await?;
+
+    append_audit_log(
+        &state,
+        &auth.tenant_id,
+        &auth.user_id,
+        "rules.import_pack",
+        "rule_pack",
+        &req.path,
+        Value::Null,
+        json!({"imported": result.imported, "updated": result.updated, "errors": result.errors.len()}),
+    )
+    .await;
+
+    Ok(Json(result))
+}
+
+/// POST /api/v1/rules/sync-dir
+///
+/// Same as import-pack but intended for detection-as-code CI pipelines.
+/// Default `prune=true`: rules removed from the directory get disabled.
+pub async fn sync_rules_from_dir(
+    auth: AuthContext,
+    State(state): State<AppState>,
+    Json(req): Json<ImportPackRequest>,
+) -> Result<Json<crate::rules_pack::ImportResult>, CyberboxError> {
+    auth.require_any(&[Role::Admin])?;
+    let result = crate::rules_pack::import_rules_from_dir(&auth, &state, &req.path, true).await?;
+
+    append_audit_log(
+        &state,
+        &auth.tenant_id,
+        &auth.user_id,
+        "rules.sync_dir",
+        "rule_pack",
+        &req.path,
+        Value::Null,
+        json!({"imported": result.imported, "updated": result.updated, "pruned": result.pruned, "errors": result.errors.len()}),
+    )
+    .await;
+
+    Ok(Json(result))
 }

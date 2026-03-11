@@ -1,0 +1,39 @@
+# Build artifacts
+target/
+web/cyberbox-ui/node_modules/
+web/cyberbox-ui/dist/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# CI/CD
+.github/
+.claude/
+
+# Documentation
+*.md
+!README.md
+LICENSE
+
+# Test fixtures & reports
+**/coverage/
+**/*.profraw
+PERFORMANCE_REPORT.md
+COLLECTOR_PERFORMANCE_REPORT.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Helm (not needed in Docker builds)
+helm/
+infra/
+packaging/
+scripts/

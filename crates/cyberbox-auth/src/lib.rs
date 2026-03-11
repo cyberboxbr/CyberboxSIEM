@@ -101,17 +101,43 @@ struct Jwk {
 
 /// JWT claims we care about.  jsonwebtoken validates `exp`, `iss`, `aud`
 /// automatically via `Validation`; we only extract identity fields here.
+///
+/// Supports multiple OIDC providers:
+///   - **Azure AD / Entra ID**: `tid` (tenant), `roles` (app roles), `groups`,
+///     `preferred_username` or `email`, `name`
+///   - **Keycloak**: `realm_access.roles`, `azp` (client_id as tenant)
+///   - **Generic OIDC**: `tenant_id` custom claim
 #[derive(Debug, Deserialize)]
 struct OidcClaims {
     sub: String,
+
     /// Custom claim — explicit tenant identifier.
     #[serde(default)]
     tenant_id: Option<String>,
+    /// Azure AD tenant ID.
+    #[serde(default)]
+    tid: Option<String>,
     /// Authorized party (client_id) — used as tenant fallback.
     #[serde(default)]
     azp: Option<String>,
+
+    /// Display name (Azure AD `name` claim).
+    #[serde(default)]
+    name: Option<String>,
+    /// Preferred username (Azure AD, Keycloak).
     #[serde(default)]
     preferred_username: Option<String>,
+    /// Email claim (fallback for user identification).
+    #[serde(default)]
+    email: Option<String>,
+
+    /// Azure AD app roles (top-level `roles` array, configured in App Registration).
+    #[serde(default)]
+    roles: Vec<String>,
+    /// Azure AD group object IDs (when "groupMembershipClaims" is enabled).
+    #[serde(default)]
+    groups: Vec<String>,
+
     /// Keycloak realm-level roles.
     #[serde(default)]
     realm_access: Option<RealmAccess>,
@@ -259,33 +285,48 @@ impl JwtValidator {
 // ── Claims → AuthContext ──────────────────────────────────────────────────────
 
 fn claims_to_auth_context(claims: OidcClaims) -> AuthContext {
+    // User resolution: preferred_username > email > name > sub
     let user_id = claims
         .preferred_username
         .filter(|s| !s.is_empty())
+        .or_else(|| claims.email.filter(|s| !s.is_empty()))
+        .or_else(|| claims.name.filter(|s| !s.is_empty()))
         .unwrap_or_else(|| claims.sub.clone());
 
-    // Tenant resolution order: explicit claim > azp (client_id) > "default"
+    // Tenant resolution: explicit claim > Azure AD tid > azp (client_id) > "default"
     let tenant_id = claims
         .tenant_id
         .filter(|s| !s.is_empty())
+        .or_else(|| claims.tid.filter(|s| !s.is_empty()))
         .or_else(|| claims.azp.filter(|s| !s.is_empty()))
         .unwrap_or_else(|| "default".to_string());
 
-    let roles = claims
-        .realm_access
-        .map(|ra| {
-            ra.roles
-                .iter()
-                .filter_map(|r| Role::parse(r))
-                .collect::<Vec<_>>()
-        })
-        .filter(|r| !r.is_empty())
-        .unwrap_or_else(|| vec![Role::Viewer]);
+    // Role resolution: Azure AD top-level roles > Keycloak realm_access > Viewer
+    let mut parsed_roles: Vec<Role> = claims
+        .roles
+        .iter()
+        .filter_map(|r| Role::parse(r))
+        .collect();
+
+    // Merge Keycloak realm_access roles if present
+    if let Some(ra) = claims.realm_access {
+        for r in &ra.roles {
+            if let Some(role) = Role::parse(r) {
+                if !parsed_roles.contains(&role) {
+                    parsed_roles.push(role);
+                }
+            }
+        }
+    }
+
+    if parsed_roles.is_empty() {
+        parsed_roles.push(Role::Viewer);
+    }
 
     AuthContext {
         user_id,
         tenant_id,
-        roles,
+        roles: parsed_roles,
     }
 }
 
@@ -374,8 +415,13 @@ mod tests {
         let claims = OidcClaims {
             sub: "abc-sub".to_string(),
             tenant_id: None,
+            tid: None,
             azp: Some("client-acme".to_string()),
+            name: None,
             preferred_username: Some("alice".to_string()),
+            email: None,
+            roles: vec![],
+            groups: vec![],
             realm_access: Some(RealmAccess {
                 roles: vec!["admin".to_string()],
             }),
@@ -391,14 +437,19 @@ mod tests {
         let claims = OidcClaims {
             sub: "sub".to_string(),
             tenant_id: Some("tenant-x".to_string()),
+            tid: None,
             azp: Some("client-y".to_string()),
+            name: None,
             preferred_username: None,
+            email: None,
+            roles: vec![],
+            groups: vec![],
             realm_access: None,
         };
         let ctx = claims_to_auth_context(claims);
         assert_eq!(ctx.tenant_id, "tenant-x");
         assert_eq!(ctx.user_id, "sub"); // preferred_username absent → sub
-        assert!(ctx.has_role(&Role::Viewer)); // no realm_access → Viewer
+        assert!(ctx.has_role(&Role::Viewer)); // no roles → Viewer
     }
 
     #[test]
@@ -406,13 +457,58 @@ mod tests {
         let claims = OidcClaims {
             sub: "xyz".to_string(),
             tenant_id: None,
+            tid: None,
             azp: None,
+            name: None,
             preferred_username: None,
+            email: None,
+            roles: vec![],
+            groups: vec![],
             realm_access: None,
         };
         let ctx = claims_to_auth_context(claims);
         assert_eq!(ctx.tenant_id, "default");
         assert!(ctx.has_role(&Role::Viewer));
+    }
+
+    #[test]
+    fn azure_ad_claims_use_tid_and_top_level_roles() {
+        let claims = OidcClaims {
+            sub: "oid-12345".to_string(),
+            tenant_id: None,
+            tid: Some("azure-tenant-abc".to_string()),
+            azp: None,
+            name: Some("Alice Silva".to_string()),
+            preferred_username: Some("alice@contoso.com".to_string()),
+            email: Some("alice@contoso.com".to_string()),
+            roles: vec!["admin".to_string(), "analyst".to_string()],
+            groups: vec!["group-soc-team".to_string()],
+            realm_access: None,
+        };
+        let ctx = claims_to_auth_context(claims);
+        assert_eq!(ctx.tenant_id, "azure-tenant-abc");
+        assert_eq!(ctx.user_id, "alice@contoso.com");
+        assert!(ctx.has_role(&Role::Admin));
+        assert!(ctx.has_role(&Role::Analyst));
+        assert!(!ctx.has_role(&Role::Ingestor));
+    }
+
+    #[test]
+    fn azure_ad_email_fallback_when_no_preferred_username() {
+        let claims = OidcClaims {
+            sub: "oid-99".to_string(),
+            tenant_id: None,
+            tid: Some("tid-xyz".to_string()),
+            azp: None,
+            name: None,
+            preferred_username: None,
+            email: Some("bob@example.com".to_string()),
+            roles: vec!["viewer".to_string()],
+            groups: vec![],
+            realm_access: None,
+        };
+        let ctx = claims_to_auth_context(claims);
+        assert_eq!(ctx.user_id, "bob@example.com");
     }
 
     #[test]

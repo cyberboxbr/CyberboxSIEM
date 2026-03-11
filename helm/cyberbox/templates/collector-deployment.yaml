@@ -1,0 +1,84 @@
+{{- if .Values.collector.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cyberbox.fullname" . }}-collector
+  labels:
+    {{- include "cyberbox.labels" . | nindent 4 }}
+    {{- include "cyberbox.selectorLabels" (dict "root" . "component" "collector") | nindent 4 }}
+spec:
+  replicas: {{ .Values.collector.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "cyberbox.selectorLabels" (dict "root" . "component" "collector") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print .Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.collector.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "cyberbox.labels" . | nindent 8 }}
+        {{- include "cyberbox.selectorLabels" (dict "root" . "component" "collector") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "cyberbox.serviceAccountName" . }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: collector
+          image: {{ include "cyberbox.image" (dict "root" . "component" "collector" "overrideRepo" .Values.collector.image.repository) }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          ports:
+            - name: syslog-udp
+              containerPort: {{ .Values.collector.ports.udp }}
+              protocol: UDP
+            - name: syslog-tcp
+              containerPort: {{ .Values.collector.ports.tcp }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "cyberbox.fullname" . }}-config
+          env:
+            - name: COLLECTOR_UDP_BIND
+              value: "0.0.0.0:{{ .Values.collector.ports.udp }}"
+            - name: COLLECTOR_TCP_BIND
+              value: "0.0.0.0:{{ .Values.collector.ports.tcp }}"
+            - name: COLLECTOR_API_URL
+              value: "http://{{ include "cyberbox.fullname" . }}-api:8080"
+          livenessProbe:
+            exec:
+              command:
+                - "true"
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.collector.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      {{- with .Values.collector.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.collector.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.collector.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

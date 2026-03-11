@@ -1,0 +1,24 @@
+title: Unsigned Driver Loaded
+id: 0907f5d6-c2a5-4e3a-bf72-3b3f7a4c5e20
+status: stable
+description: |
+  Detects loading of unsigned kernel drivers, which may indicate
+  rootkit installation or BYOVD (Bring Your Own Vulnerable Driver) attacks.
+  Sysmon EventID 6 (DriverLoad).
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection:
+    event_type: DriverLoad
+    Signed: 'false'
+  condition: selection
+level: critical
+tags:
+  - attack.persistence
+  - attack.t1014
+  - attack.privilege_escalation
+  - attack.t1068
+falsepositives:
+  - Development drivers during testing
+  - Some legitimate hardware vendors with unsigned drivers

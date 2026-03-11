@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react';
-import { runSearch } from '../api/client';
+import { searchRecent } from '../api/client';
 
 export function Investigation() {
   const [query, setQuery] = useState(
@@ -12,7 +12,7 @@ export function Investigation() {
     event.preventDefault();
     setStatusText('Running search...');
     try {
-      const result = await runSearch(query);
+      const result = await searchRecent(query);
       setSearchRows(result.rows);
       setStatusText(`Search complete. ${result.total} rows available.`);
     } catch (err) {

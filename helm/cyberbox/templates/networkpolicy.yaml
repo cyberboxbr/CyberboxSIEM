@@ -1,0 +1,120 @@
+{{- if .Values.networkPolicy.enabled -}}
+---
+# Default deny all ingress traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cyberbox.fullname" . }}-default-deny
+  labels:
+    {{- include "cyberbox.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: cyberbox
+  policyTypes:
+    - Ingress
+---
+# API: allow from ingress controller, collector, and UI
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cyberbox.fullname" . }}-api
+  labels:
+    {{- include "cyberbox.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "cyberbox.selectorLabels" (dict "root" . "component" "api") | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # From ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 8080
+          protocol: TCP
+    # From collector
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "cyberbox.selectorLabels" (dict "root" . "component" "collector") | nindent 14 }}
+      ports:
+        - port: 8080
+          protocol: TCP
+    # From UI (for proxied API calls)
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "cyberbox.selectorLabels" (dict "root" . "component" "ui") | nindent 14 }}
+      ports:
+        - port: 8080
+          protocol: TCP
+    # From agent
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "cyberbox.selectorLabels" (dict "root" . "component" "agent") | nindent 14 }}
+      ports:
+        - port: 8080
+          protocol: TCP
+---
+# Worker: no ingress allowed (outbound only to Kafka/ClickHouse)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cyberbox.fullname" . }}-worker
+  labels:
+    {{- include "cyberbox.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "cyberbox.selectorLabels" (dict "root" . "component" "worker") | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress: []
+---
+# Collector: allow from any source (receives syslog from external hosts)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cyberbox.fullname" . }}-collector
+  labels:
+    {{- include "cyberbox.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "cyberbox.selectorLabels" (dict "root" . "component" "collector") | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: {{ .Values.collector.ports.udp }}
+          protocol: UDP
+        - port: {{ .Values.collector.ports.tcp }}
+          protocol: TCP
+---
+# UI: allow from ingress controller only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cyberbox.fullname" . }}-ui
+  labels:
+    {{- include "cyberbox.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "cyberbox.selectorLabels" (dict "root" . "component" "ui") | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 3000
+          protocol: TCP
+{{- end }}

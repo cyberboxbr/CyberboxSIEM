@@ -1486,6 +1486,7 @@ impl RuleExecutor {
             mitre_attack,
             resolution: None,
             close_note: None,
+            agent_meta: None,
         })
     }
 

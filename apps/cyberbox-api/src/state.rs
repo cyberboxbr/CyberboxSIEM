@@ -12,7 +12,7 @@ use tokio::sync::broadcast;
 use cyberbox_auth::{JwtValidator, Role};
 use cyberbox_core::{AppConfig, CyberboxError, EpsLimiter, GeoIpEnricher, LookupStore, TeamsNotifier, threatintel::ThreatIntelFeed};
 use cyberbox_detection::{RuleExecutor, SigmaCompiler};
-use cyberbox_models::{AlertRecord, DetectionMode, DetectionRule, SourceInfo};
+use cyberbox_models::{AgentRecord, AlertRecord, DetectionMode, DetectionRule, EventEnvelope, SourceInfo};
 use cyberbox_storage::{ClickHouseEventStore, ClickHouseWriteBuffer, InMemoryStore};
 
 use crate::stream::RawEventPublisher;
@@ -186,6 +186,9 @@ pub struct AppState {
     /// Broadcast channel for live alert events (SSE stream `/api/v1/alerts/stream`).
     /// Capacity 1024 — lagging receivers drop old messages silently.
     pub alert_tx: broadcast::Sender<AlertRecord>,
+    /// Broadcast channel for live event tail (SSE stream `/api/v1/events/stream`).
+    /// Capacity 4096 — lagging receivers drop old messages silently.
+    pub event_tx: broadcast::Sender<EventEnvelope>,
     /// Per-(rule_id, entity) suppression expiry: key → Instant when suppression expires.
     pub suppression_map: Arc<DashMap<String, std::time::Instant>>,
     /// Directory where persistent JSON state (feeds, RBAC) is saved. Empty = disabled.
@@ -196,6 +199,8 @@ pub struct AppState {
     /// Per-(tenant_id, source_type) ingestion statistics for `GET /api/v1/sources`.
     /// Updated on every accepted event batch in the ingest hot path.
     pub sources: Arc<DashMap<String, SourceInfo>>,
+    /// Registered cyberbox-agent instances: agent_id → AgentRecord.
+    pub agents: Arc<DashMap<String, AgentRecord>>,
 }
 
 impl AppState {
@@ -258,10 +263,12 @@ impl AppState {
             last_report_sent_at: Arc::new(std::sync::Mutex::new(None)),
             rbac_store: Arc::new(DashMap::new()),
             alert_tx: broadcast::channel(1024).0,
+            event_tx: broadcast::channel(4096).0,
             suppression_map: Arc::new(DashMap::new()),
             state_dir: "data".to_string(),
             ws_tokens: Arc::new(DashMap::new()),
             sources: Arc::new(DashMap::new()),
+            agents: Arc::new(DashMap::new()),
         }
     }
 
@@ -341,10 +348,12 @@ impl AppState {
                 None
             },
             alert_tx: broadcast::channel(1024).0,
+            event_tx: broadcast::channel(4096).0,
             suppression_map: Arc::new(DashMap::new()),
             state_dir: config.state_dir.clone(),
             ws_tokens: Arc::new(DashMap::new()),
             sources: Arc::new(DashMap::new()),
+            agents: Arc::new(DashMap::new()),
         })
     }
 }

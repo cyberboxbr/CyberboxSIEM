@@ -1,0 +1,169 @@
+## CyberboxSIEM Helm Chart — Default Values
+
+global:
+  image:
+    registry: ghcr.io/cyberboxsiem
+    tag: latest
+    pullPolicy: IfNotPresent
+  imagePullSecrets: []
+
+# ---------------------------------------------------------------------------
+# API — Axum HTTP server
+# ---------------------------------------------------------------------------
+api:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: ""  # defaults to global.image.registry/cyberbox-api
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+# ---------------------------------------------------------------------------
+# Worker — Kafka consumer for stream detection
+# ---------------------------------------------------------------------------
+worker:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: ""  # defaults to global.image.registry/cyberbox-worker
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+# ---------------------------------------------------------------------------
+# Collector — Log collector (syslog UDP/TCP)
+# ---------------------------------------------------------------------------
+collector:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: ""  # defaults to global.image.registry/cyberbox-collector
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  ports:
+    udp: 514
+    tcp: 601
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+# ---------------------------------------------------------------------------
+# Agent — DaemonSet for host-level log collection
+# ---------------------------------------------------------------------------
+agent:
+  enabled: false
+  image:
+    repository: ""  # defaults to global.image.registry/cyberbox-agent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+# ---------------------------------------------------------------------------
+# UI — React SPA served by nginx
+# ---------------------------------------------------------------------------
+ui:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: ""  # defaults to global.image.registry/cyberbox-ui
+  resources:
+    requests:
+      cpu: 64m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  backendUrl: "http://cyberbox-api:8080"
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+# ---------------------------------------------------------------------------
+# Platform configuration (injected via ConfigMap)
+# ---------------------------------------------------------------------------
+config:
+  kafka:
+    enabled: true
+    bootstrapServers: "redpanda:9092"
+    rawTopic: "cyberbox.raw"
+    normalizedTopic: "cyberbox.normalized"
+  clickhouse:
+    enabled: true
+    host: "clickhouse"
+    port: 8123
+    database: "cyberbox"
+  auth:
+    disabled: true
+  epsLimit: 10000
+
+# ---------------------------------------------------------------------------
+# Ingress
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: "alb"
+  host: "cyberbox.example.com"
+  annotations: {}
+  tls: false
+  tlsSecretName: "cyberbox-tls"
+
+# ---------------------------------------------------------------------------
+# Service Account
+# ---------------------------------------------------------------------------
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# ---------------------------------------------------------------------------
+# Network Policy
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: false
+
+# ---------------------------------------------------------------------------
+# Prometheus ServiceMonitor
+# ---------------------------------------------------------------------------
+prometheus:
+  serviceMonitor:
+    enabled: false
+    interval: 15s
+    namespace: ""
+    additionalLabels: {}

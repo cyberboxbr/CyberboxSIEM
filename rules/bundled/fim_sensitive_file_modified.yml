@@ -1,0 +1,36 @@
+title: Sensitive System File Modified
+id: 0907f5d6-c2a5-4e3a-bf72-3b3f7a4c5e16
+status: stable
+description: |
+  Detects modifications to critical system files that should rarely change.
+  Works with the FIM (File Integrity Monitoring) agent source.
+logsource:
+  product: linux
+  category: fim
+detection:
+  selection:
+    fim_event:
+      - modified
+      - created
+    TargetFilename|contains:
+      - '/etc/passwd'
+      - '/etc/shadow'
+      - '/etc/sudoers'
+      - '/etc/pam.d/'
+      - '/etc/ssh/sshd_config'
+      - '/etc/ld.so.preload'
+      - '/etc/ld.so.conf'
+      - '/etc/cron.d/'
+      - '/etc/init.d/'
+      - '/etc/systemd/system/'
+      - '/usr/lib/systemd/system/'
+  condition: selection
+level: high
+tags:
+  - attack.persistence
+  - attack.t1543.002
+  - attack.defense_evasion
+  - attack.t1556
+falsepositives:
+  - System package updates (apt, yum)
+  - Legitimate configuration management (Ansible, Puppet)

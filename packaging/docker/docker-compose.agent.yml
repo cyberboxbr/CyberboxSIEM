@@ -1,0 +1,34 @@
+# docker-compose.agent.yml — Run the Cyberbox Agent in Docker
+#
+# Usage:
+#   docker compose -f packaging/docker/docker-compose.agent.yml up -d
+#
+# Edit agent.toml to point to your collector/API before starting.
+
+services:
+  cyberbox-agent:
+    build:
+      context: ../..
+      dockerfile: packaging/docker/Dockerfile
+    container_name: cyberbox-agent
+    restart: unless-stopped
+    volumes:
+      # Mount your agent config (edit before starting!)
+      - ./agent.toml:/etc/cyberbox/agent.toml:ro
+      # Persistent disk queue (survives container restarts)
+      - agent-queue:/var/lib/cyberbox/queue
+      # Optional: mount host logs for file-tail source
+      # - /var/log:/host/log:ro
+      # Optional: mount Docker socket for container monitoring
+      # - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - RUST_LOG=cyberbox_agent=info
+    # Health check: agent is alive if the process is running
+    healthcheck:
+      test: ["CMD", "/usr/bin/cyberbox-agent", "validate", "--config", "/etc/cyberbox/agent.toml"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  agent-queue:

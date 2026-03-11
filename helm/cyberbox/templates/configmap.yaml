@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cyberbox.fullname" . }}-config
+  labels:
+    {{- include "cyberbox.labels" . | nindent 4 }}
+data:
+  ## Kafka
+  CYBERBOX__KAFKA_PUBLISH_RAW_ENABLED: {{ .Values.config.kafka.enabled | quote }}
+  CYBERBOX__KAFKA_BOOTSTRAP_SERVERS: {{ .Values.config.kafka.bootstrapServers | quote }}
+  CYBERBOX__KAFKA_RAW_TOPIC: {{ .Values.config.kafka.rawTopic | quote }}
+  CYBERBOX__KAFKA_NORMALIZED_TOPIC: {{ .Values.config.kafka.normalizedTopic | quote }}
+  ## ClickHouse
+  CYBERBOX__CLICKHOUSE_SEARCH_ENABLED: {{ .Values.config.clickhouse.enabled | quote }}
+  CYBERBOX__CLICKHOUSE_HOST: {{ .Values.config.clickhouse.host | quote }}
+  CYBERBOX__CLICKHOUSE_PORT: {{ .Values.config.clickhouse.port | quote }}
+  CYBERBOX__CLICKHOUSE_DATABASE: {{ .Values.config.clickhouse.database | quote }}
+  ## Auth
+  CYBERBOX__AUTH_DISABLED: {{ .Values.config.auth.disabled | quote }}
+  ## Rate limiting
+  CYBERBOX__EPS_LIMIT_PER_TENANT: {{ .Values.config.epsLimit | quote }}

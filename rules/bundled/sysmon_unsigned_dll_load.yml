@@ -1,0 +1,33 @@
+title: Unsigned DLL Loaded by System Process
+id: 0907f5d6-c2a5-4e3a-bf72-3b3f7a4c5e06
+status: stable
+description: |
+  Detects unsigned DLL loaded by a critical system process, which may
+  indicate DLL side-loading or hijacking.
+  Sysmon EventID 7 (ImageLoad).
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection:
+    event_type: ImageLoad
+    Signed: 'false'
+    Image|endswith:
+      - '\svchost.exe'
+      - '\explorer.exe'
+      - '\rundll32.exe'
+      - '\regsvr32.exe'
+      - '\mshta.exe'
+  filter_known:
+    ImageLoaded|startswith:
+      - 'C:\Windows\System32'
+      - 'C:\Windows\SysWOW64'
+      - 'C:\Windows\WinSxS'
+  condition: selection and not filter_known
+level: high
+tags:
+  - attack.defense_evasion
+  - attack.t1574.001
+  - attack.t1574.002
+falsepositives:
+  - Custom enterprise software with unsigned DLLs

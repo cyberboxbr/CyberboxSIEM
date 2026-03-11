@@ -1,33 +1,147 @@
+// ---------------------------------------------------------------------------
+// CyberboxSIEM — Full API Client
+// ---------------------------------------------------------------------------
+
+// ── Shared scalars ─────────────────────────────────────────────────────────
+
 export type Severity = 'low' | 'medium' | 'high' | 'critical';
 export type DetectionMode = 'stream' | 'scheduled';
+export type AlertStatus = 'open' | 'acknowledged' | 'closed' | 'false_positive';
+export type CaseStatus = 'open' | 'in_progress' | 'closed';
+export type AgentStatus = 'active' | 'stale' | 'offline';
+export type FeedType = 'taxii' | 'stix' | 'csv' | 'json';
 
-const BASE_HEADERS = {
+// ── Token provider ────────────────────────────────────────────────────────
+
+/**
+ * Function that returns a Bearer access token. Set by the AuthContext once
+ * the user is authenticated via MSAL. When null, requests fall back to
+ * dev-mode identity headers (for local development with auth_disabled=true).
+ */
+let tokenProvider: (() => Promise<string>) | null = null;
+
+/**
+ * Called by AuthContext after login to wire up token acquisition.
+ */
+export function setTokenProvider(provider: (() => Promise<string>) | null): void {
+  tokenProvider = provider;
+}
+
+// ── Dev-mode identity headers (used when no token provider is set) ────────
+
+const BASE_HEADERS: Record<string, string> = {
   'x-tenant-id': 'tenant-a',
   'x-user-id': 'soc-admin',
   'x-roles': 'admin,analyst,viewer,ingestor',
 };
 
+/**
+ * Override the dev-mode identity headers (only used when auth is disabled).
+ */
+export function setIdentity(tenantId: string, userId: string, roles: string): void {
+  BASE_HEADERS['x-tenant-id'] = tenantId;
+  BASE_HEADERS['x-user-id'] = userId;
+  BASE_HEADERS['x-roles'] = roles;
+}
+
+/**
+ * Generic fetch wrapper — attaches Bearer token (production) or identity
+ * headers (dev mode), throws on non-2xx, and returns parsed JSON.
+ */
 async function apiRequest<T>(url: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      'content-type': 'application/json',
-      ...BASE_HEADERS,
-      ...(init.headers ?? {}),
-    },
-  });
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    ...(init.headers as Record<string, string> ?? {}),
+  };
+
+  if (tokenProvider) {
+    // Production: attach Azure AD access token
+    const token = await tokenProvider();
+    headers['Authorization'] = `Bearer ${token}`;
+  } else {
+    // Dev mode: use plain identity headers (auth_disabled=true on backend)
+    Object.assign(headers, BASE_HEADERS);
+  }
+
+  const response = await fetch(url, { ...init, headers });
 
   if (!response.ok) {
     const text = await response.text();
     throw new Error(`API ${response.status}: ${text}`);
   }
 
-  return response.json() as Promise<T>;
+  const ct = response.headers.get('content-type') ?? '';
+  if (ct.includes('application/json')) {
+    return response.json() as Promise<T>;
+  }
+  return response.text() as unknown as Promise<T>;
 }
+
+/**
+ * Build a query-string from an object, omitting undefined/null values.
+ */
+function qs(params: Record<string, string | number | boolean | undefined | null>): string {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null) sp.set(k, String(v));
+  }
+  const s = sp.toString();
+  return s ? `?${s}` : '';
+}
+
+/**
+ * Derive a WebSocket URL from the current page origin.
+ * Automatically switches http→ws / https→wss.
+ */
+export function buildWsUrl(path: string, params?: Record<string, string>): string {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const base = `${proto}//${window.location.host}${path}`;
+  if (!params) return base;
+  const sp = new URLSearchParams(params);
+  return `${base}?${sp.toString()}`;
+}
+
+// ── Interfaces: Health & Metrics ───────────────────────────────────────────
+
+export interface HealthResponse {
+  status: string;
+  time: string;
+}
+
+// ── Interfaces: Events ─────────────────────────────────────────────────────
+
+export interface IngestEvent {
+  tenant_id?: string;
+  source: string;
+  event_time: string;
+  raw_payload: Record<string, unknown>;
+}
+
+export interface IngestResponse {
+  accepted: number;
+  rejected: number;
+  alerts_generated: number;
+}
+
+export interface SourceInfo {
+  source: string;
+  event_count: number;
+  last_seen: string;
+}
+
+// ── Interfaces: Rules ──────────────────────────────────────────────────────
 
 export interface RuleScheduleConfig {
   interval_seconds: number;
   lookback_seconds: number;
+}
+
+export interface RuleSchedulerHealth {
+  run_count: number;
+  skipped_by_interval_count: number;
+  match_count: number;
+  error_count: number;
+  last_run_duration_seconds: number;
 }
 
 export interface DetectionRule {
@@ -42,23 +156,293 @@ export interface DetectionRule {
   scheduler_health?: RuleSchedulerHealth;
 }
 
-export interface RuleSchedulerHealth {
-  run_count: number;
-  skipped_by_interval_count: number;
-  match_count: number;
-  error_count: number;
-  last_run_duration_seconds: number;
+export interface RuleCreateInput {
+  sigma_source: string;
+  schedule_or_stream: DetectionMode;
+  schedule?: RuleScheduleConfig;
+  severity: Severity;
+  enabled: boolean;
+}
+
+export interface RuleUpdateInput {
+  sigma_source?: string;
+  schedule_or_stream?: DetectionMode;
+  schedule?: RuleScheduleConfig;
+  severity?: Severity;
+  enabled?: boolean;
+}
+
+export interface RuleTestResult {
+  matched: boolean;
+  matched_conditions: string[];
+  error?: string;
+}
+
+export interface DryRunInput {
+  sigma_source: string;
+  severity: Severity;
+  sample_event: Record<string, unknown>;
+}
+
+export interface DryRunResult {
+  compile_result: Record<string, unknown>;
+  matched: boolean;
+  matched_conditions: string[];
+  error?: string;
+}
+
+export interface BacktestInput {
+  from: string;
+  to: string;
+}
+
+export interface BacktestResult {
+  total_events_scanned: number;
+  matched_count: number;
+  match_rate_pct: number;
+  sample_event_ids: string[];
+}
+
+export interface RuleVersion {
+  version: number;
+  sigma_source: string;
+  severity: Severity;
+  enabled: boolean;
+  created_at: string;
+}
+
+export interface ImportPackInput {
+  path: string;
+  prune?: boolean;
+}
+
+export interface ImportResult {
+  imported: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
+  pruned?: number;
+}
+
+export interface GenerateRuleInput {
+  description: string;
+}
+
+export interface GenerateRuleResult {
+  sigma_source: string;
+  explanation: string;
+}
+
+export interface TuneRuleResult {
+  suggested_sigma_source: string;
+  explanation: string;
+  changes: string[];
+}
+
+export interface ExplainAlertResult {
+  explanation: string;
+  severity_assessment: string;
+  recommended_actions: string[];
+}
+
+// ── Interfaces: Alerts ─────────────────────────────────────────────────────
+
+export interface MitreAttack {
+  technique_id: string;
+  tactic: string;
+  technique_name: string;
+}
+
+export interface RoutingState {
+  dedupe_key: string;
+  destinations: string[];
+  suppression_until?: string;
+}
+
+export interface AgentMeta {
+  hostname: string;
+  os: string;
+  group: string;
+  tags: string[];
 }
 
 export interface AlertRecord {
   alert_id: string;
   tenant_id: string;
   rule_id: string;
-  status: string;
   first_seen: string;
   last_seen: string;
+  status: AlertStatus;
+  hit_count: number;
+  evidence_refs: string[];
   assignee?: string;
+  mitre_attack: MitreAttack[];
+  routing_state: RoutingState;
+  resolution?: string;
+  close_note?: string;
+  agent_meta?: AgentMeta;
 }
+
+export interface AlertsPage {
+  alerts: AlertRecord[];
+  next_cursor?: string;
+  has_more: boolean;
+  total: number;
+}
+
+export interface AlertsQuery {
+  after?: string;
+  limit?: number;
+  status?: AlertStatus;
+  severity?: Severity;
+}
+
+export interface WsTokenResponse {
+  token: string;
+  expires_in_seconds: number;
+}
+
+// ── Interfaces: Cases ──────────────────────────────────────────────────────
+
+export interface CaseRecord {
+  case_id: string;
+  title: string;
+  description?: string;
+  status: CaseStatus;
+  severity: Severity;
+  assignee?: string;
+  alert_ids: string[];
+  sla_due_at?: string;
+  tags: string[];
+  priority?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CaseCreateInput {
+  title: string;
+  description?: string;
+  severity: Severity;
+  assignee?: string;
+  tags?: string[];
+  alert_ids?: string[];
+}
+
+export interface CaseUpdateInput {
+  title?: string;
+  description?: string;
+  status?: CaseStatus;
+  severity?: Severity;
+  assignee?: string;
+  tags?: string[];
+  priority?: number;
+}
+
+// ── Interfaces: Search ─────────────────────────────────────────────────────
+
+export interface TimeRange {
+  start: string;
+  end: string;
+}
+
+export interface SearchPagination {
+  page_size: number;
+  cursor?: string;
+}
+
+export interface SearchQueryInput {
+  sql: string;
+  time_range: TimeRange;
+  pagination?: SearchPagination;
+}
+
+export interface SearchQueryResponse {
+  rows: Array<Record<string, unknown>>;
+  has_more: boolean;
+  next_cursor?: string;
+  total?: number;
+}
+
+export interface NlqInput {
+  question: string;
+  time_range: TimeRange;
+}
+
+export interface NlqResponse {
+  rows: Array<Record<string, unknown>>;
+  generated_sql: string;
+  has_more: boolean;
+  total?: number;
+}
+
+// ── Interfaces: MITRE Coverage ─────────────────────────────────────────────
+
+export interface CoveredTechnique {
+  technique_id: string;
+  technique_name: string;
+  tactic: string;
+  rule_count: number;
+  rule_ids: string[];
+}
+
+export interface CoverageReport {
+  total_in_framework: number;
+  total_covered: number;
+  coverage_pct: number;
+  covered_techniques: CoveredTechnique[];
+}
+
+// ── Interfaces: Threat Intelligence ────────────────────────────────────────
+
+export interface ThreatIntelFeed {
+  feed_id: string;
+  name: string;
+  feed_type: FeedType;
+  url: string;
+  auto_sync_interval_secs: number;
+  enabled: boolean;
+  ioc_count: number;
+  last_synced_at?: string;
+}
+
+export interface ThreatIntelFeedCreateInput {
+  name: string;
+  feed_type: FeedType;
+  url: string;
+  auto_sync_interval_secs?: number;
+  enabled?: boolean;
+}
+
+// ── Interfaces: Agents ─────────────────────────────────────────────────────
+
+export interface AgentRecord {
+  agent_id: string;
+  tenant_id: string;
+  hostname: string;
+  os: string;
+  version: string;
+  ip?: string;
+  last_seen: string;
+  group?: string;
+  tags: string[];
+  status: AgentStatus;
+}
+
+export interface AgentUpdateInput {
+  group?: string;
+  tags?: string[];
+}
+
+export interface AgentRegisterInput {
+  hostname: string;
+  os: string;
+  version: string;
+  ip?: string;
+  group?: string;
+  tags?: string[];
+}
+
+// ── Interfaces: Audit Logs ─────────────────────────────────────────────────
 
 export interface AuditLogRecord {
   audit_id: string;
@@ -72,44 +456,151 @@ export interface AuditLogRecord {
   after: unknown;
 }
 
+export interface AuditLogsQuery {
+  action?: string;
+  actor?: string;
+  entity_type?: string;
+  from?: string;
+  to?: string;
+  cursor?: string;
+  limit?: number;
+}
+
 export interface AuditLogsResponse {
   entries: AuditLogRecord[];
   next_cursor?: string;
   has_more: boolean;
 }
 
-export interface SearchResult {
-  rows: Array<Record<string, unknown>>;
-  total: number;
+// ── Interfaces: RBAC ───────────────────────────────────────────────────────
+
+export interface RbacEntry {
+  user_id: string;
+  roles: string[];
 }
+
+// ── Interfaces: LGPD ───────────────────────────────────────────────────────
+
+export interface LgpdExportInput {
+  subject_identifier: string;
+}
+
+export interface LgpdExportResponse {
+  events: Array<Record<string, unknown>>;
+}
+
+export interface LgpdAnonymizeInput {
+  subject_identifier: string;
+  fields: string[];
+}
+
+export interface LgpdAnonymizeResponse {
+  anonymized_count: number;
+}
+
+export interface LgpdBreachReportInput {
+  description: string;
+  affected_subjects_count: number;
+  data_categories: string[];
+}
+
+export interface LgpdBreachReportResponse {
+  report_id: string;
+  dpo_notified: boolean;
+}
+
+export interface LgpdConfig {
+  dpo_email: string;
+  legal_basis: string;
+  controller_name: string;
+}
+
+// ── Interfaces: Scheduler ──────────────────────────────────────────────────
+
+export interface SchedulerTickResponse {
+  rules_scanned: number;
+  alerts_emitted: number;
+}
+
+// ── Interfaces: Lookup Tables ──────────────────────────────────────────────
+
+export interface LookupTable {
+  name: string;
+  columns: string[];
+  row_count: number;
+}
+
+export interface LookupTableCreateInput {
+  name: string;
+  columns: string[];
+  rows: Array<Record<string, string>>;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  API Functions
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── Health & Metrics ───────────────────────────────────────────────────────
+
+export async function healthCheck(): Promise<HealthResponse> {
+  return apiRequest<HealthResponse>('/healthz');
+}
+
+export async function getMetrics(): Promise<string> {
+  return apiRequest<string>('/metrics');
+}
+
+// ── Events ─────────────────────────────────────────────────────────────────
+
+export async function ingestEvents(events: IngestEvent[]): Promise<IngestResponse> {
+  return apiRequest<IngestResponse>('/api/v1/events:ingest', {
+    method: 'POST',
+    body: JSON.stringify({ events }),
+  });
+}
+
+export async function purgeEvents(): Promise<void> {
+  await apiRequest('/api/v1/events', { method: 'DELETE' });
+}
+
+export async function getSources(): Promise<SourceInfo[]> {
+  return apiRequest<SourceInfo[]>('/api/v1/sources');
+}
+
+/**
+ * Convenience: ingest a single sample event with sensible defaults.
+ */
+export async function ingestSampleEvent(message = 'powershell -enc AAAA'): Promise<IngestResponse> {
+  return ingestEvents([
+    {
+      tenant_id: BASE_HEADERS['x-tenant-id'],
+      source: 'windows_sysmon',
+      event_time: new Date().toISOString(),
+      raw_payload: {
+        event_code: 1,
+        process_name: 'powershell.exe',
+        cmdline: message,
+        message,
+        host: 'endpoint-01',
+      },
+    },
+  ]);
+}
+
+// ── Rules ──────────────────────────────────────────────────────────────────
 
 export async function getRules(): Promise<DetectionRule[]> {
-  return apiRequest<DetectionRule[]>('/api/v1/rules', { method: 'GET' });
+  return apiRequest<DetectionRule[]>('/api/v1/rules');
 }
 
-export async function createRule(input: {
-  sigma_source: string;
-  schedule_or_stream: DetectionMode;
-  schedule?: RuleScheduleConfig;
-  severity: Severity;
-  enabled: boolean;
-}): Promise<DetectionRule> {
+export async function createRule(input: RuleCreateInput): Promise<DetectionRule> {
   return apiRequest<DetectionRule>('/api/v1/rules', {
     method: 'POST',
     body: JSON.stringify(input),
   });
 }
 
-export async function updateRule(
-  ruleId: string,
-  input: {
-    sigma_source?: string;
-    schedule_or_stream?: DetectionMode;
-    schedule?: RuleScheduleConfig;
-    severity?: Severity;
-    enabled?: boolean;
-  },
-): Promise<DetectionRule> {
+export async function updateRule(ruleId: string, input: RuleUpdateInput): Promise<DetectionRule> {
   return apiRequest<DetectionRule>(`/api/v1/rules/${ruleId}`, {
     method: 'PATCH',
     body: JSON.stringify(input),
@@ -122,40 +613,89 @@ export async function deleteRule(ruleId: string): Promise<{ deleted: boolean; ru
   });
 }
 
-export async function getAlerts(): Promise<AlertRecord[]> {
-  return apiRequest<AlertRecord[]>('/api/v1/alerts', { method: 'GET' });
+export async function testRule(ruleId: string, event: Record<string, unknown>): Promise<RuleTestResult> {
+  return apiRequest<RuleTestResult>(`/api/v1/rules/${ruleId}/test`, {
+    method: 'POST',
+    body: JSON.stringify(event),
+  });
 }
 
-export async function getAuditLogs(input: {
-  action?: string;
-  entity_type?: string;
-  actor?: string;
-  from?: string;
-  to?: string;
-  cursor?: string;
-  limit?: number;
-} = {}): Promise<AuditLogsResponse> {
-  const params = new URLSearchParams();
-  if (input.action) {
-    params.set('action', input.action);
+export async function dryRunRule(input: DryRunInput): Promise<DryRunResult> {
+  return apiRequest<DryRunResult>('/api/v1/rules/dry-run', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function backtestRule(ruleId: string, input: BacktestInput): Promise<BacktestResult> {
+  return apiRequest<BacktestResult>(`/api/v1/rules/${ruleId}/backtest`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getRuleVersions(ruleId: string): Promise<RuleVersion[]> {
+  return apiRequest<RuleVersion[]>(`/api/v1/rules/${ruleId}/versions`);
+}
+
+export async function restoreRuleVersion(ruleId: string, version: number): Promise<DetectionRule> {
+  return apiRequest<DetectionRule>(`/api/v1/rules/${ruleId}/versions/${version}/restore`, {
+    method: 'POST',
+  });
+}
+
+export async function importRulePack(input: ImportPackInput): Promise<ImportResult> {
+  return apiRequest<ImportResult>('/api/v1/rules/import-pack', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function syncRuleDir(input: ImportPackInput): Promise<ImportResult> {
+  return apiRequest<ImportResult>('/api/v1/rules/sync-dir', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function generateRule(input: GenerateRuleInput): Promise<GenerateRuleResult> {
+  return apiRequest<GenerateRuleResult>('/api/v1/rules/generate', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function tuneRule(ruleId: string): Promise<TuneRuleResult> {
+  return apiRequest<TuneRuleResult>(`/api/v1/rules/${ruleId}/tune`, {
+    method: 'POST',
+  });
+}
+
+export async function explainAlert(alertId: string): Promise<ExplainAlertResult> {
+  return apiRequest<ExplainAlertResult>(`/api/v1/rules/explain/alert/${alertId}`, {
+    method: 'POST',
+  });
+}
+
+// ── Alerts ─────────────────────────────────────────────────────────────────
+
+export async function getAlerts(query: AlertsQuery = {}): Promise<AlertsPage> {
+  return apiRequest<AlertsPage>(`/api/v1/alerts${qs({ ...query })}`);
+}
+
+/**
+ * Fetch all alerts by following cursor pagination.
+ */
+export async function getAllAlerts(filters: Omit<AlertsQuery, 'after'> = {}): Promise<AlertRecord[]> {
+  const all: AlertRecord[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await getAlerts({ ...filters, after: cursor });
+    all.push(...page.alerts);
+    if (!page.has_more || !page.next_cursor) break;
+    cursor = page.next_cursor;
   }
-  if (input.entity_type) {
-    params.set('entity_type', input.entity_type);
-  }
-  if (input.actor) {
-    params.set('actor', input.actor);
-  }
-  if (input.from) {
-    params.set('from', input.from);
-  }
-  if (input.to) {
-    params.set('to', input.to);
-  }
-  if (input.cursor) {
-    params.set('cursor', input.cursor);
-  }
-  params.set('limit', String(input.limit ?? 100));
-  return apiRequest<AuditLogsResponse>(`/api/v1/audit-logs?${params.toString()}`, { method: 'GET' });
+  return all;
 }
 
 export async function acknowledgeAlert(alertId: string, actor = 'soc-admin'): Promise<AlertRecord> {
@@ -176,47 +716,289 @@ export async function assignAlert(
   });
 }
 
-export async function ingestSampleEvent(message = 'powershell -enc AAAA'): Promise<void> {
-  await apiRequest('/api/v1/events:ingest', {
+export async function closeAlert(
+  alertId: string,
+  resolution: string,
+  actor = 'soc-admin',
+  note?: string,
+): Promise<AlertRecord> {
+  return apiRequest<AlertRecord>(`/api/v1/alerts/${alertId}:close`, {
     method: 'POST',
-    body: JSON.stringify({
-      events: [
-        {
-          tenant_id: 'tenant-a',
-          source: 'windows_sysmon',
-          event_time: new Date().toISOString(),
-          raw_payload: {
-            event_code: 1,
-            process_name: 'powershell.exe',
-            cmdline: message,
-            message,
-            host: 'endpoint-01',
-          },
-        },
-      ],
-    }),
+    body: JSON.stringify({ actor, resolution, note }),
   });
 }
 
-export async function runSearch(sql: string): Promise<SearchResult> {
+export async function falsePositiveAlert(
+  alertId: string,
+  actor = 'soc-admin',
+  note?: string,
+): Promise<AlertRecord> {
+  return apiRequest<AlertRecord>(`/api/v1/alerts/${alertId}:false-positive`, {
+    method: 'POST',
+    body: JSON.stringify({ actor, note }),
+  });
+}
+
+export async function getWsToken(): Promise<WsTokenResponse> {
+  return apiRequest<WsTokenResponse>('/api/v1/alerts/ws-token');
+}
+
+/**
+ * Open a WebSocket to the real-time alert stream.
+ * Fetches a single-use token first, then connects.
+ */
+export async function connectAlertWebSocket(): Promise<WebSocket> {
+  const { token } = await getWsToken();
+  const url = buildWsUrl('/api/v1/alerts/ws', { token });
+  return new WebSocket(url);
+}
+
+/**
+ * Open an SSE EventSource for the real-time alert stream.
+ */
+export function connectAlertSSE(): EventSource {
+  return new EventSource('/api/v1/alerts/stream');
+}
+
+/**
+ * Open an SSE EventSource for the real-time event stream (live tail).
+ */
+export function connectEventSSE(): EventSource {
+  return new EventSource('/api/v1/events/stream');
+}
+
+// ── Cases ──────────────────────────────────────────────────────────────────
+
+export async function getCases(): Promise<CaseRecord[]> {
+  return apiRequest<CaseRecord[]>('/api/v1/cases');
+}
+
+export async function createCase(input: CaseCreateInput): Promise<CaseRecord> {
+  return apiRequest<CaseRecord>('/api/v1/cases', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getCase(caseId: string): Promise<CaseRecord> {
+  return apiRequest<CaseRecord>(`/api/v1/cases/${caseId}`);
+}
+
+export async function updateCase(caseId: string, input: CaseUpdateInput): Promise<CaseRecord> {
+  return apiRequest<CaseRecord>(`/api/v1/cases/${caseId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function addAlertsToCase(caseId: string, alertIds: string[]): Promise<CaseRecord> {
+  return apiRequest<CaseRecord>(`/api/v1/cases/${caseId}/alerts`, {
+    method: 'POST',
+    body: JSON.stringify({ alert_ids: alertIds }),
+  });
+}
+
+export async function getSlaBreaches(): Promise<CaseRecord[]> {
+  return apiRequest<CaseRecord[]>('/api/v1/cases/sla-breaches');
+}
+
+// ── Search ─────────────────────────────────────────────────────────────────
+
+export async function runSearch(input: SearchQueryInput): Promise<SearchQueryResponse> {
+  return apiRequest<SearchQueryResponse>('/api/v1/search:query', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * Convenience: search recent events (last N hours) with a SQL string.
+ */
+export async function searchRecent(sql: string, hoursBack = 1, pageSize = 25): Promise<SearchQueryResponse> {
   const now = new Date();
-  const start = new Date(now.getTime() - 60 * 60 * 1000);
-
-  return apiRequest<SearchResult>('/api/v1/search:query', {
-    method: 'POST',
-    body: JSON.stringify({
-      tenant_id: 'tenant-a',
-      sql,
-      time_range: {
-        start: start.toISOString(),
-        end: now.toISOString(),
-      },
-      filters: [],
-      pagination: { page: 1, page_size: 25 },
-    }),
+  const start = new Date(now.getTime() - hoursBack * 60 * 60 * 1000);
+  return runSearch({
+    sql,
+    time_range: { start: start.toISOString(), end: now.toISOString() },
+    pagination: { page_size: pageSize },
   });
 }
 
-export async function healthCheck(): Promise<{ status: string; time: string }> {
-  return apiRequest('/healthz', { method: 'GET', headers: BASE_HEADERS });
+export async function naturalLanguageQuery(input: NlqInput): Promise<NlqResponse> {
+  return apiRequest<NlqResponse>('/api/v1/events/nlq', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+// ── MITRE Coverage ─────────────────────────────────────────────────────────
+
+export async function getCoverage(): Promise<CoverageReport> {
+  return apiRequest<CoverageReport>('/api/v1/coverage');
+}
+
+// ── Threat Intelligence ────────────────────────────────────────────────────
+
+export async function getThreatIntelFeeds(): Promise<ThreatIntelFeed[]> {
+  return apiRequest<ThreatIntelFeed[]>('/api/v1/threatintel/feeds');
+}
+
+export async function createThreatIntelFeed(input: ThreatIntelFeedCreateInput): Promise<ThreatIntelFeed> {
+  return apiRequest<ThreatIntelFeed>('/api/v1/threatintel/feeds', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getThreatIntelFeed(feedId: string): Promise<ThreatIntelFeed> {
+  return apiRequest<ThreatIntelFeed>(`/api/v1/threatintel/feeds/${feedId}`);
+}
+
+export async function deleteThreatIntelFeed(feedId: string): Promise<{ deleted: boolean }> {
+  return apiRequest<{ deleted: boolean }>(`/api/v1/threatintel/feeds/${feedId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function syncThreatIntelFeed(feedId: string): Promise<{ indicators_added: number }> {
+  return apiRequest<{ indicators_added: number }>(`/api/v1/threatintel/feeds/${feedId}/sync`, {
+    method: 'POST',
+  });
+}
+
+// ── Agents ─────────────────────────────────────────────────────────────────
+
+export async function getAgents(group?: string): Promise<AgentRecord[]> {
+  return apiRequest<AgentRecord[]>(`/api/v1/agents${qs({ group })}`);
+}
+
+export async function registerAgent(input: AgentRegisterInput): Promise<AgentRecord> {
+  return apiRequest<AgentRecord>('/api/v1/agents/register', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateAgent(agentId: string, input: AgentUpdateInput): Promise<AgentRecord> {
+  return apiRequest<AgentRecord>(`/api/v1/agents/${agentId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function agentHeartbeat(agentId: string): Promise<{ pending_config?: Record<string, unknown> }> {
+  return apiRequest<{ pending_config?: Record<string, unknown> }>(`/api/v1/agents/${agentId}/heartbeat`, {
+    method: 'POST',
+  });
+}
+
+export async function pushAgentConfig(agentId: string, configToml: string): Promise<void> {
+  await apiRequest(`/api/v1/agents/${agentId}/config`, {
+    method: 'POST',
+    body: JSON.stringify({ config_toml: configToml }),
+  });
+}
+
+// ── Audit Logs ─────────────────────────────────────────────────────────────
+
+export async function getAuditLogs(query: AuditLogsQuery = {}): Promise<AuditLogsResponse> {
+  return apiRequest<AuditLogsResponse>(`/api/v1/audit-logs${qs({ ...query, limit: query.limit ?? 100 })}`);
+}
+
+/**
+ * Fetch all audit log entries by following cursor pagination.
+ */
+export async function getAllAuditLogs(
+  filters: Omit<AuditLogsQuery, 'cursor'> = {},
+): Promise<AuditLogRecord[]> {
+  const all: AuditLogRecord[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await getAuditLogs({ ...filters, cursor });
+    all.push(...page.entries);
+    if (!page.has_more || !page.next_cursor) break;
+    cursor = page.next_cursor;
+  }
+  return all;
+}
+
+// ── RBAC ───────────────────────────────────────────────────────────────────
+
+export async function getRbacUsers(): Promise<RbacEntry[]> {
+  return apiRequest<RbacEntry[]>('/api/v1/rbac/users');
+}
+
+export async function setRbacUserRoles(userId: string, roles: string[]): Promise<RbacEntry> {
+  return apiRequest<RbacEntry>(`/api/v1/rbac/users/${userId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ roles }),
+  });
+}
+
+export async function deleteRbacUser(userId: string): Promise<{ deleted: boolean }> {
+  return apiRequest<{ deleted: boolean }>(`/api/v1/rbac/users/${userId}`, {
+    method: 'DELETE',
+  });
+}
+
+// ── LGPD ───────────────────────────────────────────────────────────────────
+
+export async function lgpdExport(input: LgpdExportInput): Promise<LgpdExportResponse> {
+  return apiRequest<LgpdExportResponse>('/api/v1/lgpd/export', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function lgpdAnonymize(input: LgpdAnonymizeInput): Promise<LgpdAnonymizeResponse> {
+  return apiRequest<LgpdAnonymizeResponse>('/api/v1/lgpd/anonymize', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function lgpdBreachReport(input: LgpdBreachReportInput): Promise<LgpdBreachReportResponse> {
+  return apiRequest<LgpdBreachReportResponse>('/api/v1/lgpd/breach-report', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getLgpdConfig(): Promise<LgpdConfig> {
+  return apiRequest<LgpdConfig>('/api/v1/lgpd/config');
+}
+
+// ── Scheduler ──────────────────────────────────────────────────────────────
+
+export async function schedulerTick(): Promise<SchedulerTickResponse> {
+  return apiRequest<SchedulerTickResponse>('/api/v1/scheduler/tick', {
+    method: 'POST',
+  });
+}
+
+// ── Lookup Tables ──────────────────────────────────────────────────────────
+
+export async function getLookupTables(): Promise<LookupTable[]> {
+  return apiRequest<LookupTable[]>('/api/v1/lookups');
+}
+
+export async function createLookupTable(input: LookupTableCreateInput): Promise<LookupTable> {
+  return apiRequest<LookupTable>('/api/v1/lookups', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getLookupEntries(name: string): Promise<Array<Record<string, string>>> {
+  return apiRequest<Array<Record<string, string>>>(`/api/v1/lookups/${name}`);
+}
+
+export async function updateLookupEntries(
+  name: string,
+  rows: Array<Record<string, string>>,
+): Promise<Array<Record<string, string>>> {
+  return apiRequest<Array<Record<string, string>>>(`/api/v1/lookups/${name}`, {
+    method: 'PUT',
+    body: JSON.stringify(rows),
+  });
 }

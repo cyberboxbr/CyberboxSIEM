@@ -1,0 +1,21 @@
+title: Docker Exec Command in Running Container
+id: 0907f5d6-c2a5-4e3a-bf72-3b3f7a4c5e15
+status: stable
+description: |
+  Detects execution of commands inside a running Docker container via
+  docker exec, which may indicate lateral movement or post-exploitation.
+logsource:
+  product: linux
+  category: docker
+detection:
+  selection:
+    docker_action: exec_start
+  condition: selection
+level: medium
+tags:
+  - attack.execution
+  - attack.t1059
+  - attack.lateral_movement
+falsepositives:
+  - Legitimate container debugging
+  - Health checks that use exec

@@ -1,0 +1,41 @@
+title: Outbound Connection on Unusual High Port
+id: 0907f5d6-c2a5-4e3a-bf72-3b3f7a4c5e18
+status: stable
+description: |
+  Detects new outbound connections to unusual high ports that may
+  indicate C2 communication or data exfiltration.
+  Works with the netconn agent source.
+logsource:
+  product: linux
+  category: network_connection
+detection:
+  selection:
+    net_event: connection_open
+    DestinationPort|gt: 10000
+  filter_common:
+    DestinationPort:
+      - 27017  # MongoDB
+      - 11211  # Memcached
+      - 15672  # RabbitMQ
+      - 25672  # RabbitMQ
+      - 16379  # Redis Sentinel
+  filter_local:
+    DestinationIp|startswith:
+      - '127.'
+      - '10.'
+      - '172.16.'
+      - '172.17.'
+      - '172.18.'
+      - '172.19.'
+      - '172.20.'
+      - '192.168.'
+  condition: selection and not filter_common and not filter_local
+level: low
+tags:
+  - attack.command_and_control
+  - attack.t1571
+  - attack.exfiltration
+  - attack.t1048
+falsepositives:
+  - Peer-to-peer applications
+  - Custom application services on high ports

@@ -1,0 +1,22 @@
+{{- if .Values.collector.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cyberbox.fullname" . }}-collector
+  labels:
+    {{- include "cyberbox.labels" . | nindent 4 }}
+    {{- include "cyberbox.selectorLabels" (dict "root" . "component" "collector") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: syslog-udp
+      port: {{ .Values.collector.ports.udp }}
+      targetPort: syslog-udp
+      protocol: UDP
+    - name: syslog-tcp
+      port: {{ .Values.collector.ports.tcp }}
+      targetPort: syslog-tcp
+      protocol: TCP
+  selector:
+    {{- include "cyberbox.selectorLabels" (dict "root" . "component" "collector") | nindent 4 }}
+{{- end }}

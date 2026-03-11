@@ -70,3 +70,68 @@ bookmark_path = "/var/lib/cyberbox/agent.bookmark.json"
 # [[source]]
 # type  = "journald"
 # units = []            # empty = all units; or ["sshd", "nginx", "docker"]
+
+# ── File Integrity Monitoring ─────────────────────────────────────────────────
+# [[source]]
+# type               = "fim"
+# paths              = ["/etc", "/usr/bin", "/home"]
+# scan_interval_secs = 60          # how often to scan (default: 60)
+# recursive          = true        # recurse into sub-directories (default: true)
+# baseline_path      = "/var/lib/cyberbox/fim-baseline.json"
+#
+# Events emitted: created | modified | deleted | permission_changed
+
+# ── Sysmon (Windows only) ─────────────────────────────────────────────────────
+# Requires Microsoft Sysmon installed + configured on this host.
+# Download: https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon
+# Install:  sysmon64.exe -accepteula -i sysmonconfig.xml
+#
+# [[source]]
+# type = "sysmon"
+#
+# Events: ProcessCreate·T1059, NetworkConnect·T1071, ImageLoad·T1574,
+#         CreateRemoteThread·T1055, RegistryEvent·T1547, FileCreate·T1105,
+#         DnsQuery·T1071.004, ProcessTampering·T1055, and 15+ more.
+# Promoted fields: Image, CommandLine, User, ParentImage, DestinationIp,
+#   DestinationPort, TargetObject, sha256, md5, mitre_technique.
+
+# ── Process Monitor (Linux only) ──────────────────────────────────────────────
+# Zero-dependency /proc poller — works on any Linux kernel.
+#
+# [[source]]
+# type    = "procmon"
+# poll_ms = 1000     # /proc scan interval in ms (default: 1000)
+#
+# Events: process_create·T1059 | process_terminate
+# Fields: Image (exe path), CommandLine, ProcessId, ParentProcessId, User, uid, gid
+
+# ── Docker Events (Linux only) ────────────────────────────────────────────────
+# Subscribes to Docker daemon event stream via Unix socket.
+# Mount the Docker socket: -v /var/run/docker.sock:/var/run/docker.sock:ro
+#
+# [[source]]
+# type        = "docker"
+# socket_path = "/var/run/docker.sock"   # default
+#
+# Events: start·T1610, die, kill·T1489, exec_start·T1059, destroy·T1070.004,
+#         create, stop, pause, unpause, attach, oom
+# Fields: container_id, container_name, Image, docker_action, exit_code, signal
+
+# ── Network Connections (Linux only) ──────────────────────────────────────────
+# Polls /proc/net/tcp{,6} for new ESTABLISHED/LISTEN connections.
+# Zero dependencies, no libpcap, no raw sockets.
+#
+# [[source]]
+# type    = "netconn"
+# poll_ms = 5000    # scan interval in ms (default: 5000)
+#
+# Events: connection_open·T1071 | connection_close | listening_open | listening_close
+# Fields: local_ip, local_port, remote_ip, remote_port, ProcessId, Image, uid, state
+
+# ── API registration (optional) ───────────────────────────────────────────────
+# When set, the agent registers itself with cyberbox-api on startup and sends
+# periodic heartbeats so the dashboard can track agent health.
+# [api]
+# url             = "http://cyberbox-api.example.com:3000"
+# heartbeat_secs  = 30
+# token           = "optional-api-bearer-token"

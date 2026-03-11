@@ -1,0 +1,35 @@
+title: Suspicious Sudo Usage or Privilege Escalation
+id: 0907f5d6-c2a5-4e3a-bf72-3b3f7a4c5e11
+status: stable
+description: |
+  Detects suspicious sudo usage patterns including sudo to root shell,
+  NOPASSWD exploitation, and sudoers file modification.
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection_sudo_shell:
+    Image|endswith: '/sudo'
+    CommandLine|contains:
+      - 'sudo su'
+      - 'sudo -s'
+      - 'sudo bash'
+      - 'sudo /bin/sh'
+      - 'sudo -i'
+  selection_sudoers:
+    CommandLine|contains:
+      - '/etc/sudoers'
+      - 'visudo'
+      - 'NOPASSWD'
+  selection_setuid:
+    CommandLine|contains:
+      - 'chmod +s '
+      - 'chmod u+s '
+      - 'chmod 4755 '
+  condition: selection_sudo_shell or selection_sudoers or selection_setuid
+level: high
+tags:
+  - attack.privilege_escalation
+  - attack.t1548.003
+falsepositives:
+  - Legitimate system administration

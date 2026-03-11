@@ -7,7 +7,10 @@ interface TopNavProps {
 const NAV_LINKS = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/alerts', label: 'Alerts', end: false },
+  { to: '/cases', label: 'Cases', end: false },
   { to: '/rules', label: 'Rules', end: false },
+  { to: '/rule-editor', label: 'Detection', end: false },
+  { to: '/coverage', label: 'MITRE', end: false },
   { to: '/investigate', label: 'Investigation', end: false },
   { to: '/audit', label: 'Audit', end: false },
 ];

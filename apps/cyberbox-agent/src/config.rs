@@ -11,6 +11,8 @@ pub struct AgentConfig {
     pub agent:     AgentMeta,
     #[serde(default)]
     pub source:    Vec<SourceConfig>,
+    /// Optional: register + heartbeat with cyberbox-api
+    pub api:       Option<AgentApiConfig>,
 }
 
 // ── Collector output ──────────────────────────────────────────────────────────
@@ -47,9 +49,14 @@ pub struct CollectorConfig {
     #[serde(default = "default_backoff_max")]
     pub backoff_max_secs: u64,
 
-    /// In-memory ring buffer capacity (events) while offline
+    /// Disk-backed queue capacity (events) while offline
     #[serde(default = "default_buffer_size")]
     pub buffer_size: usize,
+
+    /// Path for the disk-backed queue (sled database directory).
+    /// Default: platform-specific (e.g. /var/lib/cyberbox/queue on Linux,
+    /// %ProgramData%\Cyberbox\queue on Windows).
+    pub queue_path: Option<String>,
 }
 
 fn default_port()         -> u16    { 7514 }
@@ -99,13 +106,75 @@ pub enum SourceConfig {
         #[allow(dead_code)]  // used on Linux only
         units: Vec<String>,
     },
+    /// File Integrity Monitoring — hash + metadata change detection
+    Fim {
+        /// Files or directories to monitor
+        paths: Vec<String>,
+        /// Scan interval in seconds (default: 60)
+        #[serde(default = "default_fim_interval")]
+        scan_interval_secs: u64,
+        /// Recurse into sub-directories (default: true)
+        #[serde(default = "default_fim_recursive")]
+        recursive: bool,
+        /// JSON baseline file (persisted across restarts)
+        #[serde(default = "default_fim_baseline")]
+        baseline_path: String,
+    },
+    /// Sysmon event source (Windows only).
+    /// Requires Microsoft Sysmon to be installed and running.
+    /// Subscribe to Microsoft-Windows-Sysmon/Operational channel.
+    Sysmon,
+    /// Linux process monitor — polls /proc to detect process create/terminate.
+    Procmon {
+        /// How often to scan /proc in milliseconds (default: 1000)
+        #[serde(default = "default_procmon_poll_ms")]
+        poll_ms: u64,
+    },
+    /// Docker container events (Linux only).
+    /// Subscribes to the Docker daemon event stream via Unix socket.
+    Docker {
+        /// Path to Docker socket (default: /var/run/docker.sock)
+        #[serde(default = "default_docker_socket")]
+        socket_path: String,
+    },
+    /// Network connections monitor (Linux only).
+    /// Polls /proc/net/tcp{,6} for new ESTABLISHED/LISTEN connections.
+    Netconn {
+        /// Poll interval in milliseconds (default: 5000)
+        #[serde(default = "default_netconn_poll_ms")]
+        poll_ms: u64,
+    },
 }
+
+fn default_fim_interval()      -> u64    { 60 }
+fn default_fim_recursive()     -> bool   { true }
+fn default_fim_baseline()      -> String { "cyberbox-agent.fim-baseline.json".into() }
+fn default_procmon_poll_ms()   -> u64    { 1000 }
+fn default_docker_socket()     -> String { "/var/run/docker.sock".into() }
+fn default_netconn_poll_ms()   -> u64    { 5000 }
 
 fn default_poll_ms() -> u64 { 500 }
 fn default_bookmark() -> String { "cyberbox-agent.bookmark.json".into() }
 fn default_wel_channels() -> Vec<String> {
     vec!["Security".into(), "System".into(), "Application".into()]
 }
+
+// ── Agent API registration (optional) ────────────────────────────────────────
+
+/// When present, the agent registers itself with `cyberbox-api` on startup and
+/// sends periodic heartbeats so the API can track agent health.
+#[derive(Debug, Deserialize, Clone)]
+pub struct AgentApiConfig {
+    /// Base URL of cyberbox-api, e.g. `http://collector.example.com:3000`
+    pub url: String,
+    /// Heartbeat interval in seconds (default: 30)
+    #[serde(default = "default_heartbeat_secs")]
+    pub heartbeat_secs: u64,
+    /// Optional bearer token for API authentication
+    pub token: Option<String>,
+}
+
+fn default_heartbeat_secs() -> u64 { 30 }
 
 // ── Load from file ────────────────────────────────────────────────────────────
 

@@ -1,0 +1,48 @@
+title: Linux Reverse Shell Execution
+id: 0907f5d6-c2a5-4e3a-bf72-3b3f7a4c5e09
+status: stable
+description: |
+  Detects common reverse shell patterns on Linux via process command lines.
+  Works with procmon and journald sources.
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection_bash:
+    CommandLine|contains:
+      - 'bash -i >& /dev/tcp/'
+      - 'bash -c "bash -i'
+      - 'sh -i >& /dev/tcp/'
+  selection_netcat:
+    CommandLine|contains:
+      - 'nc -e /bin/'
+      - 'ncat -e /bin/'
+      - 'nc.traditional -e'
+      - 'nc -c bash'
+  selection_python:
+    CommandLine|contains:
+      - 'python -c "import socket'
+      - 'python3 -c "import socket'
+      - 'python -c "import os,pty,socket'
+  selection_perl:
+    CommandLine|contains:
+      - 'perl -e "use Socket'
+      - 'perl -MIO -e'
+  selection_socat:
+    CommandLine|contains:
+      - 'socat exec:'
+      - 'socat TCP4:'
+  selection_openssl:
+    CommandLine|contains:
+      - 'openssl s_client'
+      - 'mkfifo /tmp/'
+  condition: selection_bash or selection_netcat or selection_python or selection_perl or selection_socat or selection_openssl
+level: critical
+tags:
+  - attack.execution
+  - attack.t1059.004
+  - attack.command_and_control
+  - attack.t1071
+falsepositives:
+  - Penetration testing
+  - CTF exercises

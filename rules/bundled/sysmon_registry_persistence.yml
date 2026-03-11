@@ -1,0 +1,33 @@
+title: Registry Run Key Persistence
+id: 0907f5d6-c2a5-4e3a-bf72-3b3f7a4c5e05
+status: stable
+description: |
+  Detects modification of common Windows registry Run/RunOnce keys
+  used for persistence. Sysmon EventID 13 (RegistryEventValue).
+logsource:
+  product: windows
+  category: sysmon
+detection:
+  selection:
+    event_type: RegistryEventValue
+    TargetObject|contains:
+      - '\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+      - '\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce'
+      - '\SOFTWARE\Microsoft\Windows\CurrentVersion\RunServices'
+      - '\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\Shell'
+      - '\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\Userinit'
+      - '\Environment\UserInitMprLogonScript'
+  filter_installers:
+    Image|endswith:
+      - '\msiexec.exe'
+      - '\svchost.exe'
+      - '\TiWorker.exe'
+      - '\TrustedInstaller.exe'
+  condition: selection and not filter_installers
+level: high
+tags:
+  - attack.persistence
+  - attack.t1547.001
+falsepositives:
+  - Legitimate software installation
+  - Group Policy updates

@@ -1,0 +1,22 @@
+title: Docker Container Started with Privileged Flag
+id: 0907f5d6-c2a5-4e3a-bf72-3b3f7a4c5e14
+status: stable
+description: |
+  Detects Docker containers started in privileged mode, which grants
+  full host access and is a common container escape vector.
+  Works with the docker agent source.
+logsource:
+  product: linux
+  category: docker
+detection:
+  selection:
+    docker_action: start
+  condition: selection
+level: medium
+tags:
+  - attack.privilege_escalation
+  - attack.t1610
+  - attack.t1611
+falsepositives:
+  - Legitimate privileged containers (monitoring, init)
+  - CI/CD pipeline containers

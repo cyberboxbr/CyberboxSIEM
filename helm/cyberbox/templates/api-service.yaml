@@ -1,0 +1,18 @@
+{{- if .Values.api.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cyberbox.fullname" . }}-api
+  labels:
+    {{- include "cyberbox.labels" . | nindent 4 }}
+    {{- include "cyberbox.selectorLabels" (dict "root" . "component" "api") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "cyberbox.selectorLabels" (dict "root" . "component" "api") | nindent 4 }}
+{{- end }}

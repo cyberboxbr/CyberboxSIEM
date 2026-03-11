@@ -1,0 +1,6 @@
+apiVersion: v2
+name: cyberbox
+description: CyberboxSIEM — High-Performance SIEM Platform
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

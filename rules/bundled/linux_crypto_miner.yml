@@ -1,0 +1,40 @@
+title: Cryptocurrency Miner Execution
+id: 0907f5d6-c2a5-4e3a-bf72-3b3f7a4c5e13
+status: stable
+description: |
+  Detects execution of cryptocurrency mining tools by process name
+  or command line arguments.
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection_process:
+    Image|endswith:
+      - '/xmrig'
+      - '/minerd'
+      - '/cpuminer'
+      - '/ccminer'
+      - '/bfgminer'
+      - '/cgminer'
+      - '/ethminer'
+      - '/t-rex'
+      - '/nbminer'
+      - '/phoenixminer'
+  selection_args:
+    CommandLine|contains:
+      - 'stratum+tcp://'
+      - 'stratum+ssl://'
+      - '--donate-level'
+      - '-o pool.'
+      - 'minergate'
+      - 'nicehash'
+      - 'nanopool'
+      - 'moneroocean'
+      - 'hashvault'
+  condition: selection_process or selection_args
+level: critical
+tags:
+  - attack.impact
+  - attack.t1496
+falsepositives:
+  - Authorized mining operations

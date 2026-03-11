@@ -20,11 +20,13 @@
 //! the native OS trust store is loaded via `rustls-native-certs`.
 //!
 //! ## Resilience
-//! An in-memory `VecDeque` ring-buffers events while offline.  Oldest entries
-//! are evicted when the buffer is full.  On reconnect the buffer flushes before
-//! new events are written.
+//! A crash-safe disk-backed queue (`sled`) persists events while offline.
+//! Oldest entries are evicted when the buffer is full.  On reconnect the queue
+//! flushes before new events are written.  Events survive agent crashes.
 
-use std::{collections::VecDeque, path::Path, sync::Arc, time::Duration};
+use std::{path::Path, sync::Arc, time::Duration};
+
+use crate::disk_queue::DiskQueue;
 
 use serde_json::Value;
 use tokio::{
@@ -53,6 +55,8 @@ pub struct OutputConfig {
     pub tenant_id:        String,
     /// Agent version string embedded in auth handshake
     pub version:          String,
+    /// Path for the disk-backed queue (sled database directory)
+    pub queue_path:       std::path::PathBuf,
 }
 
 // ── Unified connection wrapper ────────────────────────────────────────────────
@@ -83,7 +87,17 @@ pub async fn run(
     let addr            = format!("{}:{}", cfg.host, cfg.port);
     let mut backoff_ms: u64 = 500;
     let backoff_max_ms      = cfg.backoff_max_secs * 1000;
-    let mut buf: VecDeque<Value> = VecDeque::with_capacity(cfg.buffer_size);
+
+    let mut buf = match DiskQueue::open(&cfg.queue_path, cfg.buffer_size) {
+        Ok(q) => q,
+        Err(e) => {
+            error!(%e, "failed to open disk queue — falling back to in-memory");
+            // Create a temp dir as fallback
+            let tmp = std::env::temp_dir().join("cyberbox-agent-queue-fallback");
+            DiskQueue::open(&tmp, cfg.buffer_size)
+                .expect("cannot open fallback disk queue")
+        }
+    };
 
     'outer: loop {
         // ── Connect (plain or TLS) ────────────────────────────────────────────
@@ -126,11 +140,11 @@ pub async fn run(
             }
         }
 
-        // ── Flush ring buffer ─────────────────────────────────────────────────
-        while let Some(ev) = buf.pop_front() {
+        // ── Flush disk queue ─────────────────────────────────────────────────
+        while let Some(ev) = buf.pop() {
             let line = format_event(&ev, &cfg);
             if conn.write_all(line.as_bytes()).await.is_err() {
-                buf.push_front(ev);
+                let _ = buf.push(&ev);
                 break;
             }
         }
@@ -147,7 +161,7 @@ pub async fn run(
                             let line = format_event(&ev, &cfg);
                             if let Err(e) = conn.write_all(line.as_bytes()).await {
                                 error!(%e, "collector write failed — buffering and reconnecting");
-                                ring_push(&mut buf, ev, cfg.buffer_size);
+                                let _ = buf.push(&ev);
                                 break;
                             }
                         }
@@ -158,7 +172,7 @@ pub async fn run(
 
         // Drain rx into buffer while we back off
         while let Ok(ev) = rx.try_recv() {
-            ring_push(&mut buf, ev, cfg.buffer_size);
+            let _ = buf.push(&ev);
         }
 
         warn!(%addr, buffered = buf.len(), "reconnecting in {backoff_ms}ms");
@@ -170,8 +184,10 @@ pub async fn run(
         backoff_ms = (backoff_ms * 2).min(backoff_max_ms);
     }
 
-    if !buf.is_empty() {
-        warn!(dropped = buf.len(), "output shutting down — buffered events lost");
+    let remaining = buf.len();
+    buf.flush();
+    if remaining > 0 {
+        info!(persisted = remaining, "output shutting down — events persisted to disk queue");
     }
 }
 
@@ -255,11 +271,4 @@ fn format_event(ev: &Value, cfg: &OutputConfig) -> String {
             s
         }
     }
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-fn ring_push(buf: &mut VecDeque<Value>, ev: Value, max: usize) {
-    if buf.len() >= max { buf.pop_front(); }
-    buf.push_back(ev);
 }

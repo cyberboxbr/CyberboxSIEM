@@ -168,12 +168,52 @@ async fn main() -> anyhow::Result<()> {
         cyberbox_api::syslog_receiver::start(state.clone(), &config);
     }
 
+    // Auto-import bundled Sigma rules from CYBERBOX__RULES_DIR (if set or default exists).
+    {
+        let rules_dir = std::env::var("CYBERBOX__RULES_DIR")
+            .ok()
+            .or_else(|| {
+                let default = std::path::PathBuf::from("rules/bundled");
+                if default.is_dir() { Some(default.to_string_lossy().to_string()) } else { None }
+            });
+        if let Some(dir) = rules_dir {
+            let s = state.clone();
+            tokio::spawn(async move {
+                // Use a system auth context for the import
+                let auth = cyberbox_auth::AuthContext {
+                    tenant_id: "default".to_string(),
+                    user_id:   "system".to_string(),
+                    roles:     vec![cyberbox_auth::Role::Admin],
+                };
+                match cyberbox_api::rules_pack::import_rules_from_dir(&auth, &s, &dir, false).await {
+                    Ok(result) => {
+                        if result.imported > 0 || result.updated > 0 {
+                            tracing::info!(
+                                dir = %dir,
+                                imported = result.imported,
+                                updated  = result.updated,
+                                skipped  = result.skipped,
+                                errors   = result.errors.len(),
+                                "bundled rules auto-imported on startup"
+                            );
+                        } else {
+                            tracing::debug!(dir = %dir, skipped = result.skipped, "bundled rules already up to date");
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(dir = %dir, error = %e, "bundled rules auto-import failed");
+                    }
+                }
+            });
+        }
+    }
+
     let app = build_router(state);
 
     let addr: SocketAddr = config.bind_addr.parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, "cyberbox api listening");
 
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await?;
     Ok(())
 }
