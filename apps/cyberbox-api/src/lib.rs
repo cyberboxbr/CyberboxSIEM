@@ -12,7 +12,7 @@ use std::sync::Arc;
 use axum::extract::DefaultBodyLimit;
 use axum::Extension;
 use axum::Router;
-use cyberbox_auth::{AuthBypass, JwtValidator};
+use cyberbox_auth::{AuthBypass, JwtValidator, TenantOverride};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use tower_http::{
     cors::CorsLayer,
@@ -41,6 +41,7 @@ pub fn build_router(state: AppState) -> Router {
     let max_ingest_body_bytes = state.max_ingest_body_bytes.max(1024);
     let jwt_validator = state.jwt_validator.clone();
     let auth_disabled = state.auth_disabled;
+    let tenant_override = state.tenant_id_override.clone();
 
     let router = Router::new()
         .merge(routes::api_router())
@@ -56,10 +57,17 @@ pub fn build_router(state: AppState) -> Router {
         .layer(SetRequestIdLayer::x_request_id(UuidRequestId));
 
     // Auth extension must be the outermost layer so it is resolved first
-    if let Some(validator) = jwt_validator.filter(|_| !auth_disabled) {
+    let router = if let Some(validator) = jwt_validator.filter(|_| !auth_disabled) {
         router.layer(Extension(validator as Arc<JwtValidator>))
     } else {
         router.layer(Extension(AuthBypass))
+    };
+
+    // Single-tenant override — inject after auth so it applies regardless of mode
+    if let Some(forced) = tenant_override {
+        router.layer(Extension(TenantOverride(forced)))
+    } else {
+        router
     }
 }
 

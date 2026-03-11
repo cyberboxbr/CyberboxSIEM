@@ -153,6 +153,7 @@ config:
     disabled: false
     oidcIssuer: "https://login.microsoftonline.com/a8014c28-79d4-4695-8890-0ed0bf766668/v2.0"
     oidcAudience: "api://3fd8922e-d137-4d50-b160-b552ceda18c1"
+    tenantIdOverride: "safebox"  # single-tenant mode — all data scoped to "safebox"
   epsLimit: 10000
 
 # ---------------------------------------------------------------------------
@@ -161,7 +162,7 @@ config:
 ingress:
   enabled: false
   className: "alb"
-  host: "siem.cyberboxsecurity.com.br"
+  host: "siem.safebox.cyberboxsecurity.com.br"
   certificateArn: ""  # ACM cert ARN — if set, ALB terminates TLS (no K8s secret needed)
   annotations: {}
   tls: false

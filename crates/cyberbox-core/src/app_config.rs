@@ -112,6 +112,11 @@ pub struct AppConfig {
     // ── OpenTelemetry ─────────────────────────────────────────────────────────
     /// OTLP gRPC endpoint (e.g. `http://jaeger:4317`). Empty = OTel disabled.
     pub otlp_endpoint: String,
+    // ── Single-tenant mode ────────────────────────────────────────────────────
+    /// When non-empty, all authenticated requests are forced to this tenant,
+    /// ignoring whatever the JWT or bypass headers say.
+    /// Set `CYBERBOX__TENANT_ID_OVERRIDE=safebox` for a single-tenant deployment.
+    pub tenant_id_override: String,
 }
 
 impl Default for AppConfig {
@@ -187,6 +192,7 @@ impl Default for AppConfig {
             state_dir: "data".to_string(),
             jwks_refresh_interval_secs: 300,
             otlp_endpoint: String::new(),
+            tenant_id_override: String::new(),
         }
     }
 }

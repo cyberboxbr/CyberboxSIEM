@@ -206,6 +206,8 @@ pub struct AppState {
     pub sources: Arc<DashMap<String, SourceInfo>>,
     /// Registered cyberbox-agent instances: agent_id → AgentRecord.
     pub agents: Arc<DashMap<String, AgentRecord>>,
+    /// When `Some`, all requests are forced to this tenant (single-tenant mode).
+    pub tenant_id_override: Option<String>,
 }
 
 impl AppState {
@@ -274,6 +276,7 @@ impl AppState {
             ws_tokens: Arc::new(DashMap::new()),
             sources: Arc::new(DashMap::new()),
             agents: Arc::new(DashMap::new()),
+            tenant_id_override: None,
         }
     }
 
@@ -359,6 +362,11 @@ impl AppState {
             ws_tokens: Arc::new(DashMap::new()),
             sources: Arc::new(DashMap::new()),
             agents: Arc::new(DashMap::new()),
+            tenant_id_override: if config.tenant_id_override.is_empty() {
+                None
+            } else {
+                Some(config.tenant_id_override.clone())
+            },
         })
     }
 }

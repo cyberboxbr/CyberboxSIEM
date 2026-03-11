@@ -75,6 +75,15 @@ impl AuthContext {
 #[derive(Clone, Copy)]
 pub struct AuthBypass;
 
+// ── TenantOverride ────────────────────────────────────────────────────────────
+
+/// Axum extension.  When present, overrides the tenant_id extracted from the
+/// JWT (or bypass headers) for every request.  Used in single-tenant deployments
+/// where all data must be scoped to a fixed tenant regardless of the token claim.
+/// Set `CYBERBOX__TENANT_ID_OVERRIDE=<name>` to enable.
+#[derive(Clone)]
+pub struct TenantOverride(pub String);
+
 // ── OIDC / JWKS internal types ───────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -330,19 +339,26 @@ where
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         // Dev / test bypass — read identity from plain request headers
-        if parts.extensions.get::<AuthBypass>().is_some() {
-            return extract_from_headers(&parts.headers);
+        let mut ctx = if parts.extensions.get::<AuthBypass>().is_some() {
+            extract_from_headers(&parts.headers)?
+        } else {
+            // Production — validate Bearer JWT
+            let validator = parts
+                .extensions
+                .get::<Arc<JwtValidator>>()
+                .cloned()
+                .ok_or(CyberboxError::Unauthorized)?;
+
+            let token = extract_bearer_token(&parts.headers)?;
+            validator.validate(&token).await?
+        };
+
+        // Single-tenant override — replace whatever the token said
+        if let Some(TenantOverride(ref forced)) = parts.extensions.get::<TenantOverride>().cloned() {
+            ctx.tenant_id = forced.clone();
         }
 
-        // Production — validate Bearer JWT
-        let validator = parts
-            .extensions
-            .get::<Arc<JwtValidator>>()
-            .cloned()
-            .ok_or(CyberboxError::Unauthorized)?;
-
-        let token = extract_bearer_token(&parts.headers)?;
-        validator.validate(&token).await
+        Ok(ctx)
     }
 }
 
