@@ -35,17 +35,27 @@ spec:
         - name: worker
           image: {{ include "cyberbox.image" (dict "root" . "component" "worker" "overrideRepo" .Values.worker.image.repository) }}
           imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: 9091
+              protocol: TCP
           envFrom:
             - configMapRef:
                 name: {{ include "cyberbox.fullname" . }}-config
           livenessProbe:
-            exec:
-              command:
-                - "true"
+            tcpSocket:
+              port: metrics
             initialDelaySeconds: 10
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 2
           resources:
             {{- toYaml .Values.worker.resources | nindent 12 }}
           securityContext:

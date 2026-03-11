@@ -141,8 +141,25 @@ jobs:
             --set api.replicaCount=1 \
             --set worker.replicaCount=1 \
             --wait \
-            --timeout 10m \
-            --atomic
+            --timeout 10m
+
+      - name: Debug on failure
+        if: failure()
+        run: |
+          echo "=== Pod status ==="
+          kubectl get pods -n ${{ env.HELM_NAMESPACE }} -o wide
+          echo ""
+          echo "=== Pod describe (non-Running) ==="
+          for pod in $(kubectl get pods -n ${{ env.HELM_NAMESPACE }} --no-headers | grep -v Running | awk '{print $1}'); do
+            echo "--- $pod ---"
+            kubectl describe pod "$pod" -n ${{ env.HELM_NAMESPACE }} | tail -30
+            echo ""
+            echo "--- logs $pod ---"
+            kubectl logs "$pod" -n ${{ env.HELM_NAMESPACE }} --tail=50 2>/dev/null || true
+            echo ""
+          done
+          echo "=== Events ==="
+          kubectl get events -n ${{ env.HELM_NAMESPACE }} --sort-by='.lastTimestamp' | tail -30
 
       - name: Verify deployment
         run: |
