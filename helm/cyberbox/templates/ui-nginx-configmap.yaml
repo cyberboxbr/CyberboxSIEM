@@ -1,0 +1,36 @@
+{{- if .Values.ui.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cyberbox.fullname" . }}-nginx-conf
+  labels:
+    {{- include "cyberbox.labels" . | nindent 4 }}
+data:
+  default.conf: |
+    server {
+        listen 3000;
+        server_name localhost;
+
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # Proxy /api/ to the backend API service
+        location /api/ {
+            proxy_pass {{ .Values.ui.backendUrl }};
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_read_timeout 60s;
+        }
+
+        # SPA fallback — serve index.html for client-side routing
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+
+        error_page 500 502 503 504 /50x.html;
+        location = /50x.html {
+            root /usr/share/nginx/html;
+        }
+    }
+{{- end }}

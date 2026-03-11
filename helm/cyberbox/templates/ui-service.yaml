@@ -7,12 +7,15 @@ metadata:
     {{- include "cyberbox.labels" . | nindent 4 }}
     {{- include "cyberbox.selectorLabels" (dict "root" . "component" "ui") | nindent 4 }}
 spec:
-  type: ClusterIP
+  type: {{ .Values.ui.service.type | default "ClusterIP" }}
   ports:
     - name: http
       port: 3000
       targetPort: http
       protocol: TCP
+      {{- if and (eq .Values.ui.service.type "NodePort") .Values.ui.service.nodePort }}
+      nodePort: {{ .Values.ui.service.nodePort }}
+      {{- end }}
   selector:
     {{- include "cyberbox.selectorLabels" (dict "root" . "component" "ui") | nindent 4 }}
 {{- end }}
