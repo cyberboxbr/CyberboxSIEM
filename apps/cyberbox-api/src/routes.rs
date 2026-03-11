@@ -323,7 +323,7 @@ pub async fn ingest_events(
                     .map(|f| f.to_string())
                     .unwrap_or_else(|| "__global__".to_string());
                 let passes_threshold = if let Some(rule) = rule {
-                    let min = rule.threshold_count.unwrap_or(1).max(1) as u32;
+                    let min = rule.threshold_count.unwrap_or(1).max(1);
                     if min <= 1 {
                         true
                     } else {
@@ -348,7 +348,7 @@ pub async fn ingest_events(
                 let suppressed = if let Some(rule) = rule {
                     rule.suppression_window_secs
                         .filter(|&s| s > 0)
-                        .map_or(false, |secs| {
+                        .is_some_and(|secs| {
                             let suppress_key = format!("{}:{}", alert.rule_id, entity);
                             let now = std::time::Instant::now();
                             let active = state
@@ -540,6 +540,7 @@ fn audit_json<T: Serialize>(value: &T) -> Value {
     serde_json::to_value(value).unwrap_or(Value::Null)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn append_audit_log(
     state: &AppState,
     tenant_id: &str,
@@ -1359,10 +1360,9 @@ pub async fn mitre_coverage(
         state.storage.list_rules(&auth.tenant_id).await?
     };
 
-    let mut technique_map: std::collections::HashMap<
-        String,
-        (Option<String>, Option<String>, Vec<Uuid>),
-    > = std::collections::HashMap::new();
+    type TechniqueEntry = (Option<String>, Option<String>, Vec<Uuid>);
+    let mut technique_map: std::collections::HashMap<String, TechniqueEntry> =
+        std::collections::HashMap::new();
 
     for rule in rules.iter().filter(|r| r.enabled) {
         let tags = rule
@@ -1422,7 +1422,7 @@ pub(crate) struct SchedulerTickResponse {
 /// Useful in tests and for operational on-demand evaluation without waiting
 /// for the background timer. Only meaningful in noop/in-memory mode; in
 /// production the worker runs scheduled detection against ClickHouse.
-pub async fn scheduler_tick(
+pub(crate) async fn scheduler_tick(
     auth: AuthContext,
     State(state): State<AppState>,
 ) -> Result<Json<SchedulerTickResponse>, CyberboxError> {
@@ -1990,14 +1990,10 @@ async fn list_cases(
     auth.require_any(&[Role::Admin, Role::Analyst])?;
     let mut cases = state.storage.list_cases(&auth.tenant_id).await?;
     if let Some(status) = &q.status {
-        cases.retain(|c| {
-            format!("{:?}", c.status).to_ascii_lowercase() == status.to_ascii_lowercase()
-        });
+        cases.retain(|c| format!("{:?}", c.status).eq_ignore_ascii_case(status));
     }
     if let Some(sev) = &q.severity {
-        cases.retain(|c| {
-            format!("{:?}", c.severity).to_ascii_lowercase() == sev.to_ascii_lowercase()
-        });
+        cases.retain(|c| format!("{:?}", c.severity).eq_ignore_ascii_case(sev));
     }
     if let Some(assignee) = &q.assignee {
         cases.retain(|c| c.assignee.as_deref() == Some(assignee.as_str()));
@@ -2582,7 +2578,7 @@ async fn handle_alert_ws(mut socket: WebSocket, tenant_id: String, state: AppSta
         match rx.recv().await {
             Ok(alert) if alert.tenant_id == tenant_id => {
                 if let Ok(json) = serde_json::to_string(&alert) {
-                    if socket.send(Message::Text(json.into())).await.is_err() {
+                    if socket.send(Message::Text(json)).await.is_err() {
                         break;
                     }
                 }
@@ -2662,7 +2658,7 @@ async fn auto_correlate_alert(state: AppState, alert: AlertRecord) {
             r.sigma_source
                 .lines()
                 .find(|l| l.trim_start().starts_with("title:"))
-                .and_then(|l| l.splitn(2, ':').nth(1).map(|s| s.trim().to_string()))
+                .and_then(|l| l.split_once(':').map(|(_, v)| v.trim().to_string()))
         })
         .unwrap_or_else(|| format!("Rule {}", alert.rule_id));
 
@@ -2997,7 +2993,7 @@ pub async fn list_agents(
             a.tenant_id == auth.tenant_id
                 && q.group
                     .as_deref()
-                    .map_or(true, |g| a.group.as_deref() == Some(g))
+                    .is_none_or(|g| a.group.as_deref() == Some(g))
         })
         .map(|e| {
             let a = e.value();

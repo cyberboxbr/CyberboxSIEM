@@ -500,19 +500,14 @@ mod tests {
         let tid = Arc::clone(&tenant);
         let m = Arc::clone(&metrics);
         let handle = tokio::spawn(async move {
-            loop {
-                match listener.accept().await {
-                    Ok((stream, peer)) => {
-                        let ip = peer.ip().to_string();
-                        let tx3 = tx2.clone();
-                        let tid2 = Arc::clone(&tid);
-                        let m2 = Arc::clone(&m);
-                        tokio::spawn(async move {
-                            let _ = process_gelf_tcp(stream, ip, tid2, tx3, m2).await;
-                        });
-                    }
-                    Err(_) => break,
-                }
+            while let Ok((stream, peer)) = listener.accept().await {
+                let ip = peer.ip().to_string();
+                let tx3 = tx2.clone();
+                let tid2 = Arc::clone(&tid);
+                let m2 = Arc::clone(&m);
+                tokio::spawn(async move {
+                    let _ = process_gelf_tcp(stream, ip, tid2, tx3, m2).await;
+                });
             }
         });
 
@@ -554,22 +549,17 @@ mod tests {
 
         let handle = tokio::spawn(async move {
             let mut buf = vec![0u8; 65_535];
-            loop {
-                match sock.recv_from(&mut buf).await {
-                    Ok((len, peer)) => {
-                        let source_ip = peer.ip().to_string();
-                        let data = &buf[..len];
-                        if data.len() >= 2 && data[..2] == GELF_CHUNK_MAGIC {
-                            if let Some(assembled) = handle_chunk(&chunks, data) {
-                                if let Some(plain) = decompress(&assembled) {
-                                    emit_gelf(&plain, &source_ip, &tid, &tx2, &m);
-                                }
-                            }
-                        } else if let Some(plain) = decompress(data) {
+            while let Ok((len, peer)) = sock.recv_from(&mut buf).await {
+                let source_ip = peer.ip().to_string();
+                let data = &buf[..len];
+                if data.len() >= 2 && data[..2] == GELF_CHUNK_MAGIC {
+                    if let Some(assembled) = handle_chunk(&chunks, data) {
+                        if let Some(plain) = decompress(&assembled) {
                             emit_gelf(&plain, &source_ip, &tid, &tx2, &m);
                         }
                     }
-                    Err(_) => break,
+                } else if let Some(plain) = decompress(data) {
+                    emit_gelf(&plain, &source_ip, &tid, &tx2, &m);
                 }
             }
         });

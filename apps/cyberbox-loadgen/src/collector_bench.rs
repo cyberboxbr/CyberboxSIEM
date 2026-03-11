@@ -86,6 +86,7 @@ enum Proto {
 }
 
 impl Proto {
+    #[allow(dead_code)]
     fn label(self) -> &'static str {
         match self {
             Proto::UdpSyslog => "UDP Syslog (RFC 3164)",
@@ -95,6 +96,7 @@ impl Proto {
             Proto::JsonTcp => "JSON TCP   (NDJSON)",
         }
     }
+    #[allow(dead_code)]
     fn short(self) -> &'static str {
         match self {
             Proto::UdpSyslog => "udp-syslog",
@@ -393,6 +395,7 @@ async fn json_tcp_sender(
 
 // ─── Run one test case ────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 async fn run(
     label: impl Into<String>,
     proto: Proto,
@@ -863,8 +866,8 @@ async fn main() -> Result<()> {
     ];
 
     println!(
-        "  {:<35}  {:>12}  {:>6}  {}",
-        "Collector", "Rate (msg/s)", "vs CB", "Notes"
+        "  {:<35}  {:>12}  {:>6}  Notes",
+        "Collector", "Rate (msg/s)", "vs CB"
     );
     hline(78);
 

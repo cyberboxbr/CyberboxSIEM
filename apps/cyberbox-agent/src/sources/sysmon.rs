@@ -97,8 +97,8 @@ fn subscribe_sysmon(tenant_id: Arc<String>, hostname: Arc<String>, tx: mpsc::Sen
         let result = unsafe { EvtNext(subscription, &mut event_raw, 500, 0, &mut returned) };
 
         if returned > 0 {
-            for i in 0..returned as usize {
-                let h = EVT_HANDLE(event_raw[i]);
+            for raw_handle in event_raw.iter().take(returned as usize) {
+                let h = EVT_HANDLE(*raw_handle);
                 if let Some(xml) = render_to_xml(h) {
                     if let Some(ev) = parse_sysmon_xml(&xml, &tenant_id, &hostname) {
                         if tx.blocking_send(ev).is_err() {
@@ -279,7 +279,7 @@ fn promote_fields(payload: &mut Value, data: &Map<String, Value>, event_id: u32)
                 }
             }
         }
-        12 | 13 | 14 => {
+        12..=14 => {
             // Registry events: promote EventType (SetValue, CreateKey, etc.)
             if let Some(v) = data.get("EventType") {
                 payload["EventType"] = v.clone();

@@ -388,7 +388,7 @@ async fn serve_tls_reload(
                     return;
                 }
 
-                let result: anyhow::Result<()> = (|| async {
+                let result: anyhow::Result<()> = async {
                     let cert = std::fs::read(&cert_path2)?;
                     let key = std::fs::read(&key_path2)?;
                     let ca = if !ca_path2.is_empty() {
@@ -400,7 +400,7 @@ async fn serve_tls_reload(
                         sources::tcp::build_tls_acceptor(&cert, &key, ca.as_deref())?;
                     swap2.store(new_acceptor);
                     Ok(())
-                })()
+                }
                 .await;
 
                 match result {

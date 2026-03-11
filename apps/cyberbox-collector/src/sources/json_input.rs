@@ -295,19 +295,14 @@ mod tests {
         let tid = Arc::clone(&tenant);
         let m = Arc::clone(&metrics);
         let handle = tokio::spawn(async move {
-            loop {
-                match listener.accept().await {
-                    Ok((stream, peer)) => {
-                        let ip = peer.ip().to_string();
-                        let tx3 = tx2.clone();
-                        let tid2 = Arc::clone(&tid);
-                        let m2 = Arc::clone(&m);
-                        tokio::spawn(async move {
-                            let _ = process_ndjson(stream, ip, tid2, tx3, m2).await;
-                        });
-                    }
-                    Err(_) => break,
-                }
+            while let Ok((stream, peer)) = listener.accept().await {
+                let ip = peer.ip().to_string();
+                let tx3 = tx2.clone();
+                let tid2 = Arc::clone(&tid);
+                let m2 = Arc::clone(&m);
+                tokio::spawn(async move {
+                    let _ = process_ndjson(stream, ip, tid2, tx3, m2).await;
+                });
             }
         });
 

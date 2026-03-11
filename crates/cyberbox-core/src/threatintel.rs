@@ -99,7 +99,7 @@ impl ThreatIntelFeed {
         lookup_store: &Arc<LookupStore>,
         client: &reqwest::Client,
     ) -> anyhow::Result<FeedSyncResult> {
-        let mut errors = Vec::new();
+        let errors = Vec::new();
 
         let response = {
             let mut req = client

@@ -246,6 +246,7 @@ fn parse_template_set(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn parse_data_set(
     data: &[u8],
     source_ip: &str,

@@ -244,13 +244,10 @@ async fn ingest_event_generates_alert_for_matching_rule() {
         .await
         .expect("body should decode");
     let parsed: Value = serde_json::from_slice(&body).expect("json should parse");
-    assert!(
-        parsed["alerts"]
-            .as_array()
-            .expect("alerts should be array")
-            .len()
-            >= 1
-    );
+    assert!(!parsed["alerts"]
+        .as_array()
+        .expect("alerts should be array")
+        .is_empty());
 }
 
 #[tokio::test]
@@ -666,7 +663,7 @@ async fn alert_close_sets_resolution_and_audit_trail() {
         .clone()
         .oneshot(
             auth_request(Request::builder())
-                .uri(&format!("/api/v1/alerts/{alert_id}:close"))
+                .uri(format!("/api/v1/alerts/{alert_id}:close"))
                 .method("POST")
                 .body(axum::body::Body::from(
                     json!({ "actor": "soc-admin", "resolution": "false_positive",
@@ -864,7 +861,7 @@ async fn backtest_returns_match_stats_for_ingested_events() {
     let bt_resp = app
         .oneshot(
             auth_request(Request::builder())
-                .uri(&format!("/api/v1/rules/{rule_id}/backtest"))
+                .uri(format!("/api/v1/rules/{rule_id}/backtest"))
                 .method("POST")
                 .body(axum::body::Body::from(
                     json!({
@@ -1110,7 +1107,7 @@ async fn agent_register_returns_id() {
 
 #[tokio::test]
 async fn agent_heartbeat_returns_ok_and_empty_body() {
-    let app = test_router();
+    let _app = test_router();
 
     // Register first
     let req = auth_request(Request::builder())
@@ -1127,7 +1124,7 @@ async fn agent_heartbeat_returns_ok_and_empty_body() {
     test_router().oneshot(req).await.unwrap();
 
     // Fresh router shares no state with the one above; re-register on the same instance
-    let app = test_router();
+    let _app = test_router();
     let reg = auth_request(Request::builder())
         .uri("/api/v1/agents/register")
         .method("POST")
@@ -1354,7 +1351,7 @@ async fn agent_list_filter_by_group() {
         app.clone().oneshot(reg).await.unwrap();
 
         let patch = auth_request(Request::builder())
-            .uri(&format!("/api/v1/agents/{id}"))
+            .uri(format!("/api/v1/agents/{id}"))
             .method("PATCH")
             .body(axum::body::Body::from(
                 serde_json::to_string(&json!({ "group": group })).unwrap(),

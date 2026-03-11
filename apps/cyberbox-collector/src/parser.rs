@@ -500,7 +500,7 @@ pub fn to_incoming_event(msg: &SyslogMsg, tenant_id: &str) -> Value {
                 .map(|(k, v)| (k.clone(), Value::String(v.clone())))
                 .collect();
             // Sanitise SD-ID: replace '@' and '.' which appear in IANA IDs.
-            let key = format!("sd_{}", sd_id.replace('@', "_").replace('.', "_"));
+            let key = format!("sd_{}", sd_id.replace(['@', '.'], "_"));
             raw.insert(key, Value::Object(params_val));
         }
     }

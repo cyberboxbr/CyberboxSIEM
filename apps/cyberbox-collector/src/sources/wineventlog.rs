@@ -80,8 +80,8 @@ fn subscribe_channel(channel: &str, tenant_id: Arc<String>, tx: mpsc::Sender<Val
         };
 
         if returned > 0 {
-            for i in 0..returned as usize {
-                let h = EVT_HANDLE(event_raw[i]);
+            for raw_handle in event_raw.iter().take(returned as usize) {
+                let h = EVT_HANDLE(*raw_handle);
                 if let Some(xml) = render_to_xml(h) {
                     if let Some(ev) = parse_event_xml(&xml, channel, &tenant_id) {
                         // blocking_send is safe from spawn_blocking threads

@@ -79,6 +79,7 @@ pub fn build_tls_acceptor(
 /// `tls` is wrapped in an `ArcSwap` so it can be hot-reloaded at runtime via
 /// SIGUSR1 without restarting the listener.  Each new connection loads the
 /// current acceptor; existing connections are unaffected.
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     bind: SocketAddr,
     tenant_id: Arc<String>,
@@ -171,6 +172,7 @@ pub async fn run(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_conn(
     stream: TcpStream,
     source_ip: String,
@@ -213,6 +215,7 @@ async fn handle_conn(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn process_lines<S>(
     stream: S,
     source_ip: String,

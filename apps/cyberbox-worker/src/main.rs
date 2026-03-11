@@ -69,7 +69,7 @@ impl WorkerRole {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config = AppConfig::from_env()?;
-    let otlp = (!config.otlp_endpoint.is_empty()).then(|| config.otlp_endpoint.as_str());
+    let otlp = (!config.otlp_endpoint.is_empty()).then_some(config.otlp_endpoint.as_str());
     telemetry::init("cyberbox_worker", otlp);
     let metrics_handle = install_metrics_exporter()?;
     let metrics_bind_addr = config.worker_metrics_bind_addr.clone();

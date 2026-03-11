@@ -10,7 +10,7 @@ use cyberbox_storage::{ClickHouseWriteBuffer, WriteBufferConfig};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config = AppConfig::from_env()?;
-    let otlp = (!config.otlp_endpoint.is_empty()).then(|| config.otlp_endpoint.as_str());
+    let otlp = (!config.otlp_endpoint.is_empty()).then_some(config.otlp_endpoint.as_str());
     telemetry::init("cyberbox_api", otlp);
     let metrics_handle = install_metrics_exporter()?;
 
@@ -132,7 +132,7 @@ async fn main() -> anyhow::Result<()> {
                     if feed.auto_sync_interval_secs == 0 || !feed.enabled {
                         continue;
                     }
-                    let due = feed.last_synced_at.map_or(true, |last| {
+                    let due = feed.last_synced_at.is_none_or(|last| {
                         let elapsed = now.signed_duration_since(last).num_seconds().max(0) as u64;
                         elapsed >= feed.auto_sync_interval_secs
                     });

@@ -154,43 +154,38 @@ async fn json_tcp_ndjson_roundtrip() {
     let tid = Arc::clone(&tenant);
     let m2 = Arc::clone(&m);
     let handle = tokio::spawn(async move {
-        loop {
-            match listener.accept().await {
-                Ok((stream, peer)) => {
-                    let ip = peer.ip().to_string();
-                    let tx3 = tx2.clone();
-                    let tid2 = Arc::clone(&tid);
-                    let m3 = Arc::clone(&m2);
-                    tokio::spawn(async move {
-                        use std::sync::atomic::Ordering::Relaxed;
-                        use tokio::io::AsyncBufReadExt;
-                        let reader = tokio::io::BufReader::new(stream);
-                        let mut lines = reader.lines();
-                        while let Ok(Some(line)) = lines.next_line().await {
-                            if let Ok(v) = serde_json::from_str::<Value>(&line) {
-                                if v.is_object() {
-                                    m3.tcp_received.fetch_add(1, Relaxed);
-                                    let source = v
-                                        .get("source")
-                                        .and_then(|s| s.as_str())
-                                        .unwrap_or("json_tcp")
-                                        .to_string();
-                                    let ev = serde_json::json!({
-                                        "tenant_id": &*tid2,
-                                        "source": source,
-                                        "event_time": chrono::Utc::now().to_rfc3339(),
-                                        "raw_payload": {"message": v, "source_ip": ip},
-                                    });
-                                    if tx3.send(ev).await.is_err() {
-                                        return;
-                                    }
-                                }
+        while let Ok((stream, peer)) = listener.accept().await {
+            let ip = peer.ip().to_string();
+            let tx3 = tx2.clone();
+            let tid2 = Arc::clone(&tid);
+            let m3 = Arc::clone(&m2);
+            tokio::spawn(async move {
+                use std::sync::atomic::Ordering::Relaxed;
+                use tokio::io::AsyncBufReadExt;
+                let reader = tokio::io::BufReader::new(stream);
+                let mut lines = reader.lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if let Ok(v) = serde_json::from_str::<Value>(&line) {
+                        if v.is_object() {
+                            m3.tcp_received.fetch_add(1, Relaxed);
+                            let source = v
+                                .get("source")
+                                .and_then(|s| s.as_str())
+                                .unwrap_or("json_tcp")
+                                .to_string();
+                            let ev = serde_json::json!({
+                                "tenant_id": &*tid2,
+                                "source": source,
+                                "event_time": chrono::Utc::now().to_rfc3339(),
+                                "raw_payload": {"message": v, "source_ip": ip},
+                            });
+                            if tx3.send(ev).await.is_err() {
+                                return;
                             }
                         }
-                    });
+                    }
                 }
-                Err(_) => break,
-            }
+            });
         }
     });
 
@@ -224,61 +219,53 @@ async fn gelf_tcp_roundtrip() {
     let tid = Arc::clone(&tenant);
     let m2 = Arc::clone(&m);
     let handle = tokio::spawn(async move {
-        loop {
-            match listener.accept().await {
-                Ok((stream, peer)) => {
-                    let ip = peer.ip().to_string();
-                    let tx3 = tx2.clone();
-                    let tid2 = Arc::clone(&tid);
-                    let m3 = Arc::clone(&m2);
-                    tokio::spawn(async move {
-                        use std::sync::atomic::Ordering::Relaxed;
-                        use tokio::io::AsyncBufReadExt;
-                        let mut reader = tokio::io::BufReader::new(stream);
-                        let mut buf = Vec::with_capacity(8192);
-                        loop {
-                            buf.clear();
-                            let n = reader.read_until(b'\0', &mut buf).await.unwrap_or(0);
-                            if n == 0 {
-                                break;
+        while let Ok((stream, peer)) = listener.accept().await {
+            let ip = peer.ip().to_string();
+            let tx3 = tx2.clone();
+            let tid2 = Arc::clone(&tid);
+            let m3 = Arc::clone(&m2);
+            tokio::spawn(async move {
+                use std::sync::atomic::Ordering::Relaxed;
+                use tokio::io::AsyncBufReadExt;
+                let mut reader = tokio::io::BufReader::new(stream);
+                let mut buf = Vec::with_capacity(8192);
+                loop {
+                    buf.clear();
+                    let n = reader.read_until(b'\0', &mut buf).await.unwrap_or(0);
+                    if n == 0 {
+                        break;
+                    }
+                    if buf.last() == Some(&0) {
+                        buf.pop();
+                    }
+                    if buf.is_empty() {
+                        continue;
+                    }
+                    if let Ok(v) = serde_json::from_slice::<Value>(&buf) {
+                        if v.is_object() {
+                            let host = v
+                                .get("host")
+                                .and_then(|h| h.as_str())
+                                .unwrap_or(&ip)
+                                .to_string();
+                            let mut raw = v.clone();
+                            if let Some(o) = raw.as_object_mut() {
+                                o.insert("source_ip".into(), serde_json::Value::String(ip.clone()));
                             }
-                            if buf.last() == Some(&0) {
-                                buf.pop();
-                            }
-                            if buf.is_empty() {
-                                continue;
-                            }
-                            if let Ok(v) = serde_json::from_slice::<Value>(&buf) {
-                                if v.is_object() {
-                                    let host = v
-                                        .get("host")
-                                        .and_then(|h| h.as_str())
-                                        .unwrap_or(&ip)
-                                        .to_string();
-                                    let mut raw = v.clone();
-                                    if let Some(o) = raw.as_object_mut() {
-                                        o.insert(
-                                            "source_ip".into(),
-                                            serde_json::Value::String(ip.clone()),
-                                        );
-                                    }
-                                    m3.tcp_received.fetch_add(1, Relaxed);
-                                    let ev = serde_json::json!({
-                                        "tenant_id":  &*tid2,
-                                        "source":     format!("gelf:{host}"),
-                                        "event_time": chrono::Utc::now().to_rfc3339(),
-                                        "raw_payload": raw,
-                                    });
-                                    if tx3.send(ev).await.is_err() {
-                                        return;
-                                    }
-                                }
+                            m3.tcp_received.fetch_add(1, Relaxed);
+                            let ev = serde_json::json!({
+                                "tenant_id":  &*tid2,
+                                "source":     format!("gelf:{host}"),
+                                "event_time": chrono::Utc::now().to_rfc3339(),
+                                "raw_payload": raw,
+                            });
+                            if tx3.send(ev).await.is_err() {
+                                return;
                             }
                         }
-                    });
+                    }
                 }
-                Err(_) => break,
-            }
+            });
         }
     });
 

@@ -15,9 +15,7 @@
 //! Set `CYBERBOX_AGENT_UPDATE_URL` to override the default GitHub Releases URL.
 //! Default: `https://github.com/<owner>/<repo>/releases/download/v{version}/cyberbox-agent-{target}`
 
-use std::path::PathBuf;
-
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 const DEFAULT_REPO: &str = "cyberboxsiem/CyberboxSIEM";
 

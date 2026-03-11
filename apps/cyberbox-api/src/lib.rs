@@ -56,10 +56,10 @@ pub fn build_router(state: AppState) -> Router {
         .layer(SetRequestIdLayer::x_request_id(UuidRequestId));
 
     // Auth extension must be the outermost layer so it is resolved first
-    if auth_disabled || jwt_validator.is_none() {
-        router.layer(Extension(AuthBypass))
+    if let Some(validator) = jwt_validator.filter(|_| !auth_disabled) {
+        router.layer(Extension(validator as Arc<JwtValidator>))
     } else {
-        router.layer(Extension(jwt_validator.unwrap() as Arc<JwtValidator>))
+        router.layer(Extension(AuthBypass))
     }
 }
 

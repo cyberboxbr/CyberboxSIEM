@@ -203,6 +203,7 @@ async fn run_s3(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn poll_s3(
     client: &reqwest::Client,
     signer: &AwsSigV4,
@@ -630,6 +631,7 @@ async fn ensure_subscription(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn fetch_o365_content(
     client: &reqwest::Client,
     token: &str,

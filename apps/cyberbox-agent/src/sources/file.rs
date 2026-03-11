@@ -36,9 +36,9 @@ pub async fn run(
     // On first start, seek to end of each existing file (don't replay history)
     for p in &paths {
         let key = p.to_string_lossy().to_string();
-        if !bookmarks.contains_key(&key) {
+        if let std::collections::hash_map::Entry::Vacant(e) = bookmarks.entry(key) {
             if let Ok(meta) = std::fs::metadata(p) {
-                bookmarks.insert(key, meta.len());
+                e.insert(meta.len());
             }
         }
     }

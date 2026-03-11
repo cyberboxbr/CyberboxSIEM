@@ -112,6 +112,7 @@ fn make_reuseport_socket(addr: SocketAddr) -> Result<std::net::UdpSocket> {
 
 // ─── Public entry point ───────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     bind: SocketAddr,
     readers: usize,
@@ -172,8 +173,8 @@ pub async fn run(
                 error!(err = %e, "UDP reader task panicked");
             }
         }
+        Ok(())
     }
-    Ok(())
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────

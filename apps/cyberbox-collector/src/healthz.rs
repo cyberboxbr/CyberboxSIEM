@@ -61,7 +61,6 @@ pub async fn serve(metrics: Arc<CollectorMetrics>, start: Instant, drain_trigger
         if let Ok((mut stream, _)) = listener.accept().await {
             let m = Arc::clone(&metrics);
             let trigger = Arc::clone(&drain_trigger);
-            let start = start;
             tokio::spawn(async move {
                 use tokio::io::AsyncWriteExt;
                 let mut rbuf = [0u8; 512];

@@ -136,6 +136,7 @@ struct OidcClaims {
     roles: Vec<String>,
     /// Azure AD group object IDs (when "groupMembershipClaims" is enabled).
     #[serde(default)]
+    #[allow(dead_code)]
     groups: Vec<String>,
 
     /// Keycloak realm-level roles.

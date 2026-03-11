@@ -45,6 +45,7 @@ struct FileFingerprint {
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     paths: Vec<PathBuf>,
     scan_interval_secs: u64,

@@ -537,19 +537,14 @@ mod tests {
         let tid = Arc::clone(&tenant);
         let m = Arc::clone(&metrics);
         let handle = tokio::spawn(async move {
-            loop {
-                match listener.accept().await {
-                    Ok((stream, peer)) => {
-                        let ip = peer.ip().to_string();
-                        let tx3 = tx2.clone();
-                        let tid2 = Arc::clone(&tid);
-                        let m2 = Arc::clone(&m);
-                        tokio::spawn(async move {
-                            let _ = handle_conn(stream, ip, tid2, tx3, m2).await;
-                        });
-                    }
-                    Err(_) => break,
-                }
+            while let Ok((stream, peer)) = listener.accept().await {
+                let ip = peer.ip().to_string();
+                let tx3 = tx2.clone();
+                let tid2 = Arc::clone(&tid);
+                let m2 = Arc::clone(&m);
+                tokio::spawn(async move {
+                    let _ = handle_conn(stream, ip, tid2, tx3, m2).await;
+                });
             }
         });
 
@@ -588,7 +583,7 @@ mod tests {
         let attrs = serde_json::json!([
             {"key": "str",  "value": {"stringValue": "hello"}},
             {"key": "num",  "value": {"intValue": "42"}},
-            {"key": "dbl",  "value": {"doubleValue": 3.14}},
+            {"key": "dbl",  "value": {"doubleValue": 3.15}},
             {"key": "bool", "value": {"boolValue": true}},
         ]);
         let map = extract_attributes(&attrs);

@@ -146,13 +146,17 @@ async fn process_line(state: &AppState, tenant_id: &str, line: &str) {
     };
 
     // Store in in-memory store for scheduler / search.
-    if let Err(err) = state.storage.insert_events(&[envelope.clone()]).await {
+    if let Err(err) = state
+        .storage
+        .insert_events(std::slice::from_ref(&envelope))
+        .await
+    {
         tracing::warn!(error = %err, "syslog: in-memory store insert failed");
     }
 
     // Forward to ClickHouse write buffer if enabled.
     if let Some(write_buffer) = &state.clickhouse_write_buffer {
-        let dropped = write_buffer.send_events(&[envelope]);
+        let dropped = write_buffer.send_events(std::slice::from_ref(&envelope));
         if dropped > 0 {
             tracing::warn!(
                 dropped,

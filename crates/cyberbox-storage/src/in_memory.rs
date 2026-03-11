@@ -21,6 +21,7 @@ use crate::traits::{AlertStore, CaseStore, EventStore, RuleStore};
 const MAX_EVENTS_PER_TENANT: usize = 500_000;
 
 #[derive(Clone, Default)]
+#[allow(clippy::type_complexity)]
 pub struct InMemoryStore {
     /// Per-tenant time-ordered event store.
     /// Key: (event_time, event_id) ensures chronological ordering and uniqueness.
@@ -66,6 +67,7 @@ impl InMemoryStore {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn list_audit_logs(
         &self,
         tenant_id: &str,
@@ -301,18 +303,6 @@ fn pagination_offset(page: u32, page_size: u32) -> u64 {
     }
 
     page.saturating_sub(1).saturating_mul(page_size) as u64
-}
-
-#[cfg(test)]
-mod tests {
-    use super::pagination_offset;
-
-    #[test]
-    fn pagination_offset_uses_one_based_pages() {
-        assert_eq!(pagination_offset(0, 10), 0);
-        assert_eq!(pagination_offset(1, 10), 0);
-        assert_eq!(pagination_offset(2, 10), 10);
-    }
 }
 
 impl InMemoryStore {
@@ -603,5 +593,17 @@ impl CaseStore for InMemoryStore {
             .remove(&(tenant_id.to_string(), case_id))
             .map(|_| ())
             .ok_or(CyberboxError::NotFound)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pagination_offset;
+
+    #[test]
+    fn pagination_offset_uses_one_based_pages() {
+        assert_eq!(pagination_offset(0, 10), 0);
+        assert_eq!(pagination_offset(1, 10), 0);
+        assert_eq!(pagination_offset(2, 10), 10);
     }
 }

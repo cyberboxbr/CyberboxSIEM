@@ -138,6 +138,7 @@ pub enum SourceConfig {
     Procmon {
         /// How often to scan /proc in milliseconds (default: 1000)
         #[serde(default = "default_procmon_poll_ms")]
+        #[allow(dead_code)]
         poll_ms: u64,
     },
     /// Docker container events (Linux only).
@@ -145,6 +146,7 @@ pub enum SourceConfig {
     Docker {
         /// Path to Docker socket (default: /var/run/docker.sock)
         #[serde(default = "default_docker_socket")]
+        #[allow(dead_code)]
         socket_path: String,
     },
     /// Network connections monitor (Linux only).
@@ -152,6 +154,7 @@ pub enum SourceConfig {
     Netconn {
         /// Poll interval in milliseconds (default: 5000)
         #[serde(default = "default_netconn_poll_ms")]
+        #[allow(dead_code)]
         poll_ms: u64,
     },
 }

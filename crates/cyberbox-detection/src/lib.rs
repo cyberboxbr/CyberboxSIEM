@@ -335,10 +335,11 @@ fn collect_condition_field_names(node: &ConditionNode, out: &mut HashSet<String>
                 out.insert(f.clone());
             }
         }
-        ConditionNode::Near { entity_field, .. } => {
-            if let Some(f) = entity_field {
-                out.insert(f.clone());
-            }
+        ConditionNode::Near {
+            entity_field: Some(f),
+            ..
+        } => {
+            out.insert(f.clone());
         }
         _ => {}
     }
@@ -1750,6 +1751,7 @@ fn eval_condition(
 ///   2. Records the current event if it matches a selection.
 ///   3. Returns `true` if both buffers contain at least one record for the
 ///      same entity value.
+#[allow(clippy::too_many_arguments)]
 fn eval_near(
     base: &str,
     nearby: &str,
@@ -1777,10 +1779,7 @@ fn eval_near(
     for sel_name in [base, nearby] {
         if let Some(group) = selections.get(sel_name) {
             let buf_key = format!("{rule_id}:{sel_name}");
-            let mut entry = executor
-                .temporal_buffers
-                .entry(buf_key)
-                .or_insert_with(VecDeque::new);
+            let mut entry = executor.temporal_buffers.entry(buf_key).or_default();
             // Evict stale entries from the front (entries are always appended in time order).
             while let Some((ts, _)) = entry.front() {
                 if now.duration_since(*ts) >= window {
@@ -1820,6 +1819,7 @@ fn eval_near(
 ///
 /// Events are buffered per `(rule_id, selection, group_by_value)` in a sliding
 /// time window.  Only events where the selection matches are counted.
+#[allow(clippy::too_many_arguments)]
 fn eval_aggregate(
     selection: &str,
     agg: &AggregateCondition,
@@ -2456,7 +2456,7 @@ fn base64_offset_variants(bytes: &[u8]) -> [String; 3] {
     let variant = |prefix_len: usize| {
         let mut buf = vec![0u8; prefix_len];
         buf.extend_from_slice(bytes);
-        let skip = (prefix_len * 4 + 2) / 3; // ceil(prefix_len * 4 / 3)
+        let skip = (prefix_len * 4).div_ceil(3);
         let encoded = base64_encode(&buf);
         encoded[skip..].trim_end_matches('=').to_string()
     };
@@ -2466,7 +2466,7 @@ fn base64_offset_variants(bytes: &[u8]) -> [String; 3] {
 const BASE64_ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 fn base64_encode(data: &[u8]) -> String {
-    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
         let b0 = chunk[0] as usize;
         let b1 = if chunk.len() > 1 {

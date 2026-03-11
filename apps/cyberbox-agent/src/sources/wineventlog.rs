@@ -73,8 +73,8 @@ fn subscribe_channel(
         let result = unsafe { EvtNext(subscription, &mut event_raw, 500, 0, &mut returned) };
 
         if returned > 0 {
-            for i in 0..returned as usize {
-                let h = EVT_HANDLE(event_raw[i]);
+            for raw_handle in event_raw.iter().take(returned as usize) {
+                let h = EVT_HANDLE(*raw_handle);
                 if let Some(xml) = render_to_xml(h) {
                     if let Some(ev) = parse_event_xml(&xml, channel, &tenant_id, &hostname) {
                         if tx.blocking_send(ev).is_err() {

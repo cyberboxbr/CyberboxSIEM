@@ -3,7 +3,7 @@
 //! ## Protocols
 //! * `json`   — NDJSON: one JSON object per line.  Target: `COLLECTOR_JSON_TCP_BIND`.
 //! * `syslog` — RFC 3164: `<PRI>TIMESTAMP HOSTNAME APP: MESSAGE\n`.
-//!              Target: `COLLECTOR_TCP_BIND` or any syslog receiver.
+//!   Target: `COLLECTOR_TCP_BIND` or any syslog receiver.
 //!
 //! ## Enrollment token (JSON mode only)
 //! When `token` is set the very first line sent on each new connection is an
@@ -24,7 +24,9 @@
 //! Oldest entries are evicted when the buffer is full.  On reconnect the queue
 //! flushes before new events are written.  Events survive agent crashes.
 
-use std::{path::Path, sync::Arc, time::Duration};
+use std::time::Duration;
+#[cfg(feature = "tls")]
+use std::{path::Path, sync::Arc};
 
 use crate::disk_queue::DiskQueue;
 

@@ -15,7 +15,12 @@
 //! offset 0 (the file was truncated or rotated). The bookmark is updated
 //! immediately after a rotation is detected.
 
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::Result;
 use serde_json::{json, Value};
@@ -218,7 +223,7 @@ async fn tail_once(
 
 // ─── Line parsing ─────────────────────────────────────────────────────────────
 
-fn parse_line(line: &str, path: &PathBuf, tenant_id: &str) -> Value {
+fn parse_line(line: &str, path: &Path, tenant_id: &str) -> Value {
     if line.starts_with('<') {
         if let Some(msg) = parse_syslog(line.as_bytes(), "127.0.0.1") {
             return to_incoming_event(&msg, tenant_id);
@@ -227,7 +232,7 @@ fn parse_line(line: &str, path: &PathBuf, tenant_id: &str) -> Value {
     plain_text_event(line, path, tenant_id)
 }
 
-fn plain_text_event(line: &str, path: &PathBuf, tenant_id: &str) -> Value {
+fn plain_text_event(line: &str, path: &Path, tenant_id: &str) -> Value {
     json!({
         "tenant_id":  tenant_id,
         "source":     "file",

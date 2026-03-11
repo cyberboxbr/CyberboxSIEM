@@ -640,6 +640,7 @@ impl ClickHouseEventStore {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn list_audit_logs(
         &self,
         tenant_id: &str,
@@ -1199,7 +1200,7 @@ impl AlertStore for ClickHouseEventStore {
             "assignee": alert.assignee,
             "hit_count": alert.hit_count,
             "mitre_attack": serde_json::to_string(&alert.mitre_attack).map_err(|err| CyberboxError::Internal(format!("mitre_attack serialization failed: {err}")))?,
-            "resolution": alert.resolution.as_ref().map(|r| serde_json::to_string(r).ok()).flatten(),
+            "resolution": alert.resolution.as_ref().and_then(|r| serde_json::to_string(r).ok()),
             "close_note": alert.close_note,
             "updated_at": format_clickhouse_datetime(now),
             "version": version
