@@ -72,7 +72,6 @@ jobs:
             build_args: |
               VITE_AZURE_CLIENT_ID=3fd8922e-d137-4d50-b160-b552ceda18c1
               VITE_AZURE_TENANT_ID=a8014c28-79d4-4695-8890-0ed0bf766668
-              VITE_AZURE_REDIRECT_URI=https://siem.safebox.cyberboxsecurity.com.br
     steps:
       - uses: actions/checkout@v4
 
