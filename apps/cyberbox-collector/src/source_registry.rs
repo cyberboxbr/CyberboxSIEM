@@ -92,7 +92,10 @@ impl SourceRegistry {
         // First tick fires immediately — skip it so we give sources time to appear.
         interval.tick().await;
 
-        info!("source registry background task started (interval={}s)", TICK_INTERVAL_SECS);
+        info!(
+            "source registry background task started (interval={}s)",
+            TICK_INTERVAL_SECS
+        );
 
         loop {
             tokio::select! {

@@ -15,8 +15,7 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use windows_service::service::{
-    ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus,
-    ServiceType,
+    ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType,
 };
 use windows_service::service_control_handler::{self, ServiceControlHandlerResult};
 use windows_service::{define_windows_service, service_dispatcher};
@@ -171,7 +170,13 @@ async fn run_agent(
 
     // Spawn sources
     for src in &cfg.source {
-        crate::spawn_source(src, &cfg, hostname.clone(), tx.clone(), agent_shutdown_rx.clone());
+        crate::spawn_source(
+            src,
+            &cfg,
+            hostname.clone(),
+            tx.clone(),
+            agent_shutdown_rx.clone(),
+        );
     }
 
     // Spawn output
