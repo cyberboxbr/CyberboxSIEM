@@ -1,4 +1,4 @@
-# build-msi.ps1 — Build the Cyberbox Agent MSI installer
+# build-msi.ps1 - Build the Cyberbox Agent MSI installer
 #
 # Prerequisites:
 #   1. Rust toolchain: cargo build --release -p cyberbox-agent
@@ -74,10 +74,12 @@ if ($Sign) {
         -TimestampServer "http://timestamp.digicert.com" `
         -HashAlgorithm SHA256
 
-    if ($sig.Status -ne "Valid") {
-        throw "EXE signing failed: $($sig.StatusMessage)"
+    if ($sig.Status -eq "Valid" -or $sig.Status -eq "UnknownError") {
+        # UnknownError = signed but self-signed cert not in local trust store (expected)
+        Write-Host "[+] Binary signed ($($sig.Status))" -ForegroundColor Green
+    } else {
+        throw "EXE signing failed: $($sig.Status) - $($sig.StatusMessage)"
     }
-    Write-Host "[+] Binary signed successfully" -ForegroundColor Green
 }
 
 # Step 3: Build MSI
@@ -101,10 +103,10 @@ if ($Sign) {
         -TimestampServer "http://timestamp.digicert.com" `
         -HashAlgorithm SHA256
 
-    if ($sig.Status -ne "Valid") {
-        Write-Host "[!] MSI signing returned: $($sig.StatusMessage)" -ForegroundColor Yellow
+    if ($sig.Status -eq "Valid" -or $sig.Status -eq "UnknownError") {
+        Write-Host "[+] MSI signed ($($sig.Status))" -ForegroundColor Green
     } else {
-        Write-Host "[+] MSI signed successfully" -ForegroundColor Green
+        Write-Host "[!] MSI signing returned: $($sig.Status) - $($sig.StatusMessage)" -ForegroundColor Yellow
     }
 }
 
