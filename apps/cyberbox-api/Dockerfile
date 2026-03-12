@@ -13,7 +13,11 @@ RUN cargo chef cook --release --recipe-path recipe.json -p cyberbox-api --featur
 COPY . .
 RUN cargo build --release -p cyberbox-api --features kafka-native
 
-FROM gcr.io/distroless/cc-debian12:nonroot
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libssl3 zlib1g ca-certificates wget && \
+    rm -rf /var/lib/apt/lists/* && \
+    groupadd -r cyberbox && useradd -r -g cyberbox cyberbox
 LABEL org.opencontainers.image.title="cyberbox-api" \
       org.opencontainers.image.description="CyberboxSIEM API server" \
       org.opencontainers.image.source="https://github.com/cyberboxsiem/CyberboxSIEM"
@@ -23,4 +27,5 @@ COPY config/default.toml /app/config/default.toml
 # Bundle Sigma detection rules so they auto-import on startup
 COPY rules/bundled/ /app/rules/bundled/
 EXPOSE 8080
+USER cyberbox
 CMD ["/usr/local/bin/cyberbox-api"]

@@ -13,11 +13,16 @@ RUN cargo chef cook --release --recipe-path recipe.json -p cyberbox-worker --fea
 COPY . .
 RUN cargo build --release -p cyberbox-worker --features kafka-native
 
-FROM gcr.io/distroless/cc-debian12:nonroot
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libssl3 zlib1g ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    groupadd -r cyberbox && useradd -r -g cyberbox cyberbox
 LABEL org.opencontainers.image.title="cyberbox-worker" \
       org.opencontainers.image.description="CyberboxSIEM background worker — detection, aggregation, correlation" \
       org.opencontainers.image.source="https://github.com/cyberboxsiem/CyberboxSIEM"
 WORKDIR /app
 COPY --from=builder /workspace/target/release/cyberbox-worker /usr/local/bin/cyberbox-worker
 COPY config/default.toml /app/config/default.toml
+USER cyberbox
 CMD ["/usr/local/bin/cyberbox-worker"]

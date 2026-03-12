@@ -1,0 +1,187 @@
+# CyberboxSIEM — Production Docker Compose
+# Target: single EC2 instance (t3.xlarge, 4 vCPU / 16 GB)
+# Usage: docker compose -f docker-compose.prod.yml up -d
+
+networks:
+  cyberbox: {}
+
+services:
+
+  # ── Redpanda (Kafka-compatible, single-node) ─────────────────────────────
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.3.3
+    command:
+      - redpanda
+      - start
+      - --smp 1
+      - --memory 1024M
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr internal://0.0.0.0:9092
+      - --advertise-kafka-addr internal://redpanda:9092
+    volumes:
+      - /mnt/redpanda:/var/lib/redpanda/data
+    networks:
+      - cyberbox
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster info || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── ClickHouse (columnar event store, single-node) ───────────────────────
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    environment:
+      CLICKHOUSE_DB: cyberbox
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-cyberbox}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-cyberbox}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - /mnt/clickhouse:/var/lib/clickhouse
+    networks:
+      - cyberbox
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+
+  # ── CyberboxSIEM API ────────────────────────────────────────────────────
+  cyberbox-api:
+    image: ${ECR_REGISTRY}/cyberbox-api:${IMAGE_TAG:-latest}
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      RUST_LOG: "cyberbox_api=info,tower_http=info"
+      # Kafka / Redpanda
+      CYBERBOX__KAFKA_PUBLISH_RAW_ENABLED: "true"
+      CYBERBOX__REDPANDA_BROKERS: "redpanda:9092"
+      CYBERBOX__KAFKA_RAW_TOPIC: "cyberbox.events.raw"
+      CYBERBOX__KAFKA_NORMALIZED_TOPIC: "cyberbox.events.normalized"
+      CYBERBOX__KAFKA_ALERTS_TOPIC: "cyberbox.alerts"
+      # ClickHouse
+      CYBERBOX__CLICKHOUSE_SEARCH_ENABLED: "true"
+      CYBERBOX__CLICKHOUSE_SINK_ENABLED: "true"
+      CYBERBOX__CLICKHOUSE_URL: "http://clickhouse:8123"
+      CYBERBOX__CLICKHOUSE_USER: ${CLICKHOUSE_USER:-cyberbox}
+      CYBERBOX__CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-cyberbox}
+      CYBERBOX__CLICKHOUSE_DATABASE: "cyberbox"
+      CYBERBOX__CLICKHOUSE_TABLE: "events_hot"
+      CYBERBOX__CLICKHOUSE_RETENTION_DAYS_HOT: "30"
+      # Auth (OIDC via Entra ID)
+      CYBERBOX__AUTH_DISABLED: "false"
+      CYBERBOX__OIDC_ISSUER: "https://login.microsoftonline.com/a8014c28-79d4-4695-8890-0ed0bf766668/v2.0"
+      CYBERBOX__OIDC_AUDIENCE: "api://3fd8922e-d137-4d50-b160-b552ceda18c1"
+      CYBERBOX__TENANT_ID_OVERRIDE: "safebox"
+      CYBERBOX__INGEST_API_KEY: ${INGEST_API_KEY}
+      # Rate limiting
+      CYBERBOX__EPS_LIMIT_PER_TENANT: "5000"
+      # State persistence
+      CYBERBOX__STATE_DIR: /data
+    volumes:
+      - api-data:/data
+    networks:
+      - cyberbox
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── CyberboxSIEM Worker ─────────────────────────────────────────────────
+  cyberbox-worker:
+    image: ${ECR_REGISTRY}/cyberbox-worker:${IMAGE_TAG:-latest}
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      RUST_LOG: "cyberbox_worker=info"
+      CYBERBOX__REDPANDA_BROKERS: "redpanda:9092"
+      CYBERBOX__KAFKA_NORMALIZED_TOPIC: "cyberbox.events.normalized"
+      CYBERBOX__KAFKA_ALERTS_TOPIC: "cyberbox.alerts"
+      CYBERBOX__CLICKHOUSE_URL: "http://clickhouse:8123"
+      CYBERBOX__CLICKHOUSE_USER: ${CLICKHOUSE_USER:-cyberbox}
+      CYBERBOX__CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-cyberbox}
+      CYBERBOX__CLICKHOUSE_DATABASE: "cyberbox"
+      CYBERBOX__CLICKHOUSE_SEARCH_ENABLED: "true"
+    networks:
+      - cyberbox
+    restart: unless-stopped
+
+  # ── CyberboxSIEM Collector ──────────────────────────────────────────────
+  cyberbox-collector:
+    image: ${ECR_REGISTRY}/cyberbox-collector:${IMAGE_TAG:-latest}
+    depends_on:
+      cyberbox-api:
+        condition: service_started
+    ports:
+      - "514:514/udp"
+      - "514:514/tcp"
+      - "601:601/tcp"
+    environment:
+      RUST_LOG: "cyberbox_collector=info"
+      COLLECTOR_API_URL: "http://cyberbox-api:8080"
+      COLLECTOR_TENANT_ID: "safebox"
+      COLLECTOR_UDP_BIND: "0.0.0.0:514"
+      COLLECTOR_TCP_BIND: "0.0.0.0:601"
+      COLLECTOR_BATCH_SIZE: "500"
+      COLLECTOR_FLUSH_MS: "1000"
+    networks:
+      - cyberbox
+    restart: unless-stopped
+
+  # ── CyberboxSIEM UI ────────────────────────────────────────────────────
+  cyberbox-ui:
+    image: ${ECR_REGISTRY}/cyberbox-ui:${IMAGE_TAG:-latest}
+    depends_on:
+      cyberbox-api:
+        condition: service_started
+    environment:
+      BACKEND_URL: "http://cyberbox-api:8080"
+    networks:
+      - cyberbox
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ── Nginx TLS Reverse Proxy ────────────────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      cyberbox-ui:
+        condition: service_started
+      cyberbox-api:
+        condition: service_started
+    ports:
+      - "443:443"
+    volumes:
+      - ./config/nginx-proxy.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    networks:
+      - cyberbox
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- --no-check-certificate https://localhost:443/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  api-data: {}
