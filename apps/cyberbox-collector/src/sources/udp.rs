@@ -37,6 +37,7 @@ use crate::source_registry::SourceRegistry;
 /// Inner receive loop. `sock` is `Arc<UdpSocket>` so both the Linux path
 /// (each task wraps its own independently-bound socket) and the non-Linux path
 /// (N tasks share one socket) can use the same code.
+#[allow(clippy::too_many_arguments)]
 async fn run_reader(
     sock: Arc<UdpSocket>,
     tenant_id: Arc<String>,

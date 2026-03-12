@@ -45,6 +45,12 @@ pub struct SourceRegistry {
     sources: DashMap<String, SourceEntry>,
 }
 
+impl Default for SourceRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SourceRegistry {
     pub fn new() -> Self {
         Self {
