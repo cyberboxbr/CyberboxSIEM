@@ -48,10 +48,16 @@ async fn main() -> anyhow::Result<()> {
     persist::load_rbac(&state.rbac_store, &state.state_dir);
 
     if let Some(clickhouse_store) = &state.clickhouse_event_store {
-        clickhouse_store
-            .ensure_schema()
-            .await
-            .map_err(anyhow::Error::msg)?;
+        match clickhouse_store.ensure_schema().await {
+            Ok(()) => tracing::info!("ClickHouse schema ensured"),
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "ClickHouse schema init failed — will retry on first query; \
+                     this is expected during infra bring-up"
+                );
+            }
+        }
     }
 
     // Start the ClickHouse async write buffer if the sink is enabled.

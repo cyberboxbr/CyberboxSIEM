@@ -165,6 +165,13 @@ jobs:
               kubectl delete service "$svc" -n ${{ env.HELM_NAMESPACE }} --ignore-not-found
             fi
           done
+          # Delete orphaned StatefulSet PVCs left by previous atomic rollbacks
+          for pvc in data-redpanda-0 data-clickhouse-0; do
+            if kubectl get pvc "$pvc" -n ${{ env.HELM_NAMESPACE }} &>/dev/null; then
+              echo "Deleting orphaned PVC $pvc from previous failed deploy"
+              kubectl delete pvc "$pvc" -n ${{ env.HELM_NAMESPACE }} --ignore-not-found
+            fi
+          done
 
       - name: Deploy with Helm
         run: |
@@ -174,7 +181,7 @@ jobs:
             --set global.image.tag=${{ env.IMAGE_TAG }} \
             --set global.image.pullPolicy=IfNotPresent \
             --wait \
-            --timeout 10m \
+            --timeout 15m \
             --atomic
 
       - name: Debug on failure

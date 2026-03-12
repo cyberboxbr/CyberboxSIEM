@@ -29,7 +29,7 @@ spec:
             - redpanda
             - start
             - --smp=1
-            - --memory={{ .Values.redpanda.resources.limits.memory | default "1Gi" }}
+            - --memory={{ .Values.redpanda.memory | default "1536M" }}
             - --overprovisioned
             - --reserve-memory=0M
             - --node-id=0
@@ -69,7 +69,9 @@ spec:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
-        storageClassName: {{ .Values.redpanda.storageClass | default "gp2" | quote }}
+        {{- if .Values.redpanda.storageClass }}
+        storageClassName: {{ .Values.redpanda.storageClass | quote }}
+        {{- end }}
         resources:
           requests:
             storage: {{ .Values.redpanda.storage }}

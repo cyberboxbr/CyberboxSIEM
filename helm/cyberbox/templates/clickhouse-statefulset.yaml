@@ -22,24 +22,6 @@ spec:
         fsGroup: 101
         runAsUser: 101
         runAsGroup: 101
-      initContainers:
-        - name: init-db
-          image: {{ .Values.clickhouse.image }}
-          command: ["bash", "-c"]
-          args:
-            - |
-              # Start a temporary ClickHouse server to create the database
-              clickhouse-server --daemon
-              sleep 3
-              clickhouse-client --query "CREATE DATABASE IF NOT EXISTS {{ .Values.config.clickhouse.database }}"
-              clickhouse-client --query "CREATE USER IF NOT EXISTS {{ .Values.clickhouse.user }} IDENTIFIED BY '{{ .Values.clickhouse.password }}'"
-              clickhouse-client --query "GRANT ALL ON {{ .Values.config.clickhouse.database }}.* TO {{ .Values.clickhouse.user }}"
-              kill $(cat /tmp/clickhouse-server.pid 2>/dev/null) 2>/dev/null || true
-          securityContext:
-            runAsUser: 101
-          volumeMounts:
-            - name: data
-              mountPath: /var/lib/clickhouse
       containers:
         - name: clickhouse
           image: {{ .Values.clickhouse.image }}
@@ -81,7 +63,9 @@ spec:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
-        storageClassName: {{ .Values.clickhouse.storageClass | default "gp2" | quote }}
+        {{- if .Values.clickhouse.storageClass }}
+        storageClassName: {{ .Values.clickhouse.storageClass | quote }}
+        {{- end }}
         resources:
           requests:
             storage: {{ .Values.clickhouse.storage }}

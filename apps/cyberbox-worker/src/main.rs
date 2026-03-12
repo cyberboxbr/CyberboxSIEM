@@ -436,10 +436,16 @@ async fn run_with_kafka(config: &AppConfig, role: WorkerRole) -> anyhow::Result<
             config.clickhouse_insert_deduplication_token_enabled,
         )
         .with_replicated_tables_enabled(config.clickhouse_replicated_tables_enabled);
-        store
-            .ensure_schema()
-            .await
-            .context("failed to ensure clickhouse schema")?;
+        match store.ensure_schema().await {
+            Ok(()) => tracing::info!("ClickHouse schema ensured"),
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "ClickHouse schema init failed — will retry on first write; \
+                     this is expected during infra bring-up"
+                );
+            }
+        }
         Some(store)
     } else {
         None
