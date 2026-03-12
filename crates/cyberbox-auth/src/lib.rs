@@ -234,6 +234,20 @@ impl JwtValidator {
         self.try_validate(raw_token, &kid)
     }
 
+    /// Derive the Azure AD v1 issuer from a v2 issuer URL.
+    /// v2: `https://login.microsoftonline.com/{tid}/v2.0`
+    /// v1: `https://sts.windows.net/{tid}/`
+    fn derive_v1_issuer(&self) -> Option<String> {
+        let prefix = "https://login.microsoftonline.com/";
+        let suffix = "/v2.0";
+        if self.issuer.starts_with(prefix) && self.issuer.ends_with(suffix) {
+            let tid = &self.issuer[prefix.len()..self.issuer.len() - suffix.len()];
+            Some(format!("https://sts.windows.net/{tid}/"))
+        } else {
+            None
+        }
+    }
+
     /// Synchronous validation step; the RwLock is held only for the brief
     /// HashMap read and is never held across an await point.
     fn try_validate(&self, raw_token: &str, kid: &str) -> Result<AuthContext, CyberboxError> {
@@ -249,7 +263,18 @@ impl JwtValidator {
 
         let mut validation = Validation::new(Algorithm::RS256);
         validation.set_audience(&[self.audience.as_str()]);
-        validation.set_issuer(&[self.issuer.as_str()]);
+        // Accept both Azure AD v1 and v2 issuer formats.
+        // v2: https://login.microsoftonline.com/{tid}/v2.0
+        // v1: https://sts.windows.net/{tid}/
+        // Access tokens for custom API scopes often use the v1 issuer
+        // even when the app is configured for v2.
+        let v1_issuer = self.derive_v1_issuer();
+        let issuers: Vec<&str> = if let Some(ref v1) = v1_issuer {
+            vec![self.issuer.as_str(), v1.as_str()]
+        } else {
+            vec![self.issuer.as_str()]
+        };
+        validation.set_issuer(&issuers);
 
         let token_data =
             decode::<OidcClaims>(raw_token, &decoding_key, &validation).map_err(|e| {
