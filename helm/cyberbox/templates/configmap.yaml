@@ -20,5 +20,9 @@ data:
   CYBERBOX__OIDC_ISSUER: {{ .Values.config.auth.oidcIssuer | default "" | quote }}
   CYBERBOX__OIDC_AUDIENCE: {{ .Values.config.auth.oidcAudience | default "" | quote }}
   CYBERBOX__TENANT_ID_OVERRIDE: {{ .Values.config.auth.tenantIdOverride | default "" | quote }}
+  ## Ingest API key (for agents/collectors/machine-to-machine)
+  {{- if .Values.config.auth.ingestApiKey }}
+  CYBERBOX__INGEST_API_KEY: {{ .Values.config.auth.ingestApiKey | quote }}
+  {{- end }}
   ## Rate limiting
   CYBERBOX__EPS_LIMIT_PER_TENANT: {{ .Values.config.epsLimit | quote }}

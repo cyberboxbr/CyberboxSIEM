@@ -1,21 +1,21 @@
 #!/bin/bash
 # simulate-attacks.sh — Send realistic attack event sequences to the CyberboxSIEM API
-# Usage: ./simulate-attacks.sh <API_URL> [AUTH_HEADER]
+# Usage: ./simulate-attacks.sh <API_URL> [API_KEY]
 # Example: ./simulate-attacks.sh http://cyberbox-api:8080
-#          ./simulate-attacks.sh https://siem.cyberboxsecurity.com.br "Bearer eyJ..."
+#          ./simulate-attacks.sh https://siem.cyberboxsecurity.com.br "919302f1..."
 
 set -e
 
 API="${1:-http://cyberbox-api:8080}"
-AUTH_HEADER="${2:-}"
+API_KEY="${2:-}"
 CONTENT_TYPE="Content-Type: application/json"
 
 send_events() {
   local desc="$1"
   local payload="$2"
-  if [ -n "$AUTH_HEADER" ]; then
+  if [ -n "$API_KEY" ]; then
     HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API/api/v1/events:ingest" \
-      -H "$CONTENT_TYPE" -H "Authorization: $AUTH_HEADER" -d "$payload")
+      -H "$CONTENT_TYPE" -H "X-Api-Key: $API_KEY" -d "$payload")
   else
     HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API/api/v1/events:ingest" \
       -H "$CONTENT_TYPE" -H "x-tenant-id: safebox" -H "x-user-id: simulator" -H "x-roles: ingestor" \

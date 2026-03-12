@@ -208,6 +208,8 @@ pub struct AppState {
     pub agents: Arc<DashMap<String, AgentRecord>>,
     /// When `Some`, all requests are forced to this tenant (single-tenant mode).
     pub tenant_id_override: Option<String>,
+    /// Static API key for machine-to-machine ingestion. `None` when not configured.
+    pub ingest_api_key: Option<String>,
 }
 
 impl AppState {
@@ -277,6 +279,7 @@ impl AppState {
             sources: Arc::new(DashMap::new()),
             agents: Arc::new(DashMap::new()),
             tenant_id_override: None,
+            ingest_api_key: None,
         }
     }
 
@@ -366,6 +369,11 @@ impl AppState {
                 None
             } else {
                 Some(config.tenant_id_override.clone())
+            },
+            ingest_api_key: if config.ingest_api_key.is_empty() {
+                None
+            } else {
+                Some(config.ingest_api_key.clone())
             },
         })
     }

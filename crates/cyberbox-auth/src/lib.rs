@@ -84,6 +84,14 @@ pub struct AuthBypass;
 #[derive(Clone)]
 pub struct TenantOverride(pub String);
 
+/// Axum extension.  When present, requests with a matching `X-Api-Key` or
+/// `Authorization: ApiKey <key>` header are authenticated as an `Ingestor`
+/// without JWT validation.  Used for machine-to-machine ingestion (agents,
+/// collectors, attack simulations).
+/// Set `CYBERBOX__INGEST_API_KEY=<secret>` to enable.
+#[derive(Clone)]
+pub struct IngestApiKey(pub String);
+
 // ── OIDC / JWKS internal types ───────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -366,6 +374,38 @@ where
         // Dev / test bypass — read identity from plain request headers
         let mut ctx = if parts.extensions.get::<AuthBypass>().is_some() {
             extract_from_headers(&parts.headers)?
+        } else if let Some(api_key_ext) = parts.extensions.get::<IngestApiKey>().cloned() {
+            // Static API key for machine-to-machine ingestion
+            match extract_api_key(&parts.headers) {
+                Some(key) if key == api_key_ext.0 => {
+                    debug!("API key authentication successful");
+                    AuthContext {
+                        user_id: "api-key".to_string(),
+                        tenant_id: "default".to_string(),
+                        roles: vec![Role::Ingestor],
+                    }
+                }
+                Some(_) => {
+                    // API key present but wrong — try JWT fallback
+                    if let Some(validator) = parts.extensions.get::<Arc<JwtValidator>>().cloned() {
+                        let token = extract_bearer_token(&parts.headers)?;
+                        validator.validate(&token).await?
+                    } else {
+                        warn!("invalid API key and no JWT validator available");
+                        return Err(CyberboxError::Unauthorized);
+                    }
+                }
+                None => {
+                    // No API key header — fall through to JWT
+                    if let Some(validator) = parts.extensions.get::<Arc<JwtValidator>>().cloned() {
+                        let token = extract_bearer_token(&parts.headers)?;
+                        validator.validate(&token).await?
+                    } else {
+                        warn!("no API key or Bearer token provided");
+                        return Err(CyberboxError::Unauthorized);
+                    }
+                }
+            }
         } else if let Some(validator) = parts.extensions.get::<Arc<JwtValidator>>().cloned() {
             // Production — validate Bearer JWT
             let token = extract_bearer_token(&parts.headers)?;
@@ -416,6 +456,19 @@ fn extract_from_headers(headers: &axum::http::HeaderMap) -> Result<AuthContext, 
         tenant_id,
         roles,
     })
+}
+
+fn extract_api_key(headers: &axum::http::HeaderMap) -> Option<String> {
+    // Check X-Api-Key header first
+    if let Some(key) = headers.get("x-api-key").and_then(|v| v.to_str().ok()) {
+        return Some(key.to_string());
+    }
+    // Check Authorization: ApiKey <key>
+    headers
+        .get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|h| h.strip_prefix("ApiKey "))
+        .map(ToOwned::to_owned)
 }
 
 fn extract_bearer_token(headers: &axum::http::HeaderMap) -> Result<String, CyberboxError> {

@@ -12,7 +12,7 @@ use std::sync::Arc;
 use axum::extract::DefaultBodyLimit;
 use axum::Extension;
 use axum::Router;
-use cyberbox_auth::{AuthBypass, JwtValidator, TenantOverride};
+use cyberbox_auth::{AuthBypass, IngestApiKey, JwtValidator, TenantOverride};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use tower_http::{
     cors::CorsLayer,
@@ -42,6 +42,7 @@ pub fn build_router(state: AppState) -> Router {
     let jwt_validator = state.jwt_validator.clone();
     let auth_disabled = state.auth_disabled;
     let tenant_override = state.tenant_id_override.clone();
+    let ingest_api_key = state.ingest_api_key.clone();
 
     let router = Router::new()
         .merge(routes::api_router())
@@ -74,6 +75,14 @@ pub fn build_router(state: AppState) -> Router {
              the OIDC issuer (login.microsoftonline.com) and that \
              CYBERBOX__OIDC_ISSUER / CYBERBOX__OIDC_AUDIENCE are set correctly."
         );
+        router
+    };
+
+    // Ingest API key — inject alongside JWT so both auth methods work simultaneously
+    let router = if let Some(key) = ingest_api_key {
+        tracing::info!("auth layer: ingest API key enabled (X-Api-Key accepted)");
+        router.layer(Extension(IngestApiKey(key)))
+    } else {
         router
     };
 

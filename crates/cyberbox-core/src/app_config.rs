@@ -117,6 +117,11 @@ pub struct AppConfig {
     /// ignoring whatever the JWT or bypass headers say.
     /// Set `CYBERBOX__TENANT_ID_OVERRIDE=safebox` for a single-tenant deployment.
     pub tenant_id_override: String,
+    /// Static API key for machine-to-machine ingestion (agents, collectors, scripts).
+    /// When set, requests with `X-Api-Key: <key>` or `Authorization: ApiKey <key>`
+    /// are accepted with the `ingestor` role, bypassing JWT validation.
+    /// Set `CYBERBOX__INGEST_API_KEY=<random-secret>` in production.
+    pub ingest_api_key: String,
 }
 
 impl Default for AppConfig {
@@ -193,6 +198,7 @@ impl Default for AppConfig {
             jwks_refresh_interval_secs: 300,
             otlp_endpoint: String::new(),
             tenant_id_override: String::new(),
+            ingest_api_key: String::new(),
         }
     }
 }
