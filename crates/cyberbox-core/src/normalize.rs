@@ -61,7 +61,7 @@ fn build_ocsf_record(
         _ => 0,
     };
 
-    json!({
+    let mut record = json!({
         "metadata": {
             "version": "1.0.0",
             "product": {"name": "CyberboxSIEM"},
@@ -70,6 +70,63 @@ fn build_ocsf_record(
         "class_uid": class_uid,
         "source_name": format!("{:?}", source),
         "unmapped": raw,
+    });
+
+    // Derive event_type from Sysmon EventID so bundled Sigma rules can match
+    // on human-readable event type names (ProcessCreate, DnsQuery, etc.).
+    // Placed at metadata.event_type to align with SIGMA_TO_OCSF mapping:
+    //   EventType → metadata.event_type (case-insensitive lookup).
+    if matches!(source, EventSource::WindowsSysmon) {
+        if let Some(event_type) = sysmon_event_type(raw) {
+            record["metadata"]["event_type"] = Value::String(event_type.to_string());
+        }
+    }
+
+    record
+}
+
+/// Map Sysmon numeric EventID to the canonical event-type string used in Sigma rules.
+fn sysmon_event_type(raw: &Value) -> Option<&'static str> {
+    let eid = raw
+        .get("EventID")
+        .or_else(|| raw.get("eventid"))
+        .or_else(|| raw.get("event_id"))
+        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))?;
+    Some(match eid {
+        1 => "ProcessCreate",
+        2 => "FileCreateTime",
+        3 => "NetworkConnect",
+        4 => "SysmonServiceStateChanged",
+        5 => "ProcessTerminate",
+        6 => "DriverLoad",
+        7 => "ImageLoad",
+        8 => "CreateRemoteThread",
+        9 => "RawAccessRead",
+        10 => "ProcessAccess",
+        11 => "FileCreate",
+        12 => "RegistryEventCreate",
+        13 => "RegistryEventValue",
+        14 => "RegistryEventRename",
+        15 => "FileCreateStreamHash",
+        17 => "PipeCreate",
+        18 => "PipeConnect",
+        19 => "WmiEventFilter",
+        20 => "WmiEventConsumer",
+        21 => "WmiEventConsumerToFilter",
+        22 => "DnsQuery",
+        23 => "FileDelete",
+        24 => "ClipboardChange",
+        25 => "ProcessTampering",
+        26 => "FileDeleteDetected",
+        27 => "FileBlockExecutable",
+        28 => "FileBlockShredding",
+        29 => "FileExecutableDetected",
+        4624 | 4625 => "LogonEvent",
+        4688 => "ProcessCreate",
+        4720 => "UserAccountCreated",
+        4732 => "GroupMemberAdded",
+        7045 => "ServiceInstalled",
+        _ => return None,
     })
 }
 
@@ -100,5 +157,41 @@ mod tests {
         let normalized = normalize_to_ocsf(&input);
         assert!(!normalized.integrity_hash.is_empty());
         assert_eq!(normalized.tenant_id, "tenant-a");
+    }
+
+    #[test]
+    fn sysmon_event_type_injected_into_ocsf() {
+        let input = IncomingEvent {
+            tenant_id: "t".to_string(),
+            source: EventSource::WindowsSysmon,
+            raw_payload: json!({"EventID": 1, "Image": "cmd.exe"}),
+            event_time: Utc::now(),
+        };
+        let env = normalize_to_ocsf(&input);
+        assert_eq!(env.ocsf_record["metadata"]["event_type"], "ProcessCreate");
+    }
+
+    #[test]
+    fn sysmon_event_type_not_set_for_unknown_id() {
+        let input = IncomingEvent {
+            tenant_id: "t".to_string(),
+            source: EventSource::WindowsSysmon,
+            raw_payload: json!({"EventID": 9999}),
+            event_time: Utc::now(),
+        };
+        let env = normalize_to_ocsf(&input);
+        assert!(env.ocsf_record["metadata"].get("event_type").is_none());
+    }
+
+    #[test]
+    fn non_sysmon_source_no_event_type() {
+        let input = IncomingEvent {
+            tenant_id: "t".to_string(),
+            source: EventSource::Syslog,
+            raw_payload: json!({"EventID": 1}),
+            event_time: Utc::now(),
+        };
+        let env = normalize_to_ocsf(&input);
+        assert!(env.ocsf_record["metadata"].get("event_type").is_none());
     }
 }
