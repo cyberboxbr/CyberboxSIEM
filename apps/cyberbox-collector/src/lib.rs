@@ -9,4 +9,5 @@ pub mod metrics;
 pub mod multiline;
 pub mod parser;
 pub mod ratelimit;
+pub mod source_registry;
 pub mod sources;

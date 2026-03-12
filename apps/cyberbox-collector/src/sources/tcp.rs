@@ -24,6 +24,7 @@ use crate::metrics::CollectorMetrics;
 use crate::multiline::{MultilineAccumulator, MultilineConfig};
 use crate::parser::{parse_syslog, to_incoming_event};
 use crate::ratelimit::SourceRateLimiter;
+use crate::source_registry::SourceRegistry;
 
 // ─── TLS config ───────────────────────────────────────────────────────────────
 
@@ -91,6 +92,7 @@ pub async fn run(
     max_connections: usize,
     rate_limiter: Arc<SourceRateLimiter>,
     mut shutdown: watch::Receiver<bool>,
+    registry: Arc<SourceRegistry>,
 ) -> Result<()> {
     let listener = TcpListener::bind(bind)
         .await
@@ -136,6 +138,7 @@ pub async fn run(
                     tls.as_ref().map(|s| s.load_full());
                 let m2 = Arc::clone(&metrics);
                 let rl2 = Arc::clone(&rate_limiter);
+                let reg2 = Arc::clone(&registry);
                 let ml_cfg2 = MultilineConfig {
                     pattern: ml_cfg
                         .pattern
@@ -159,6 +162,7 @@ pub async fn run(
                         ml_cfg2,
                         m2,
                         rl2,
+                        reg2,
                     )
                     .await
                     {
@@ -184,6 +188,7 @@ async fn handle_conn(
     ml_cfg: MultilineConfig,
     metrics: Arc<CollectorMetrics>,
     rate_limiter: Arc<SourceRateLimiter>,
+    registry: Arc<SourceRegistry>,
 ) -> Result<()> {
     if let Some(acceptor) = tls {
         let tls_stream = acceptor.accept(stream).await.context("TLS handshake")?;
@@ -197,6 +202,7 @@ async fn handle_conn(
             ml_cfg,
             metrics,
             rate_limiter,
+            registry,
         )
         .await
     } else {
@@ -210,6 +216,7 @@ async fn handle_conn(
             ml_cfg,
             metrics,
             rate_limiter,
+            registry,
         )
         .await
     }
@@ -226,6 +233,7 @@ async fn process_lines<S>(
     ml_cfg: MultilineConfig,
     metrics: Arc<CollectorMetrics>,
     rate_limiter: Arc<SourceRateLimiter>,
+    registry: Arc<SourceRegistry>,
 ) -> Result<()>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
@@ -259,6 +267,7 @@ where
             }
             match parse_syslog(complete.as_bytes(), &source_ip) {
                 Some(msg) => {
+                    registry.observe(&source_ip, &msg.hostname);
                     let ev = to_incoming_event(&msg, &tenant_id);
                     metrics.tcp_received.fetch_add(1, Relaxed);
                     if tx.send(ev).await.is_err() {

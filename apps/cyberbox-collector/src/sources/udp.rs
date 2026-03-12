@@ -30,6 +30,7 @@ use tracing::{debug, error, info};
 use crate::metrics::CollectorMetrics;
 use crate::parser::{parse_syslog, to_incoming_event};
 use crate::ratelimit::SourceRateLimiter;
+use crate::source_registry::SourceRegistry;
 
 // ─── Shared per-datagram processor ────────────────────────────────────────────
 
@@ -44,6 +45,7 @@ async fn run_reader(
     metrics: Arc<CollectorMetrics>,
     rate_limiter: Arc<SourceRateLimiter>,
     mut shutdown: watch::Receiver<bool>,
+    registry: Arc<SourceRegistry>,
 ) {
     use tokio::sync::mpsc::error::TrySendError;
     let mut buf = vec![0u8; max_msg_bytes];
@@ -66,6 +68,7 @@ async fn run_reader(
 
                 match parse_syslog(&buf[..len], &source_ip) {
                     Some(msg) => {
+                        registry.observe(&source_ip, &msg.hostname);
                         let ev = to_incoming_event(&msg, &tenant_id);
                         match tx.try_send(ev) {
                             Ok(_) => {
@@ -122,6 +125,7 @@ pub async fn run(
     metrics: Arc<CollectorMetrics>,
     rate_limiter: Arc<SourceRateLimiter>,
     shutdown: watch::Receiver<bool>,
+    registry: Arc<SourceRegistry>,
 ) -> Result<()> {
     // ── Linux: N independent SO_REUSEPORT sockets (true kernel load-balancing) ─
     #[cfg(target_os = "linux")]
@@ -139,7 +143,8 @@ pub async fn run(
             let m = Arc::clone(&metrics);
             let rl = Arc::clone(&rate_limiter);
             let sd = shutdown.clone();
-            set.spawn(run_reader(sock, tid, tx2, max_msg_bytes, m, rl, sd));
+            let reg = Arc::clone(&registry);
+            set.spawn(run_reader(sock, tid, tx2, max_msg_bytes, m, rl, sd, reg));
         }
         while let Some(res) = set.join_next().await {
             if let Err(e) = res {
@@ -166,7 +171,8 @@ pub async fn run(
             let m = Arc::clone(&metrics);
             let rl = Arc::clone(&rate_limiter);
             let sd = shutdown.clone();
-            set.spawn(run_reader(sock2, tid, tx2, max_msg_bytes, m, rl, sd));
+            let reg = Arc::clone(&registry);
+            set.spawn(run_reader(sock2, tid, tx2, max_msg_bytes, m, rl, sd, reg));
         }
         while let Some(res) = set.join_next().await {
             if let Err(e) = res {
@@ -204,7 +210,8 @@ mod tests {
         let tid2 = Arc::clone(&tenant);
         let sock2 = Arc::clone(&listener);
         let (_sd_tx, sd_rx) = tokio::sync::watch::channel(false);
-        let handle = tokio::spawn(run_reader(sock2, tid2, tx2, 65535, m2, rl2, sd_rx));
+        let reg = Arc::new(SourceRegistry::new());
+        let handle = tokio::spawn(run_reader(sock2, tid2, tx2, 65535, m2, rl2, sd_rx, reg));
 
         // Send a syslog datagram.
         let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();

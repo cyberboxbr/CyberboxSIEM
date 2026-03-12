@@ -30,6 +30,7 @@ sha2.workspace = true
 regex.workspace = true
 
 cyberbox-models.workspace = true
+dashmap.workspace = true
 
 # TLS for syslog TCP (RFC 5425)
 tokio-rustls   = "0.26"

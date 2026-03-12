@@ -76,6 +76,7 @@ mod multiline;
 mod parser;
 mod ratelimit;
 mod remote_config;
+mod source_registry;
 mod sources;
 mod vault;
 
@@ -473,6 +474,9 @@ async fn main() -> Result<()> {
         .build()
         .context("build HTTP client")?;
 
+    // ── Source registry (auto-register syslog sources as agents) ────────────
+    let source_registry = Arc::new(source_registry::SourceRegistry::new());
+
     // ── Metrics ───────────────────────────────────────────────────────────────
     let metrics = CollectorMetrics::new(cfg.queue_path.clone());
 
@@ -580,8 +584,9 @@ async fn main() -> Result<()> {
         let rl = Arc::clone(&rate_limiter);
         let rdr = cfg.udp_readers;
         let sd = shutdown_rx.clone();
+        let reg = Arc::clone(&source_registry);
         tokio::spawn(async move {
-            if let Err(err) = sources::udp::run(bind, rdr, tid, tx2, max, m, rl, sd).await {
+            if let Err(err) = sources::udp::run(bind, rdr, tid, tx2, max, m, rl, sd, reg).await {
                 error!(%err, "UDP listener failed");
             }
         });
@@ -693,9 +698,10 @@ async fn main() -> Result<()> {
         let max_conn = cfg.tcp_max_conn;
         let rl = Arc::clone(&rate_limiter);
         let sd = shutdown_rx.clone();
+        let reg = Arc::clone(&source_registry);
         tokio::spawn(async move {
             if let Err(err) =
-                sources::tcp::run(bind, tid, tx2, max, tls2, ml, m, max_conn, rl, sd).await
+                sources::tcp::run(bind, tid, tx2, max, tls2, ml, m, max_conn, rl, sd, reg).await
             {
                 error!(%err, "TCP listener failed");
             }
@@ -760,6 +766,16 @@ async fn main() -> Result<()> {
         let interval = cfg.heartbeat_secs;
         let sd = shutdown_rx.clone();
         tokio::spawn(heartbeat::run(interval, tid, tx2, sd));
+    }
+
+    // ── Source registry background task (auto-register syslog sources) ──────
+    {
+        let reg = Arc::clone(&source_registry);
+        let cl2 = client.clone();
+        let api = cfg.api_url.clone();
+        let tid = cfg.tenant_id.clone();
+        let sd = shutdown_rx.clone();
+        tokio::spawn(reg.run(cl2, api, tid, sd));
     }
 
     // ── JSON input sources ────────────────────────────────────────────────────
