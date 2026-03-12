@@ -12,7 +12,7 @@ global:
 # ---------------------------------------------------------------------------
 api:
   enabled: true
-  replicaCount: 2
+  replicaCount: 1
   image:
     repository: ""  # defaults to global.image.registry/cyberbox-api
   service:
@@ -26,9 +26,9 @@ api:
       cpu: "2"
       memory: 4Gi
   autoscaling:
-    enabled: true
-    minReplicas: 2
-    maxReplicas: 10
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 1
     targetCPUUtilizationPercentage: 70
   nodeSelector: {}
   tolerations: []

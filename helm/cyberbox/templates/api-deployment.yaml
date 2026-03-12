@@ -33,13 +33,6 @@ spec:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
-      topologySpreadConstraints:
-        - maxSkew: 1
-          topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: DoNotSchedule
-          labelSelector:
-            matchLabels:
-              {{- include "cyberbox.selectorLabels" (dict "root" . "component" "api") | nindent 14 }}
       containers:
         - name: api
           image: {{ include "cyberbox.image" (dict "root" . "component" "api" "overrideRepo" .Values.api.image.repository) }}
