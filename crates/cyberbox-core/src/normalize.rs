@@ -74,11 +74,16 @@ fn build_ocsf_record(
 
     // Derive event_type from Sysmon EventID so bundled Sigma rules can match
     // on human-readable event type names (ProcessCreate, DnsQuery, etc.).
-    // Placed at metadata.event_type to align with SIGMA_TO_OCSF mapping:
-    //   EventType → metadata.event_type (case-insensitive lookup).
+    // Set at BOTH locations so the detection engine finds it regardless of
+    // how the Sigma rule references the field:
+    //   - Top-level `event_type`: found by direct ocsf_record field lookup
+    //     (for rules using `event_type:` — note: underscore differs from `EventType`)
+    //   - `metadata.event_type`: found via SIGMA_TO_OCSF mapping for `EventType`
     if matches!(source, EventSource::WindowsSysmon) {
         if let Some(event_type) = sysmon_event_type(raw) {
-            record["metadata"]["event_type"] = Value::String(event_type.to_string());
+            let val = Value::String(event_type.to_string());
+            record["event_type"] = val.clone();
+            record["metadata"]["event_type"] = val;
         }
     }
 
@@ -171,6 +176,7 @@ mod tests {
             event_time: Utc::now(),
         };
         let env = normalize_to_ocsf(&input);
+        assert_eq!(env.ocsf_record["event_type"], "ProcessCreate");
         assert_eq!(env.ocsf_record["metadata"]["event_type"], "ProcessCreate");
     }
 

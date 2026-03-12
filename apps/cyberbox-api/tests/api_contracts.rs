@@ -251,6 +251,83 @@ async fn ingest_event_generates_alert_for_matching_rule() {
 }
 
 #[tokio::test]
+async fn sysmon_event_type_normalization_triggers_rule() {
+    // Verifies the full pipeline: ingest Sysmon event with EventID →
+    // normalization derives event_type → field-based Sigma rule matches → alert fires.
+    let app = test_router();
+
+    // Create a rule that requires event_type + field match (like bundled rules)
+    let create_rule = auth_request(Request::builder())
+        .uri("/api/v1/rules")
+        .method("POST")
+        .body(axum::body::Body::from(
+            json!({
+                "sigma_source": concat!(
+                    "title: LSASS Access Test\n",
+                    "detection:\n",
+                    "  selection:\n",
+                    "    event_type: ProcessAccess\n",
+                    "    TargetImage|endswith: '\\lsass.exe'\n",
+                    "  condition: selection\n"
+                ),
+                "schedule_or_stream": "stream",
+                "severity": "critical",
+                "enabled": true
+            })
+            .to_string(),
+        ))
+        .expect("request");
+    let resp = app.clone().oneshot(create_rule).await.expect("response");
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Ingest a Sysmon EventID 10 (ProcessAccess) event — normalization
+    // should derive event_type = "ProcessAccess"
+    let ingest = auth_request(Request::builder())
+        .uri("/api/v1/events:ingest")
+        .method("POST")
+        .body(axum::body::Body::from(
+            json!({
+                "events": [{
+                    "tenant_id": "tenant-a",
+                    "source": "windows_sysmon",
+                    "event_time": "2026-06-01T00:00:00Z",
+                    "raw_payload": {
+                        "EventID": 10,
+                        "SourceImage": "C:\\procdump64.exe",
+                        "TargetImage": "C:\\Windows\\System32\\lsass.exe",
+                        "GrantedAccess": "0x1010"
+                    }
+                }]
+            })
+            .to_string(),
+        ))
+        .expect("request");
+    let resp = app.clone().oneshot(ingest).await.expect("response");
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Check that an alert was generated
+    let list = auth_request(Request::builder())
+        .uri("/api/v1/alerts")
+        .method("GET")
+        .body(axum::body::Body::empty())
+        .expect("request");
+    let resp = app.oneshot(list).await.expect("response");
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .expect("body");
+    let parsed: Value = serde_json::from_slice(&body).expect("json");
+    let alerts = parsed["alerts"].as_array().expect("alerts array");
+    assert!(
+        alerts
+            .iter()
+            .any(|a| a["rule_title"].as_str().unwrap_or("").contains("LSASS")),
+        "Expected LSASS alert but got: {alerts:?}"
+    );
+}
+
+#[tokio::test]
 async fn list_audit_logs_returns_rule_mutation_entries() {
     let app = test_router();
 
