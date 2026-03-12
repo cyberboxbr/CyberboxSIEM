@@ -56,11 +56,25 @@ pub fn build_router(state: AppState) -> Router {
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::x_request_id(UuidRequestId));
 
-    // Auth extension must be the outermost layer so it is resolved first
-    let router = if let Some(validator) = jwt_validator.filter(|_| !auth_disabled) {
+    // Auth extension must be the outermost layer so it is resolved first.
+    // When auth is enabled but OIDC failed at startup (jwt_validator=None),
+    // do NOT inject AuthBypass — that would silently skip JWT validation and
+    // require x-tenant-id headers the UI never sends.  Instead, leave both
+    // extensions absent so from_request_parts returns Unauthorized.
+    let router = if auth_disabled {
+        tracing::info!("auth layer: bypass (auth_disabled=true)");
+        router.layer(Extension(AuthBypass))
+    } else if let Some(validator) = jwt_validator {
+        tracing::info!("auth layer: JWT/OIDC validation active");
         router.layer(Extension(validator as Arc<JwtValidator>))
     } else {
-        router.layer(Extension(AuthBypass))
+        tracing::error!(
+            "auth layer: OIDC validator is None but auth_disabled=false — \
+             all API requests will return 401. Check that the pod can reach \
+             the OIDC issuer (login.microsoftonline.com) and that \
+             CYBERBOX__OIDC_ISSUER / CYBERBOX__OIDC_AUDIENCE are set correctly."
+        );
+        router
     };
 
     // Single-tenant override — inject after auth so it applies regardless of mode

@@ -341,16 +341,17 @@ where
         // Dev / test bypass — read identity from plain request headers
         let mut ctx = if parts.extensions.get::<AuthBypass>().is_some() {
             extract_from_headers(&parts.headers)?
-        } else {
+        } else if let Some(validator) = parts.extensions.get::<Arc<JwtValidator>>().cloned() {
             // Production — validate Bearer JWT
-            let validator = parts
-                .extensions
-                .get::<Arc<JwtValidator>>()
-                .cloned()
-                .ok_or(CyberboxError::Unauthorized)?;
-
             let token = extract_bearer_token(&parts.headers)?;
             validator.validate(&token).await?
+        } else {
+            // Neither AuthBypass nor JwtValidator present — OIDC init failed
+            warn!(
+                "no auth extension (OIDC validator likely failed at startup); \
+                 rejecting request — check pod logs for OIDC discovery errors"
+            );
+            return Err(CyberboxError::Unauthorized);
         };
 
         // Single-tenant override — replace whatever the token said
