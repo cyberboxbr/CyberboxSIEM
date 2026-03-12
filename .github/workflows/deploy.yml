@@ -166,10 +166,14 @@ jobs:
             fi
           done
           # Delete orphaned StatefulSet PVCs left by previous atomic rollbacks
+          # Only delete if Pending (stuck); keep Bound PVCs to reuse provisioned volumes
           for pvc in data-redpanda-0 data-clickhouse-0; do
-            if kubectl get pvc "$pvc" -n ${{ env.HELM_NAMESPACE }} &>/dev/null; then
-              echo "Deleting orphaned PVC $pvc from previous failed deploy"
+            PVC_STATUS=$(kubectl get pvc "$pvc" -n ${{ env.HELM_NAMESPACE }} -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+            if [ "$PVC_STATUS" = "Pending" ]; then
+              echo "Deleting stuck PVC $pvc (phase: Pending)"
               kubectl delete pvc "$pvc" -n ${{ env.HELM_NAMESPACE }} --ignore-not-found
+            elif [ -n "$PVC_STATUS" ]; then
+              echo "Keeping PVC $pvc (phase: $PVC_STATUS)"
             fi
           done
 

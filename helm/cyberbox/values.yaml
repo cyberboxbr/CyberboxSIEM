@@ -142,16 +142,16 @@ ui:
 redpanda:
   enabled: true
   image: docker.redpanda.com/redpandadata/redpanda:v24.3.3
-  memory: "1536M"  # Redpanda --memory flag (NOT Kubernetes Mi format)
+  memory: "1024M"  # Redpanda --memory flag; must be < container limit to leave room for overhead
   storage: 30Gi
   storageClass: "gp2"
   resources:
     requests:
       cpu: 250m
-      memory: 512Mi
+      memory: 1Gi
     limits:
       cpu: "1"
-      memory: 1536Mi
+      memory: 2Gi
 
 # ---------------------------------------------------------------------------
 # ClickHouse — columnar event store (single node)
