@@ -91,7 +91,10 @@ fn sysmon_event_type(raw: &Value) -> Option<&'static str> {
         .get("EventID")
         .or_else(|| raw.get("eventid"))
         .or_else(|| raw.get("event_id"))
-        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))?;
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })?;
     Some(match eid {
         1 => "ProcessCreate",
         2 => "FileCreateTime",
