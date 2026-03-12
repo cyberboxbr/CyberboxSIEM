@@ -160,13 +160,13 @@ config:
 # Ingress
 # ---------------------------------------------------------------------------
 ingress:
-  enabled: false
-  className: "alb"
+  enabled: true
+  className: "nginx"
   host: "siem.safebox.cyberboxsecurity.com.br"
   certificateArn: ""  # ACM cert ARN — if set, ALB terminates TLS (no K8s secret needed)
   annotations: {}
-  tls: false
-  tlsSecretName: "cyberbox-tls"
+  tls: true
+  tlsSecretName: "siem-tls-secret"
 
 # ---------------------------------------------------------------------------
 # Service Account

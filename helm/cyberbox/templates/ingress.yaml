@@ -6,6 +6,7 @@ metadata:
   labels:
     {{- include "cyberbox.labels" . | nindent 4 }}
   annotations:
+    {{- if eq (.Values.ingress.className | default "") "alb" }}
     # AWS ALB Ingress Controller
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
@@ -16,6 +17,11 @@ metadata:
     alb.ingress.kubernetes.io/group.name: cyberbox
     {{- if .Values.ingress.certificateArn }}
     alb.ingress.kubernetes.io/certificate-arn: {{ .Values.ingress.certificateArn | quote }}
+    {{- end }}
+    {{- end }}
+    {{- if eq (.Values.ingress.className | default "") "nginx" }}
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
     {{- end }}
     {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
