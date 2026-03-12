@@ -18,5 +18,7 @@ LABEL org.opencontainers.image.title="cyberbox-api" \
 WORKDIR /app
 COPY --from=builder /workspace/target/release/cyberbox-api /usr/local/bin/cyberbox-api
 COPY config/default.toml /app/config/default.toml
+# Bundle Sigma detection rules so they auto-import on startup
+COPY rules/bundled/ /app/rules/bundled/
 EXPOSE 8080
 CMD ["/usr/local/bin/cyberbox-api"]
