@@ -218,7 +218,7 @@ async fn run_agent(
             api_url: api_cfg.url.clone(),
             token: api_cfg.token.clone(),
             heartbeat_secs: api_cfg.heartbeat_secs,
-            agent_id: cfg.agent.tenant_id.clone(),
+            agent_id: hostname.clone(),
             hostname: hostname.clone(),
             tenant_id: cfg.agent.tenant_id.clone(),
             version: env!("CARGO_PKG_VERSION").to_string(),
