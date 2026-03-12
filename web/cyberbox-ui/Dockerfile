@@ -10,12 +10,12 @@ COPY package.json package-lock.json* ./
 RUN npm ci --legacy-peer-deps
 
 # Entra ID / MSAL config — pass at build time via --build-arg
+# VITE_AZURE_REDIRECT_URI intentionally left empty so msalConfig.ts
+# falls back to window.location.origin (works on any domain).
 ARG VITE_AZURE_CLIENT_ID=YOUR_CLIENT_ID
 ARG VITE_AZURE_TENANT_ID=YOUR_TENANT_ID
-ARG VITE_AZURE_REDIRECT_URI=http://localhost:5173
 ENV VITE_AZURE_CLIENT_ID=$VITE_AZURE_CLIENT_ID
 ENV VITE_AZURE_TENANT_ID=$VITE_AZURE_TENANT_ID
-ENV VITE_AZURE_REDIRECT_URI=$VITE_AZURE_REDIRECT_URI
 
 # Copy source and build
 COPY . .
