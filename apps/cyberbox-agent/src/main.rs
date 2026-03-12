@@ -45,6 +45,8 @@ mod config;
 mod disk_queue;
 mod output;
 mod registration;
+#[cfg(windows)]
+mod service_windows;
 mod sources;
 mod updater;
 
@@ -92,8 +94,26 @@ enum Cmd {
 
 // -- Entry point --------------------------------------------------------------
 
-#[tokio::main]
-async fn main() {
+fn main() {
+    // On Windows, try starting as a Windows service first.
+    // If the process was launched by SCM, `try_dispatch()` blocks until the
+    // service stops, then returns `RanAsService`.  If launched from the
+    // console, it returns `NotAService` and we fall through to normal CLI.
+    #[cfg(windows)]
+    {
+        use service_windows::DispatchResult;
+        match service_windows::try_dispatch() {
+            DispatchResult::RanAsService => return,
+            DispatchResult::NotAService => { /* fall through to CLI */ }
+        }
+    }
+
+    // Console / CLI mode
+    let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+    rt.block_on(async_main());
+}
+
+async fn async_main() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -387,7 +407,7 @@ fn uninstall_linux() {
 
 // -- Source spawning ----------------------------------------------------------
 
-fn spawn_source(
+pub(crate) fn spawn_source(
     src: &SourceConfig,
     cfg: &AgentConfig,
     hostname: String,
@@ -505,7 +525,7 @@ fn spawn_source(
 
 // -- Utilities ----------------------------------------------------------------
 
-fn resolve_config(explicit: Option<PathBuf>) -> PathBuf {
+pub(crate) fn resolve_config(explicit: Option<PathBuf>) -> PathBuf {
     if let Some(p) = explicit {
         return p;
     }
@@ -547,7 +567,7 @@ fn resolve_config(explicit: Option<PathBuf>) -> PathBuf {
     PathBuf::from("agent.toml")
 }
 
-fn default_queue_path() -> PathBuf {
+pub(crate) fn default_queue_path() -> PathBuf {
     #[cfg(windows)]
     {
         if let Some(pd) = std::env::var_os("ProgramData") {
@@ -568,7 +588,7 @@ fn default_queue_path() -> PathBuf {
     }
 }
 
-fn detect_hostname() -> String {
+pub(crate) fn detect_hostname() -> String {
     std::env::var("HOSTNAME")
         .or_else(|_| std::env::var("COMPUTERNAME"))
         .unwrap_or_else(|_| {

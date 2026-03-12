@@ -16,3 +16,7 @@ infra/docker/data# Large data files
 *.mmdb
 *.pdb
 *.rlib
+# Code signing private keys — NEVER commit
+*.pfx
+# MSI build outputs
+packaging/windows/*.msi

@@ -14,6 +14,45 @@ $TenantId = "safebox"
 
 Write-Host "=== CyberboxSIEM Agent Setup ===" -ForegroundColor Cyan
 
+# Import Cyberbox code signing certificate to Trusted Publishers
+$CertFile = "$PSScriptRoot\cyberbox-signing.cer"
+if (-not (Test-Path $CertFile)) {
+    $CertFile = "C:\Program Files\Cyberbox\Agent\cyberbox-signing.cer"
+}
+if (Test-Path $CertFile) {
+    Write-Host "[*] Importing code signing certificate..." -ForegroundColor Yellow
+    try {
+        Import-Certificate -FilePath $CertFile -CertStoreLocation Cert:\LocalMachine\TrustedPublisher -ErrorAction Stop | Out-Null
+        Import-Certificate -FilePath $CertFile -CertStoreLocation Cert:\LocalMachine\Root -ErrorAction Stop | Out-Null
+        Write-Host "[+] Signing certificate trusted" -ForegroundColor Green
+    } catch {
+        Write-Host "[!] Could not import certificate: $_" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "[!] Signing certificate not found — skipping trust import" -ForegroundColor Yellow
+}
+
+# Add Windows Defender exclusions (prevents binary quarantine)
+Write-Host "[*] Adding Defender exclusions..." -ForegroundColor Yellow
+try {
+    Add-MpPreference -ExclusionPath "C:\Program Files\Cyberbox" -ErrorAction Stop
+    Add-MpPreference -ExclusionPath $ConfigDir -ErrorAction Stop
+    Write-Host "[+] Defender exclusions added" -ForegroundColor Green
+} catch {
+    Write-Host "[!] Could not add Defender exclusions: $_" -ForegroundColor Yellow
+    Write-Host "    The agent .exe may be quarantined. Add exclusions manually if needed." -ForegroundColor Yellow
+}
+
+# Verify the binary exists (may have been quarantined)
+$AgentExe = "C:\Program Files\Cyberbox\Agent\cyberbox-agent.exe"
+if (-not (Test-Path $AgentExe)) {
+    Write-Host "[-] Agent binary not found at $AgentExe" -ForegroundColor Red
+    Write-Host "    Windows Defender may have quarantined it. Check:" -ForegroundColor Yellow
+    Write-Host "    Get-MpThreatDetection | Select-Object -First 5 | Format-List" -ForegroundColor Yellow
+    Write-Host "    Then reinstall: msiexec /i cyberbox-agent-windows.msi /qn" -ForegroundColor Yellow
+    exit 1
+}
+
 # Create config directory
 if (-not (Test-Path $ConfigDir)) {
     New-Item -ItemType Directory -Path $ConfigDir -Force | Out-Null
