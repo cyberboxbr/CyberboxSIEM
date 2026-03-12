@@ -1,4 +1,5 @@
 ## CyberboxSIEM Helm Chart — Default Values
+## Sized for: ~50 hosts, single-tenant (safebox)
 
 global:
   image:
@@ -20,11 +21,11 @@ api:
     nodePort: ""  # set when type=NodePort (e.g. 30080)
   resources:
     requests:
-      cpu: 500m
-      memory: 1Gi
+      cpu: 250m
+      memory: 512Mi
     limits:
       cpu: "2"
-      memory: 4Gi
+      memory: 2Gi
   autoscaling:
     enabled: false
     minReplicas: 1
@@ -36,20 +37,20 @@ api:
   podAnnotations: {}
 
 # ---------------------------------------------------------------------------
-# Worker — Kafka consumer for stream detection
+# Worker — Kafka consumer for stream detection + ClickHouse sink
 # ---------------------------------------------------------------------------
 worker:
   enabled: true
-  replicaCount: 2
+  replicaCount: 1
   image:
     repository: ""  # defaults to global.image.registry/cyberbox-worker
   resources:
     requests:
-      cpu: 500m
-      memory: 1Gi
+      cpu: 250m
+      memory: 512Mi
     limits:
       cpu: "2"
-      memory: 4Gi
+      memory: 2Gi
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -65,11 +66,11 @@ collector:
     repository: ""  # defaults to global.image.registry/cyberbox-collector
   resources:
     requests:
-      cpu: 250m
-      memory: 512Mi
+      cpu: 100m
+      memory: 256Mi
     limits:
       cpu: "1"
-      memory: 1Gi
+      memory: 512Mi
   service:
     type: ClusterIP
     nodePorts:
@@ -82,10 +83,10 @@ collector:
   nlb:
     enabled: false
     syslogTlsPort: 6514
-    certificateArn: ""       # ACM cert ARN for TLS termination at NLB
-    eipAllocations: ""       # comma-separated EIP allocation IDs for static IPs
-    exposePlainTcp: false    # also expose plain TCP 601 (only for VPN clients)
-    exposeAgentPort: false   # expose 443 for agent HTTPS push
+    certificateArn: ""
+    eipAllocations: ""
+    exposePlainTcp: false
+    exposeAgentPort: false
     annotations: {}
   nodeSelector: {}
   tolerations: []
@@ -124,8 +125,8 @@ ui:
     nodePort: ""  # set when type=NodePort (e.g. 30300)
   resources:
     requests:
-      cpu: 64m
-      memory: 128Mi
+      cpu: 32m
+      memory: 64Mi
     limits:
       cpu: 250m
       memory: 256Mi
@@ -136,26 +137,64 @@ ui:
   podAnnotations: {}
 
 # ---------------------------------------------------------------------------
+# Redpanda — lightweight Kafka-compatible event bus (single node)
+# ---------------------------------------------------------------------------
+redpanda:
+  enabled: true
+  image: docker.redpanda.com/redpandadata/redpanda:v24.3.3
+  storage: 30Gi
+  storageClass: gp2
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1536Mi
+
+# ---------------------------------------------------------------------------
+# ClickHouse — columnar event store (single node)
+# ---------------------------------------------------------------------------
+clickhouse:
+  enabled: true
+  image: clickhouse/clickhouse-server:24.8
+  user: cyberbox
+  password: cyberbox
+  storage: 100Gi
+  storageClass: gp2
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+# ---------------------------------------------------------------------------
 # Platform configuration (injected via ConfigMap)
 # ---------------------------------------------------------------------------
 config:
   kafka:
     enabled: true
-    bootstrapServers: "redpanda:9092"
-    rawTopic: "cyberbox.raw"
-    normalizedTopic: "cyberbox.normalized"
+    brokers: "redpanda:9092"
+    rawTopic: "cyberbox.events.raw"
+    normalizedTopic: "cyberbox.events.normalized"
+    alertsTopic: "cyberbox.alerts"
   clickhouse:
     enabled: true
+    sinkEnabled: true
     host: "clickhouse"
     port: 8123
     database: "cyberbox"
+    table: "events_hot"
+    retentionDays: 30
   auth:
     disabled: false
     oidcIssuer: "https://login.microsoftonline.com/a8014c28-79d4-4695-8890-0ed0bf766668/v2.0"
     oidcAudience: "api://3fd8922e-d137-4d50-b160-b552ceda18c1"
     tenantIdOverride: "safebox"  # single-tenant mode — all data scoped to "safebox"
     ingestApiKey: "919302f136fc80b561a577491854bfc5a50c9d8489c66ce9f87f11d0ebf67b4d"
-  epsLimit: 10000
+  epsLimit: 5000  # ~50 hosts × 100 EPS average
 
 # ---------------------------------------------------------------------------
 # Ingress
@@ -164,7 +203,7 @@ ingress:
   enabled: true
   className: "nginx"
   host: "siem.safebox.cyberboxsecurity.com.br"
-  certificateArn: ""  # ACM cert ARN — if set, ALB terminates TLS (no K8s secret needed)
+  certificateArn: ""
   annotations: {}
   tls: true
   tlsSecretName: "siem-tls-secret"

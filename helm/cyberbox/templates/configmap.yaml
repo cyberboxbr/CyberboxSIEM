@@ -5,16 +5,21 @@ metadata:
   labels:
     {{- include "cyberbox.labels" . | nindent 4 }}
 data:
-  ## Kafka
+  ## Kafka / Redpanda
   CYBERBOX__KAFKA_PUBLISH_RAW_ENABLED: {{ .Values.config.kafka.enabled | quote }}
-  CYBERBOX__KAFKA_BOOTSTRAP_SERVERS: {{ .Values.config.kafka.bootstrapServers | quote }}
+  CYBERBOX__REDPANDA_BROKERS: {{ .Values.config.kafka.brokers | quote }}
   CYBERBOX__KAFKA_RAW_TOPIC: {{ .Values.config.kafka.rawTopic | quote }}
   CYBERBOX__KAFKA_NORMALIZED_TOPIC: {{ .Values.config.kafka.normalizedTopic | quote }}
+  CYBERBOX__KAFKA_ALERTS_TOPIC: {{ .Values.config.kafka.alertsTopic | quote }}
   ## ClickHouse
   CYBERBOX__CLICKHOUSE_SEARCH_ENABLED: {{ .Values.config.clickhouse.enabled | quote }}
-  CYBERBOX__CLICKHOUSE_HOST: {{ .Values.config.clickhouse.host | quote }}
-  CYBERBOX__CLICKHOUSE_PORT: {{ .Values.config.clickhouse.port | quote }}
+  CYBERBOX__CLICKHOUSE_SINK_ENABLED: {{ .Values.config.clickhouse.sinkEnabled | quote }}
+  CYBERBOX__CLICKHOUSE_URL: "http://{{ .Values.config.clickhouse.host }}:{{ .Values.config.clickhouse.port }}"
+  CYBERBOX__CLICKHOUSE_USER: {{ .Values.clickhouse.user | default "cyberbox" | quote }}
+  CYBERBOX__CLICKHOUSE_PASSWORD: {{ .Values.clickhouse.password | default "cyberbox" | quote }}
   CYBERBOX__CLICKHOUSE_DATABASE: {{ .Values.config.clickhouse.database | quote }}
+  CYBERBOX__CLICKHOUSE_TABLE: {{ .Values.config.clickhouse.table | default "events_hot" | quote }}
+  CYBERBOX__CLICKHOUSE_RETENTION_DAYS_HOT: {{ .Values.config.clickhouse.retentionDays | default 30 | quote }}
   ## Auth
   CYBERBOX__AUTH_DISABLED: {{ .Values.config.auth.disabled | quote }}
   CYBERBOX__OIDC_ISSUER: {{ .Values.config.auth.oidcIssuer | default "" | quote }}

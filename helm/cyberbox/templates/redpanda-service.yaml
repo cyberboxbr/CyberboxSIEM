@@ -1,0 +1,41 @@
+{{- if .Values.redpanda.enabled -}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redpanda
+  labels:
+    {{- include "cyberbox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redpanda
+spec:
+  type: ClusterIP
+  ports:
+    - name: kafka
+      port: 9092
+      targetPort: kafka
+    - name: admin
+      port: 9644
+      targetPort: admin
+  selector:
+    app.kubernetes.io/component: redpanda
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redpanda-headless
+  labels:
+    {{- include "cyberbox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redpanda
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: kafka
+      port: 9092
+      targetPort: kafka
+    - name: rpc
+      port: 33145
+      targetPort: rpc
+  selector:
+    app.kubernetes.io/component: redpanda
+{{- end }}

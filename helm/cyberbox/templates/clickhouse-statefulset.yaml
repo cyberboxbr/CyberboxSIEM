@@ -1,0 +1,88 @@
+{{- if .Values.clickhouse.enabled -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clickhouse
+  labels:
+    {{- include "cyberbox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse
+spec:
+  serviceName: clickhouse-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: clickhouse
+  template:
+    metadata:
+      labels:
+        {{- include "cyberbox.labels" . | nindent 8 }}
+        app.kubernetes.io/component: clickhouse
+    spec:
+      securityContext:
+        fsGroup: 101
+        runAsUser: 101
+        runAsGroup: 101
+      initContainers:
+        - name: init-db
+          image: {{ .Values.clickhouse.image }}
+          command: ["bash", "-c"]
+          args:
+            - |
+              # Start a temporary ClickHouse server to create the database
+              clickhouse-server --daemon
+              sleep 3
+              clickhouse-client --query "CREATE DATABASE IF NOT EXISTS {{ .Values.config.clickhouse.database }}"
+              clickhouse-client --query "CREATE USER IF NOT EXISTS {{ .Values.clickhouse.user }} IDENTIFIED BY '{{ .Values.clickhouse.password }}'"
+              clickhouse-client --query "GRANT ALL ON {{ .Values.config.clickhouse.database }}.* TO {{ .Values.clickhouse.user }}"
+              kill $(cat /tmp/clickhouse-server.pid 2>/dev/null) 2>/dev/null || true
+          securityContext:
+            runAsUser: 101
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/clickhouse
+      containers:
+        - name: clickhouse
+          image: {{ .Values.clickhouse.image }}
+          ports:
+            - name: http
+              containerPort: 8123
+              protocol: TCP
+            - name: native
+              containerPort: 9000
+              protocol: TCP
+          env:
+            - name: CLICKHOUSE_DB
+              value: {{ .Values.config.clickhouse.database | quote }}
+            - name: CLICKHOUSE_USER
+              value: {{ .Values.clickhouse.user | quote }}
+            - name: CLICKHOUSE_PASSWORD
+              value: {{ .Values.clickhouse.password | quote }}
+            - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
+              value: "1"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/clickhouse
+          resources:
+            {{- toYaml .Values.clickhouse.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.clickhouse.storageClass | default "gp2" | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.clickhouse.storage }}
+{{- end }}

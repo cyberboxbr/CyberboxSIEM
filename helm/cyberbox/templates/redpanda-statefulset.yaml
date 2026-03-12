@@ -1,0 +1,76 @@
+{{- if .Values.redpanda.enabled -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redpanda
+  labels:
+    {{- include "cyberbox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redpanda
+spec:
+  serviceName: redpanda-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: redpanda
+  template:
+    metadata:
+      labels:
+        {{- include "cyberbox.labels" . | nindent 8 }}
+        app.kubernetes.io/component: redpanda
+    spec:
+      securityContext:
+        fsGroup: 101
+        runAsUser: 101
+        runAsGroup: 101
+      containers:
+        - name: redpanda
+          image: {{ .Values.redpanda.image }}
+          args:
+            - redpanda
+            - start
+            - --smp=1
+            - --memory={{ .Values.redpanda.resources.limits.memory | default "1Gi" }}
+            - --overprovisioned
+            - --reserve-memory=0M
+            - --node-id=0
+            - --kafka-addr=internal://0.0.0.0:9092
+            - --advertise-kafka-addr=internal://redpanda.{{ .Release.Namespace }}.svc.cluster.local:9092
+            - --set=redpanda.auto_create_topics_enabled=true
+            - --set=redpanda.default_topic_replications=1
+            - --set=redpanda.log_segment_size=16777216
+            - --set=redpanda.compacted_log_segment_size=16777216
+          ports:
+            - name: kafka
+              containerPort: 9092
+              protocol: TCP
+            - name: rpc
+              containerPort: 33145
+              protocol: TCP
+            - name: admin
+              containerPort: 9644
+              protocol: TCP
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/redpanda/data
+          resources:
+            {{- toYaml .Values.redpanda.resources | nindent 12 }}
+          readinessProbe:
+            tcpSocket:
+              port: kafka
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: kafka
+            initialDelaySeconds: 15
+            periodSeconds: 20
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.redpanda.storageClass | default "gp2" | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.redpanda.storage }}
+{{- end }}
