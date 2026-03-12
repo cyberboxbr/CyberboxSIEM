@@ -165,7 +165,7 @@ jobs:
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
             --document-name "AWS-RunShellScript" \
-            --parameters '{"commands":["curl -sf http://localhost:8080/healthz && echo '' && docker compose -f /opt/cyberbox/docker-compose.prod.yml ps"]}' \
+            --parameters '{"commands":["docker compose -f /opt/cyberbox/docker-compose.prod.yml exec -T cyberbox-api wget -qO- http://localhost:8080/healthz && echo && docker compose -f /opt/cyberbox/docker-compose.prod.yml ps"]}' \
             --timeout-seconds 30 \
             --query 'Command.CommandId' \
             --output text)

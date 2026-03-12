@@ -22,6 +22,10 @@ echo "=== Deploying ==="
 export ECR_REGISTRY IMAGE_TAG
 docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans
 
+# Restart nginx so it resolves new container IPs (Docker DNS caching)
+echo "=== Restarting nginx ==="
+docker compose -f docker-compose.prod.yml restart nginx
+
 echo "=== Waiting for health ==="
 sleep 10
 
