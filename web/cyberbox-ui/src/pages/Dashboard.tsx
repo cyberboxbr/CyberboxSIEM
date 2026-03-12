@@ -2,26 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Area,
   AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ComposedChart,
-  Line,
   ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
 } from 'recharts';
 import {
   getAllAlerts,
-  searchRecent,
   type AlertRecord,
 } from '../api/client';
 
-/* ── Dashboard placeholder data (until real API endpoints exist) ────────── */
-
-interface RiskScorePoint { day: string; score: number; incidents: number }
-interface MttPoint { hour: string; value: number }
 interface AlertSparkPoint { day: string; value: number }
 type AssetOs = 'windows' | 'windows-server' | 'linux' | 'linux-server' | 'docker';
 interface TopAlertRow {
@@ -33,25 +20,6 @@ interface TopAlertRow {
   assigned_to: string | null;
 }
 
-const RISK_TREND: RiskScorePoint[] = Array.from({ length: 8 }, (_, i) => ({
-  day: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun', 'Today'][i],
-  score: [62, 58, 65, 61, 70, 68, 72, 74][i],
-  incidents: [12, 8, 15, 10, 18, 14, 16, 11][i],
-}));
-const RISK_SCORE = RISK_TREND[RISK_TREND.length - 1].score;
-const RISK_DELTA = RISK_SCORE - RISK_TREND[0].score;
-
-const MTTD_TREND: MttPoint[] = Array.from({ length: 24 }, (_, i) => ({
-  hour: `${String(i).padStart(2, '0')}:00`,
-  value: +(4.5 + Math.sin(i / 3) * 2 + Math.random() * 1.5).toFixed(2),
-}));
-const MTTD_CURRENT = +(MTTD_TREND.slice(-3).reduce((s, p) => s + p.value, 0) / 3).toFixed(2);
-
-const MTTR_TREND: MttPoint[] = Array.from({ length: 24 }, (_, i) => ({
-  hour: `${String(i).padStart(2, '0')}:00`,
-  value: +(12 + Math.cos(i / 4) * 5 + Math.random() * 3).toFixed(2),
-}));
-const MTTR_CURRENT = +(MTTR_TREND.slice(-3).reduce((s, p) => s + p.value, 0) / 3).toFixed(2);
 
 /* ── Helpers: build sparkline buckets from alert first_seen timestamps ── */
 
@@ -112,21 +80,6 @@ const TIME_RANGE_PRECISE = [
 const SEVERITY_OPTIONS = ['critical', 'high', 'medium', 'low'];
 const ASSET_OPTIONS = ['WS-FINANCE-01', 'SRV-DC-02.corp.local', 'SRV-APP-10', 'WS-HR-08', 'VPN-GW-01', 'SRV-DB-03', 'SRV-WEB-11', 'K8S-NODE-04', 'WS-DEV-09'];
 
-interface EventVolumePoint { hour: string; total: number }
-
-/* ── Shared chart config ─────────────────────────── */
-
-const AXIS_STYLE = { fill: 'var(--chart-axis)', fontSize: 10 };
-const GRID_STROKE = 'var(--chart-grid)';
-const TOOLTIP_STYLE: React.CSSProperties = {
-  background: 'var(--card-bg)',
-  border: '1px solid var(--card-border)',
-  borderRadius: 8,
-  color: 'var(--text-primary)',
-  fontSize: 12,
-  padding: '8px 12px',
-};
-
 /* ── OS icons for target asset ───────────────────── */
 
 const osIcons: Record<string, JSX.Element> = {
@@ -162,61 +115,6 @@ const osIcons: Record<string, JSX.Element> = {
   ),
 };
 
-/* ── Sparkline sub-components ────────────────────── */
-
-function RiskScoreCard({ score, delta, trend }: { score: number; delta: number; trend: RiskScorePoint[] }) {
-  const isUp = delta >= 0;
-  return (
-    <div className="panel dash-kpi-card">
-      <span className="kpi-label">CSOC RISK SCORE</span>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 2 }}>
-        <span className="dash-big-number">{score}</span>
-        <span className={`dash-delta ${isUp ? 'dash-delta--bad' : 'dash-delta--good'}`}>
-          {isUp ? '↑' : '↓'} {Math.abs(delta)}
-        </span>
-      </div>
-      <div style={{ marginTop: 8, height: 48 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={trend} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
-            <defs>
-              <linearGradient id="riskFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--accent-green)" stopOpacity={0.35} />
-                <stop offset="100%" stopColor="var(--accent-green)" stopOpacity={0.02} />
-              </linearGradient>
-            </defs>
-            <Area type="monotone" dataKey="score" stroke="var(--accent-green)" fill="url(#riskFill)" strokeWidth={2} dot={false} />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  );
-}
-
-function MttCard({ label, value, unit, trend, gradientId }: { label: string; value: number; unit: string; trend: MttPoint[]; gradientId: string }) {
-  return (
-    <div className="panel dash-kpi-card">
-      <span className="kpi-label">{label}</span>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-        <span className="dash-big-number">{value}</span>
-        <span className="dash-unit">{unit}</span>
-      </div>
-      <div style={{ marginTop: 8, height: 48 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={trend} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
-            <defs>
-              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--accent-cyan)" stopOpacity={0.3} />
-                <stop offset="100%" stopColor="var(--accent-cyan)" stopOpacity={0.02} />
-              </linearGradient>
-            </defs>
-            <Area type="monotone" dataKey="value" stroke="var(--accent-cyan)" fill={`url(#${gradientId})`} strokeWidth={2} dot={false} />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  );
-}
-
 /* ── Main Dashboard ──────────────────────────────── */
 
 export function Dashboard({ onRefresh }: DashboardProps) {
@@ -231,7 +129,6 @@ export function Dashboard({ onRefresh }: DashboardProps) {
   const [filterMenu, setFilterMenu] = useState<'main' | 'severity' | 'asset'>('main');
   const [severityFilters, setSeverityFilters] = useState<Set<string>>(new Set());
   const [assetFilters, setAssetFilters] = useState<Set<string>>(new Set());
-  const [eventVolume, setEventVolume] = useState<EventVolumePoint[]>([]);
   const [openAlertsCount, setOpenAlertsCount] = useState<number>(0);
   const [critHighCount, setCritHighCount] = useState<number>(0);
   const [openAlertsTrend, setOpenAlertsTrend] = useState<AlertSparkPoint[]>([]);
@@ -239,11 +136,6 @@ export function Dashboard({ onRefresh }: DashboardProps) {
   const [topAlerts, setTopAlerts] = useState<TopAlertRow[]>([]);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [refreshing, setRefreshing] = useState(false);
-
-  const totalEvents24h = useMemo(
-    () => eventVolume.reduce((sum, p) => sum + p.total, 0),
-    [eventVolume],
-  );
 
   const filteredTopAlerts = useMemo(() => {
     return topAlerts.filter(row => {
@@ -277,19 +169,6 @@ export function Dashboard({ onRefresh }: DashboardProps) {
           assigned_to: a.assignee ?? null,
         }));
       setTopAlerts(top5);
-    } catch { /* degrades gracefully */ }
-
-    // Fetch event volume rollup (best-effort, ClickHouse only)
-    try {
-      const volumeResult = await searchRecent(
-        'SELECT bucket_hour, sum(event_count) as total FROM events_hot_hourly_rollup WHERE bucket_hour >= now() - INTERVAL 24 HOUR GROUP BY bucket_hour ORDER BY bucket_hour',
-        24,
-      );
-      const points: EventVolumePoint[] = volumeResult.rows.map((row) => ({
-        hour: new Date(String(row['bucket_hour'])).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        total: Number(row['total']) || 0,
-      }));
-      setEventVolume(points);
     } catch { /* degrades gracefully */ }
   };
 
@@ -571,7 +450,6 @@ export function Dashboard({ onRefresh }: DashboardProps) {
       {activeTab === 'overview' && (
         <>
           <div className="dash-kpis">
-            <RiskScoreCard score={RISK_SCORE} delta={RISK_DELTA} trend={RISK_TREND} />
             <div className="panel dash-kpi-card">
               <span className="kpi-label">OPEN ALERTS</span>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 2 }}>
@@ -656,352 +534,24 @@ export function Dashboard({ onRefresh }: DashboardProps) {
 
       {/* ── Trends tab ───────────────────────────────── */}
       {activeTab === 'trends' && (
-        <>
-          <div className="dash-kpis">
-            <MttCard label="MTTD" value={MTTD_CURRENT} unit="min" trend={MTTD_TREND} gradientId="mttdFill" />
-            <MttCard label="MTTR" value={MTTR_CURRENT} unit="min" trend={MTTR_TREND} gradientId="mttrFill" />
-          </div>
-
-          <div className="dash-charts-row">
-            <div className="panel dash-chart-panel">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                <div>
-                  <h2 className="panel-title">CSOC RISK SCORE TREND</h2>
-                  <p className="dash-chart-desc">Composite security posture and incident volume.</p>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <span className="dash-big-number" style={{ fontSize: 28 }}>{RISK_SCORE}</span>
-                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Last 8 days</div>
-                </div>
-              </div>
-              <div style={{ height: 220 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={RISK_TREND} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="riskTrendFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--accent-cyan)" stopOpacity={0.25} />
-                        <stop offset="100%" stopColor="var(--accent-cyan)" stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
-                    <XAxis dataKey="day" tick={AXIS_STYLE} tickLine={false} axisLine={{ stroke: GRID_STROKE }} />
-                    <YAxis yAxisId="left" tick={AXIS_STYLE} tickLine={false} axisLine={false} domain={[0, 100]} />
-                    <YAxis yAxisId="right" orientation="right" tick={AXIS_STYLE} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: 'rgba(0,244,163,0.06)' }} />
-                    <Bar yAxisId="right" dataKey="incidents" fill="var(--accent-cyan)" opacity={0.6} radius={[3, 3, 0, 0]} />
-                    <Line yAxisId="left" type="monotone" dataKey="score" stroke="var(--accent-green)" strokeWidth={2.5} dot={{ r: 3, fill: 'var(--accent-green)' }} />
-                    <Area yAxisId="left" type="monotone" dataKey="score" fill="url(#riskTrendFill)" stroke="none" />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            <div className="panel dash-chart-panel">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                <div>
-                  <h2 className="panel-title">MTTD TREND</h2>
-                  <p className="dash-chart-desc">Mean time from breach to detection.</p>
-                </div>
-              </div>
-              <div style={{ height: 220 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={MTTD_TREND} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="mttdTrendFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--accent-green)" stopOpacity={0.3} />
-                        <stop offset="100%" stopColor="var(--accent-green)" stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
-                    <XAxis dataKey="hour" tick={AXIS_STYLE} tickLine={false} axisLine={{ stroke: GRID_STROKE }} interval={3} />
-                    <YAxis tick={AXIS_STYLE} tickLine={false} axisLine={false} domain={[0, 'auto']} />
-                    <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: 'rgba(0,244,163,0.06)' }} />
-                    <Area type="monotone" dataKey="value" stroke="var(--accent-green)" fill="url(#mttdTrendFill)" strokeWidth={2} dot={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-
-          <div className="dash-charts-row">
-            <div className="panel dash-chart-panel">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                <div>
-                  <h2 className="panel-title">EVENT VOLUME (24H)</h2>
-                  <p className="dash-chart-desc">Hourly ingested event count.</p>
-                </div>
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
-                  {totalEvents24h.toLocaleString()} total
-                </span>
-              </div>
-              <div style={{ height: 200 }}>
-                {eventVolume.length === 0 ? (
-                  <div className="chart-empty">Loading...</div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={eventVolume} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
-                      <XAxis dataKey="hour" tick={AXIS_STYLE} tickLine={false} axisLine={{ stroke: GRID_STROKE }} interval={3} />
-                      <YAxis tick={AXIS_STYLE} tickLine={false} axisLine={false} allowDecimals={false} />
-                      <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: 'rgba(107,45,189,0.08)' }} />
-                      <Bar dataKey="total" fill="var(--accent-violet)" radius={[3, 3, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </div>
-
-            <div className="panel dash-chart-panel">
-              <h2 className="panel-title">MTTR TREND</h2>
-              <p className="dash-chart-desc">Mean time from detection to containment over time.</p>
-              <div style={{ height: 200 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={MTTR_TREND} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="mttrTrendFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--accent-cyan)" stopOpacity={0.3} />
-                        <stop offset="100%" stopColor="var(--accent-cyan)" stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
-                    <XAxis dataKey="hour" tick={AXIS_STYLE} tickLine={false} axisLine={{ stroke: GRID_STROKE }} interval={3} />
-                    <YAxis tick={AXIS_STYLE} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: 'rgba(50,245,225,0.06)' }} />
-                    <Area type="monotone" dataKey="value" stroke="var(--accent-cyan)" fill="url(#mttrTrendFill)" strokeWidth={2} dot={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-        </>
+        <div className="panel" style={{ padding: 48, textAlign: 'center' }}>
+          <div style={{ fontSize: 40, marginBottom: 12, opacity: 0.3 }}>&#x1f4c8;</div>
+          <h2 className="panel-title" style={{ marginBottom: 8 }}>No trend data yet</h2>
+          <p className="dash-chart-desc">
+            MTTD, MTTR, risk score, and event volume trends will appear here once enough data has been ingested.
+          </p>
+        </div>
       )}
 
       {/* ── Health tab ──────────────────────────────── */}
       {activeTab === 'health' && (
-        <>
-          {/* ── KPI row 1: core metrics ──────────────── */}
-          <div className="dash-kpis">
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">AGENTS ONLINE</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 2 }}>
-                <span className="dash-big-number">47</span>
-                <span className="dash-unit">/ 52</span>
-              </div>
-              <div className="dash-health-bar" style={{ marginTop: 10 }}>
-                <div className="dash-health-bar-fill" style={{ width: '90%' }} />
-              </div>
-            </div>
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">EPS (EVENTS/SEC)</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 2 }}>
-                <span className="dash-big-number">12,480</span>
-                <span className="dash-delta dash-delta--good">↑ 8%</span>
-              </div>
-            </div>
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">STORAGE USED</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 2 }}>
-                <span className="dash-big-number">68%</span>
-                <span className="dash-unit">1.2 TB / 1.8 TB</span>
-              </div>
-              <div className="dash-health-bar" style={{ marginTop: 10 }}>
-                <div className="dash-health-bar-fill dash-health-bar-fill--warn" style={{ width: '68%' }} />
-              </div>
-            </div>
-          </div>
-
-          {/* ── KPI row 2: pipeline metrics ──────────── */}
-          <div className="dash-kpis">
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">INGESTION LAG</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 2 }}>
-                <span className="dash-big-number">1.2</span>
-                <span className="dash-unit">sec</span>
-              </div>
-            </div>
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">DROPPED EVENTS (24H)</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 2 }}>
-                <span className="dash-big-number">34</span>
-                <span className="dash-delta dash-delta--good">↓ 60%</span>
-              </div>
-            </div>
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">DETECTION LATENCY</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 2 }}>
-                <span className="dash-big-number">4.8</span>
-                <span className="dash-unit">ms</span>
-              </div>
-            </div>
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">QUEUE DEPTH</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 2 }}>
-                <span className="dash-big-number">128</span>
-                <span className="dash-unit">events</span>
-              </div>
-              <div className="dash-health-bar" style={{ marginTop: 10 }}>
-                <div className="dash-health-bar-fill" style={{ width: '3%' }} />
-              </div>
-            </div>
-          </div>
-
-          {/* ── Offline agents (stopped sending logs) ── */}
-          <div className="dash-charts-row">
-            <div className="panel dash-table-panel" style={{ flex: 1 }}>
-              <h2 className="panel-title">Agents Offline</h2>
-              <p className="dash-chart-desc">Agents that stopped sending logs — no heartbeat received.</p>
-              <table className="dash-table">
-                <thead>
-                  <tr>
-                    <th>Hostname</th>
-                    <th>OS</th>
-                    <th>Last Seen</th>
-                    <th>Downtime</th>
-                    <th>Group</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td style={{ fontWeight: 600 }}>SRV-DB-03</td>
-                    <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{osIcons['linux-server']} Linux Server</span></td>
-                    <td>2h ago</td>
-                    <td><span className="dash-sev-badge dash-sev-badge--critical">2h 14m</span></td>
-                    <td>databases</td>
-                  </tr>
-                  <tr>
-                    <td style={{ fontWeight: 600 }}>SRV-WEB-11</td>
-                    <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{osIcons['linux-server']} Linux Server</span></td>
-                    <td>5h ago</td>
-                    <td><span className="dash-sev-badge dash-sev-badge--critical">5h 02m</span></td>
-                    <td>web-servers</td>
-                  </tr>
-                  <tr>
-                    <td style={{ fontWeight: 600 }}>WS-SALES-14</td>
-                    <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{osIcons['windows']} Windows</span></td>
-                    <td>45m ago</td>
-                    <td><span className="dash-sev-badge dash-sev-badge--high">45m</span></td>
-                    <td>sales</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div className="panel dash-table-panel" style={{ flex: 1 }}>
-              <h2 className="panel-title">Degraded / Warnings</h2>
-              <p className="dash-chart-desc">Agents sending logs but reporting issues.</p>
-              <table className="dash-table">
-                <thead>
-                  <tr>
-                    <th>Hostname</th>
-                    <th>OS</th>
-                    <th>Status</th>
-                    <th>Issue</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td style={{ fontWeight: 600 }}>WS-FINANCE-07</td>
-                    <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{osIcons['windows']} Windows</span></td>
-                    <td><span className="dash-sev-badge dash-sev-badge--high">Degraded</span></td>
-                    <td>High CPU (92%)</td>
-                  </tr>
-                  <tr>
-                    <td style={{ fontWeight: 600 }}>K8S-NODE-04</td>
-                    <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{osIcons['docker']} Docker</span></td>
-                    <td><span className="dash-sev-badge dash-sev-badge--high">Degraded</span></td>
-                    <td>Disk queue backlog (4,200 events)</td>
-                  </tr>
-                  <tr>
-                    <td style={{ fontWeight: 600 }}>WS-DEV-09</td>
-                    <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{osIcons['linux']} Linux</span></td>
-                    <td><span className="dash-sev-badge dash-sev-badge--medium">Warning</span></td>
-                    <td>Outdated agent (v1.2.0 → v1.4.2)</td>
-                  </tr>
-                  <tr>
-                    <td style={{ fontWeight: 600 }}>SRV-APP-06</td>
-                    <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{osIcons['linux-server']} Linux Server</span></td>
-                    <td><span className="dash-sev-badge dash-sev-badge--medium">Warning</span></td>
-                    <td>Memory usage 87%</td>
-                  </tr>
-                  <tr>
-                    <td style={{ fontWeight: 600 }}>WS-EXEC-12</td>
-                    <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{osIcons['windows']} Windows</span></td>
-                    <td><span className="dash-sev-badge dash-sev-badge--medium">Warning</span></td>
-                    <td>TLS cert expires in 5 days</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* ── Data source coverage ─────────────────── */}
-          <div className="panel dash-table-panel">
-            <h2 className="panel-title">Data Source Coverage</h2>
-            <p className="dash-chart-desc">Log sources and their ingestion status over the last 24h.</p>
-            <table className="dash-table">
-              <thead>
-                <tr>
-                  <th>Source</th>
-                  <th>Protocol</th>
-                  <th>Events (24h)</th>
-                  <th>Status</th>
-                  <th>Last Event</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td style={{ fontWeight: 600 }}>Windows Event Logs</td>
-                  <td>Agent</td>
-                  <td>1,284,320</td>
-                  <td><span className="dash-sev-badge" style={{ color: 'var(--accent-green)' }}>Active</span></td>
-                  <td>just now</td>
-                </tr>
-                <tr>
-                  <td style={{ fontWeight: 600 }}>Sysmon</td>
-                  <td>Agent</td>
-                  <td>892,140</td>
-                  <td><span className="dash-sev-badge" style={{ color: 'var(--accent-green)' }}>Active</span></td>
-                  <td>just now</td>
-                </tr>
-                <tr>
-                  <td style={{ fontWeight: 600 }}>Linux Syslog</td>
-                  <td>UDP/TCP</td>
-                  <td>534,800</td>
-                  <td><span className="dash-sev-badge" style={{ color: 'var(--accent-green)' }}>Active</span></td>
-                  <td>2s ago</td>
-                </tr>
-                <tr>
-                  <td style={{ fontWeight: 600 }}>Firewall (PAN-OS)</td>
-                  <td>Syslog TLS</td>
-                  <td>2,104,500</td>
-                  <td><span className="dash-sev-badge" style={{ color: 'var(--accent-green)' }}>Active</span></td>
-                  <td>1s ago</td>
-                </tr>
-                <tr>
-                  <td style={{ fontWeight: 600 }}>NetFlow v9</td>
-                  <td>UDP</td>
-                  <td>4,230,100</td>
-                  <td><span className="dash-sev-badge" style={{ color: 'var(--accent-green)' }}>Active</span></td>
-                  <td>just now</td>
-                </tr>
-                <tr>
-                  <td style={{ fontWeight: 600 }}>Okta SSO</td>
-                  <td>Cloud Poll</td>
-                  <td>12,480</td>
-                  <td><span className="dash-sev-badge" style={{ color: 'var(--accent-green)' }}>Active</span></td>
-                  <td>58s ago</td>
-                </tr>
-                <tr>
-                  <td style={{ fontWeight: 600 }}>Office 365</td>
-                  <td>Cloud Poll</td>
-                  <td>0</td>
-                  <td><span className="dash-sev-badge dash-sev-badge--critical">Silent</span></td>
-                  <td>6h ago</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </>
+        <div className="panel" style={{ padding: 48, textAlign: 'center' }}>
+          <div style={{ fontSize: 40, marginBottom: 12, opacity: 0.3 }}>&#x1f3e5;</div>
+          <h2 className="panel-title" style={{ marginBottom: 8 }}>No health data yet</h2>
+          <p className="dash-chart-desc">
+            Agent status, EPS, storage usage, and data source coverage will appear here once agents begin reporting.
+          </p>
+        </div>
       )}
     </div>
   );

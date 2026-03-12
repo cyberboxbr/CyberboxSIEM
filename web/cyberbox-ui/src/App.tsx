@@ -9,6 +9,7 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { CommandPalette } from './components/CommandPalette';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 import { SignIn } from './pages/SignIn';
 import { Dashboard } from './pages/Dashboard';
@@ -106,6 +107,7 @@ function AppShell() {
           sidebarWidth={sidebarCollapsed ? 72 : 260}
         />
         <div className="app-content">
+          <ErrorBoundary>
           <Routes>
             <Route path="/" element={<DashboardRoute />} />
             <Route path="/alerts" element={<AlertQueue />} />
@@ -123,6 +125,7 @@ function AppShell() {
             <Route path="/admin/lgpd" element={<RequireRole allow="admin"><LgpdCompliance /></RequireRole>} />
             <Route path="/admin/system" element={<RequireRole allow="admin"><SystemHealth /></RequireRole>} />
           </Routes>
+          </ErrorBoundary>
         </div>
       </div>
       <CommandPalette

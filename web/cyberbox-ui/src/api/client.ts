@@ -772,7 +772,8 @@ export function connectEventSSE(): EventSource {
 // ── Cases ──────────────────────────────────────────────────────────────────
 
 export async function getCases(): Promise<CaseRecord[]> {
-  return apiRequest<CaseRecord[]>('/api/v1/cases');
+  const resp = await apiRequest<{ cases: CaseRecord[]; total: number }>('/api/v1/cases');
+  return resp.cases ?? [];
 }
 
 export async function createCase(input: CaseCreateInput): Promise<CaseRecord> {
@@ -801,7 +802,8 @@ export async function addAlertsToCase(caseId: string, alertIds: string[]): Promi
 }
 
 export async function getSlaBreaches(): Promise<CaseRecord[]> {
-  return apiRequest<CaseRecord[]>('/api/v1/cases/sla-breaches');
+  const resp = await apiRequest<{ breaches: CaseRecord[]; total: number }>('/api/v1/cases/sla-breaches');
+  return resp.breaches ?? [];
 }
 
 // ── Search ─────────────────────────────────────────────────────────────────
@@ -842,7 +844,8 @@ export async function getCoverage(): Promise<CoverageReport> {
 // ── Threat Intelligence ────────────────────────────────────────────────────
 
 export async function getThreatIntelFeeds(): Promise<ThreatIntelFeed[]> {
-  return apiRequest<ThreatIntelFeed[]>('/api/v1/threatintel/feeds');
+  const resp = await apiRequest<{ feeds: ThreatIntelFeed[]; total: number }>('/api/v1/threatintel/feeds');
+  return resp.feeds ?? [];
 }
 
 export async function createThreatIntelFeed(input: ThreatIntelFeedCreateInput): Promise<ThreatIntelFeed> {
@@ -927,7 +930,8 @@ export async function getAllAuditLogs(
 // ── RBAC ───────────────────────────────────────────────────────────────────
 
 export async function getRbacUsers(): Promise<RbacEntry[]> {
-  return apiRequest<RbacEntry[]>('/api/v1/rbac/users');
+  const resp = await apiRequest<{ assignments: RbacEntry[]; total: number }>('/api/v1/rbac/users');
+  return resp.assignments ?? [];
 }
 
 export async function setRbacUserRoles(userId: string, roles: string[]): Promise<RbacEntry> {
@@ -981,7 +985,8 @@ export async function schedulerTick(): Promise<SchedulerTickResponse> {
 // ── Lookup Tables ──────────────────────────────────────────────────────────
 
 export async function getLookupTables(): Promise<LookupTable[]> {
-  return apiRequest<LookupTable[]>('/api/v1/lookups');
+  const resp = await apiRequest<{ tables: LookupTable[] }>('/api/v1/lookups');
+  return resp.tables ?? [];
 }
 
 export async function createLookupTable(input: LookupTableCreateInput): Promise<LookupTable> {
@@ -992,7 +997,8 @@ export async function createLookupTable(input: LookupTableCreateInput): Promise<
 }
 
 export async function getLookupEntries(name: string): Promise<Array<Record<string, string>>> {
-  return apiRequest<Array<Record<string, string>>>(`/api/v1/lookups/${name}`);
+  const resp = await apiRequest<{ name: string; entries: Array<Record<string, string>> }>(`/api/v1/lookups/${name}`);
+  return resp.entries ?? [];
 }
 
 export async function updateLookupEntries(
