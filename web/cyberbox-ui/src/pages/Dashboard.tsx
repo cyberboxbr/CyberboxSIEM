@@ -2,15 +2,22 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Area,
   AreaChart,
+  Bar,
+  BarChart,
   ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from 'recharts';
 import {
   getAllAlerts,
+  getDashboardStats,
   type AlertRecord,
+  type DashboardStats,
 } from '../api/client';
 
 interface AlertSparkPoint { day: string; value: number }
-type AssetOs = 'windows' | 'windows-server' | 'linux' | 'linux-server' | 'docker';
+type AssetOs = 'windows' | 'windows-server' | 'linux' | 'linux-server' | 'docker' | 'syslog';
 interface TopAlertRow {
   severity: 'critical' | 'high' | 'medium' | 'low';
   alert_name: string;
@@ -21,7 +28,7 @@ interface TopAlertRow {
 }
 
 
-/* ── Helpers: build sparkline buckets from alert first_seen timestamps ── */
+/* -- Helpers: build sparkline buckets from alert first_seen timestamps -- */
 
 function buildAlertSparkline(alerts: AlertRecord[]): AlertSparkPoint[] {
   const now = new Date();
@@ -46,6 +53,7 @@ function buildAlertSparkline(alerts: AlertRecord[]): AlertSparkPoint[] {
 function osFromString(os?: string): AssetOs {
   if (!os) return 'linux';
   const lower = os.toLowerCase();
+  if (lower === 'syslog') return 'syslog';
   if (lower.includes('windows server')) return 'windows-server';
   if (lower.includes('windows')) return 'windows';
   if (lower.includes('docker') || lower.includes('container')) return 'docker';
@@ -53,13 +61,13 @@ function osFromString(os?: string): AssetOs {
   return 'linux';
 }
 
-/* ── Props ───────────────────────────────────────── */
+/* -- Props */
 
 interface DashboardProps {
   onRefresh: () => Promise<void>;
 }
 
-/* ── Helpers ─────────────────────────────────────── */
+/* -- Helpers */
 
 const TIME_RANGE_QUICK = [
   { value: '15m', label: 'Last 15 min' },
@@ -78,9 +86,8 @@ const TIME_RANGE_PRECISE = [
 ];
 
 const SEVERITY_OPTIONS = ['critical', 'high', 'medium', 'low'];
-const ASSET_OPTIONS = ['WS-FINANCE-01', 'SRV-DC-02.corp.local', 'SRV-APP-10', 'WS-HR-08', 'VPN-GW-01', 'SRV-DB-03', 'SRV-WEB-11', 'K8S-NODE-04', 'WS-DEV-09'];
 
-/* ── OS icons for target asset ───────────────────── */
+/* -- OS icons for target asset */
 
 const osIcons: Record<string, JSX.Element> = {
   windows: (
@@ -113,9 +120,15 @@ const osIcons: Record<string, JSX.Element> = {
       <path d="M13.98 11.08h2.12a.19.19 0 00.19-.19V9.01a.19.19 0 00-.19-.19h-2.12a.19.19 0 00-.19.19v1.88c0 .1.09.19.19.19zm-2.95 0h2.12a.19.19 0 00.19-.19V9.01a.19.19 0 00-.19-.19H11.03a.19.19 0 00-.19.19v1.88c0 .1.09.19.19.19zm-2.93 0h2.12a.19.19 0 00.19-.19V9.01a.19.19 0 00-.19-.19H8.1a.19.19 0 00-.19.19v1.88c0 .1.08.19.19.19zm-2.96 0h2.12a.19.19 0 00.19-.19V9.01a.19.19 0 00-.19-.19H5.14a.19.19 0 00-.19.19v1.88c0 .1.09.19.19.19zm5.89-2.8h2.12a.19.19 0 00.19-.19V6.21a.19.19 0 00-.19-.19H11.03a.19.19 0 00-.19.19v1.88c0 .1.09.19.19.19zm-2.93 0h2.12a.19.19 0 00.19-.19V6.21a.19.19 0 00-.19-.19H8.1a.19.19 0 00-.19.19v1.88c0 .1.08.19.19.19zm5.88 0h2.12a.19.19 0 00.19-.19V6.21a.19.19 0 00-.19-.19h-2.12a.19.19 0 00-.19.19v1.88c0 .1.09.19.19.19zm0-2.8h2.12a.19.19 0 00.19-.19V3.41a.19.19 0 00-.19-.19h-2.12a.19.19 0 00-.19.19v1.88c0 .1.09.19.19.19zM24 12.04c-.55-.49-1.81-.69-2.78-.47-.13-.95-.65-1.78-1.27-2.46l-.26-.3-.31.25c-.65.52-1.03 1.24-1.16 2.04-.06.38-.04.78.06 1.16-.44.25-.96.39-1.41.48-.67.14-1.38.12-2.07.12H.57l-.05.38c-.12 1.14.07 2.28.51 3.32l.2.42v.02c1.37 2.34 3.76 3.34 6.4 3.34 5.32 0 9.67-2.45 11.67-7.72 1.3.07 2.6-.32 3.21-1.53l.16-.32-.67-.43z"/>
     </svg>
   ),
+  syslog: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="20" height="18" rx="2"/>
+      <path d="M7 8h10M7 12h6"/>
+    </svg>
+  ),
 };
 
-/* ── Main Dashboard ──────────────────────────────── */
+/* -- Main Dashboard */
 
 export function Dashboard({ onRefresh }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'trends' | 'health'>('overview');
@@ -136,6 +149,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
   const [topAlerts, setTopAlerts] = useState<TopAlertRow[]>([]);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [refreshing, setRefreshing] = useState(false);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
 
   const filteredTopAlerts = useMemo(() => {
     return topAlerts.filter(row => {
@@ -145,31 +159,56 @@ export function Dashboard({ onRefresh }: DashboardProps) {
     });
   }, [topAlerts, severityFilters, assetFilters]);
 
+  const hourlyChartData = useMemo(() => {
+    if (!stats?.hourly_events?.length) return [];
+    return stats.hourly_events.map(h => ({
+      hour: new Date(h.hour).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      count: parseInt(h.count, 10) || 0,
+    }));
+  }, [stats]);
+
+  const sourceChartData = useMemo(() => {
+    if (!stats?.events_by_source?.length) return [];
+    return stats.events_by_source.slice(0, 6).map(s => ({
+      source: s.source || 'unknown',
+      count: parseInt(s.count, 10) || 0,
+    }));
+  }, [stats]);
+
+  const assetOptions = useMemo(() => {
+    if (!stats?.agents?.length) return [];
+    return stats.agents.map(a => a.hostname);
+  }, [stats]);
+
   const loadDashboardData = async () => {
-    // Fetch open alerts for KPIs, sparklines, and top table
-    try {
-      const openAlerts = await getAllAlerts({ status: 'open' });
-      const critHigh = openAlerts.filter(a => a.severity === 'critical' || a.severity === 'high');
+    // Fetch dashboard stats + alerts in parallel
+    const [openAlerts, dashStats] = await Promise.all([
+      getAllAlerts({ status: 'open' }).catch(() => [] as AlertRecord[]),
+      getDashboardStats().catch(() => null),
+    ]);
 
-      setOpenAlertsCount(openAlerts.length);
-      setCritHighCount(critHigh.length);
-      setOpenAlertsTrend(buildAlertSparkline(openAlerts));
-      setCritHighTrend(buildAlertSparkline(critHigh));
+    if (dashStats) setStats(dashStats);
 
-      const sevOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
-      const top5 = [...openAlerts]
-        .sort((a, b) => (sevOrder[a.severity] ?? 4) - (sevOrder[b.severity] ?? 4))
-        .slice(0, 5)
-        .map(a => ({
-          severity: a.severity as TopAlertRow['severity'],
-          alert_name: a.rule_title || `Rule ${a.rule_id.slice(0, 8)}`,
-          target_asset: a.agent_meta?.hostname ?? '—',
-          asset_os: osFromString(a.agent_meta?.os),
-          vendor: 'CyberboxSIEM',
-          assigned_to: a.assignee ?? null,
-        }));
-      setTopAlerts(top5);
-    } catch { /* degrades gracefully */ }
+    const critHigh = openAlerts.filter(a => a.severity === 'critical' || a.severity === 'high');
+
+    setOpenAlertsCount(dashStats?.open_alerts ?? openAlerts.length);
+    setCritHighCount(critHigh.length);
+    setOpenAlertsTrend(buildAlertSparkline(openAlerts));
+    setCritHighTrend(buildAlertSparkline(critHigh));
+
+    const sevOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+    const top5 = [...openAlerts]
+      .sort((a, b) => (sevOrder[a.severity] ?? 4) - (sevOrder[b.severity] ?? 4))
+      .slice(0, 5)
+      .map(a => ({
+        severity: a.severity as TopAlertRow['severity'],
+        alert_name: a.rule_title || `Rule ${a.rule_id.slice(0, 8)}`,
+        target_asset: a.agent_meta?.hostname ?? '-',
+        asset_os: osFromString(a.agent_meta?.os),
+        vendor: 'CyberboxSIEM',
+        assigned_to: a.assignee ?? null,
+      }));
+    setTopAlerts(top5);
   };
 
   const handleRefresh = async () => {
@@ -187,7 +226,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
 
   return (
     <div className="page">
-      {/* ── Header ─────────────────────────────────── */}
+      {/* -- Header */}
       <div className="dash-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
           <h1 className="dash-page-title">DASHBOARD</h1>
@@ -314,7 +353,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
                         const to = new Date(customTo);
                         const fmt = (d: Date) => d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                         setTimeRange('custom');
-                        setCustomLabel(`${fmt(from)} – ${fmt(to)}`);
+                        setCustomLabel(`${fmt(from)} - ${fmt(to)}`);
                         setShowCustomPicker(false);
                         setTimeDropdownOpen(false);
                         handleRefresh();
@@ -331,13 +370,13 @@ export function Dashboard({ onRefresh }: DashboardProps) {
           {severityFilters.size > 0 && (
             <span className="dash-filter-pill">
               Severity: {[...severityFilters].join(', ')}
-              <button type="button" className="dash-filter-pill-x" onClick={() => setSeverityFilters(new Set())}>×</button>
+              <button type="button" className="dash-filter-pill-x" onClick={() => setSeverityFilters(new Set())}>x</button>
             </span>
           )}
           {assetFilters.size > 0 && (
             <span className="dash-filter-pill">
               Asset: {[...assetFilters].join(', ')}
-              <button type="button" className="dash-filter-pill-x" onClick={() => setAssetFilters(new Set())}>×</button>
+              <button type="button" className="dash-filter-pill-x" onClick={() => setAssetFilters(new Set())}>x</button>
             </span>
           )}
           {/* Add Filter dropdown */}
@@ -389,7 +428,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
                               setSeverityFilters(next);
                             }}
                           >
-                            <span className="dash-filter-checkbox">{active ? '✓' : ''}</span>
+                            <span className="dash-filter-checkbox">{active ? 'v' : ''}</span>
                             <span className={`dash-sev-badge dash-sev-badge--${sev}`}>{sev.charAt(0).toUpperCase() + sev.slice(1)}</span>
                           </button>
                         );
@@ -403,7 +442,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
                         Asset
                       </button>
                       <div className="dash-time-picker-divider" style={{ width: '100%', height: 1, margin: '4px 0' }} />
-                      {ASSET_OPTIONS.map(asset => {
+                      {assetOptions.map(asset => {
                         const active = assetFilters.has(asset);
                         return (
                           <button
@@ -416,7 +455,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
                               setAssetFilters(next);
                             }}
                           >
-                            <span className="dash-filter-checkbox">{active ? '✓' : ''}</span>
+                            <span className="dash-filter-checkbox">{active ? 'v' : ''}</span>
                             {asset}
                           </button>
                         );
@@ -446,10 +485,32 @@ export function Dashboard({ onRefresh }: DashboardProps) {
         </div>
       </div>
 
-      {/* ── Overview tab ────────────────────────────── */}
+      {/* -- Overview tab */}
       {activeTab === 'overview' && (
         <>
-          <div className="dash-kpis">
+          {/* KPI cards row */}
+          <div className="dash-kpis" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+            <div className="panel dash-kpi-card">
+              <span className="kpi-label">TOTAL EVENTS</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 2 }}>
+                <span className="dash-big-number">{stats?.total_events?.toLocaleString() ?? '-'}</span>
+              </div>
+              <div style={{ marginTop: 8, height: 48 }}>
+                {hourlyChartData.length > 0 && (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={hourlyChartData} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="eventsFill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#10b981" stopOpacity={0.35} />
+                          <stop offset="100%" stopColor="#10b981" stopOpacity={0.02} />
+                        </linearGradient>
+                      </defs>
+                      <Area type="monotone" dataKey="count" stroke="#10b981" fill="url(#eventsFill)" strokeWidth={2} dot={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
             <div className="panel dash-kpi-card">
               <span className="kpi-label">OPEN ALERTS</span>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 2 }}>
@@ -470,32 +531,85 @@ export function Dashboard({ onRefresh }: DashboardProps) {
               </div>
             </div>
             <div className="panel dash-kpi-card">
-              <span className="kpi-label">CRITICAL / HIGH ALERTS</span>
+              <span className="kpi-label">ACTIVE AGENTS</span>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 2 }}>
-                <span className="dash-big-number">{critHighCount}</span>
+                <span className="dash-big-number">{stats?.active_agents ?? 0}</span>
+                <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>/ {stats?.total_agents ?? 0}</span>
               </div>
-              <div style={{ marginTop: 8, height: 48 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={critHighTrend} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="critHighFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--sev-critical)" stopOpacity={0.35} />
-                        <stop offset="100%" stopColor="var(--sev-critical)" stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <Area type="monotone" dataKey="value" stroke="var(--sev-critical)" fill="url(#critHighFill)" strokeWidth={2} dot={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
+              <div style={{ marginTop: 12 }}>
+                {stats?.agents?.map(a => (
+                  <div key={a.agent_id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, fontSize: 13 }}>
+                    {osIcons[osFromString(a.os)] ?? null}
+                    <span style={{ color: 'var(--text-main)' }}>{a.hostname}</span>
+                    <span style={{
+                      marginLeft: 'auto',
+                      fontSize: 11,
+                      padding: '1px 8px',
+                      borderRadius: 10,
+                      background: a.status === 'active' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                      color: a.status === 'active' ? '#10b981' : '#ef4444',
+                    }}>{a.status}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="panel dash-kpi-card">
+              <span className="kpi-label">ACTIVE RULES</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 2 }}>
+                <span className="dash-big-number">{stats?.active_rules ?? 0}</span>
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-dim)' }}>
+                  <span>Crit/High alerts</span>
+                  <span style={{ marginLeft: 'auto', fontWeight: 600, color: critHighCount > 0 ? '#ef4444' : 'var(--text-dim)' }}>{critHighCount}</span>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* ── Top unmitigated alerts ──────────────── */}
-          <div className="panel dash-table-panel">
+          {/* Charts row */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16 }}>
+            {/* Event volume (24h) */}
+            <div className="panel" style={{ padding: '16px 20px' }}>
+              <h2 className="panel-title" style={{ marginBottom: 12 }}>Event volume (last 24h)</h2>
+              {hourlyChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={hourlyChartData}>
+                    <XAxis dataKey="hour" tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(hourlyChartData.length / 8) - 1)} />
+                    <YAxis tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} width={40} />
+                    <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} labelStyle={{ color: '#aaa' }} />
+                    <Bar dataKey="count" fill="#6366f1" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="chart-empty" style={{ padding: '40px 0' }}>Waiting for events...</div>
+              )}
+            </div>
+
+            {/* Events by source */}
+            <div className="panel" style={{ padding: '16px 20px' }}>
+              <h2 className="panel-title" style={{ marginBottom: 12 }}>Events by source</h2>
+              {sourceChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={sourceChartData} layout="vertical">
+                    <XAxis type="number" tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} />
+                    <YAxis type="category" dataKey="source" tick={{ fill: '#ccc', fontSize: 12 }} tickLine={false} axisLine={false} width={140} />
+                    <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} labelStyle={{ color: '#aaa' }} />
+                    <Bar dataKey="count" fill="#10b981" radius={[0, 3, 3, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="chart-empty" style={{ padding: '40px 0' }}>No event sources yet</div>
+              )}
+            </div>
+          </div>
+
+          {/* Top unmitigated alerts */}
+          <div className="panel dash-table-panel" style={{ marginTop: 16 }}>
             <h2 className="panel-title">Top 5 unmitigated alerts by severity</h2>
             {filteredTopAlerts.length === 0 ? (
               <div className="chart-empty" style={{ padding: '32px 0' }}>
-                {topAlerts.length === 0 ? 'No open alerts — environment is clean.' : 'No alerts match the active filters.'}
+                {topAlerts.length === 0 ? 'No open alerts - environment is clean.' : 'No alerts match the active filters.'}
               </div>
             ) : (
               <table className="dash-table">
@@ -522,7 +636,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
                           {row.target_asset}
                         </span>
                       </td>
-                      <td>{row.assigned_to ?? '–'}</td>
+                      <td>{row.assigned_to ?? '-'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -532,25 +646,74 @@ export function Dashboard({ onRefresh }: DashboardProps) {
         </>
       )}
 
-      {/* ── Trends tab ───────────────────────────────── */}
+      {/* -- Trends tab */}
       {activeTab === 'trends' && (
-        <div className="panel" style={{ padding: 48, textAlign: 'center' }}>
-          <div style={{ fontSize: 40, marginBottom: 12, opacity: 0.3 }}>&#x1f4c8;</div>
-          <h2 className="panel-title" style={{ marginBottom: 8 }}>No trend data yet</h2>
-          <p className="dash-chart-desc">
-            MTTD, MTTR, risk score, and event volume trends will appear here once enough data has been ingested.
-          </p>
+        <div className="panel" style={{ padding: '16px 20px' }}>
+          <h2 className="panel-title" style={{ marginBottom: 12 }}>Event volume (last 24h)</h2>
+          {hourlyChartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <AreaChart data={hourlyChartData}>
+                <XAxis dataKey="hour" tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} width={50} />
+                <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} labelStyle={{ color: '#aaa' }} />
+                <defs>
+                  <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#6366f1" stopOpacity={0.3} />
+                    <stop offset="100%" stopColor="#6366f1" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <Area type="monotone" dataKey="count" stroke="#6366f1" fill="url(#trendFill)" strokeWidth={2} dot={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="chart-empty" style={{ padding: '60px 0' }}>
+              Waiting for event data to populate trends...
+            </div>
+          )}
         </div>
       )}
 
-      {/* ── Health tab ──────────────────────────────── */}
+      {/* -- Health tab */}
       {activeTab === 'health' && (
-        <div className="panel" style={{ padding: 48, textAlign: 'center' }}>
-          <div style={{ fontSize: 40, marginBottom: 12, opacity: 0.3 }}>&#x1f3e5;</div>
-          <h2 className="panel-title" style={{ marginBottom: 8 }}>No health data yet</h2>
-          <p className="dash-chart-desc">
-            Agent status, EPS, storage usage, and data source coverage will appear here once agents begin reporting.
-          </p>
+        <div className="panel" style={{ padding: '16px 20px' }}>
+          <h2 className="panel-title" style={{ marginBottom: 16 }}>Agent Health</h2>
+          {stats?.agents && stats.agents.length > 0 ? (
+            <table className="dash-table">
+              <thead>
+                <tr>
+                  <th>Agent</th>
+                  <th>Hostname</th>
+                  <th>OS</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.agents.map(a => (
+                  <tr key={a.agent_id}>
+                    <td style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {osIcons[osFromString(a.os)] ?? null}
+                      {a.agent_id}
+                    </td>
+                    <td>{a.hostname}</td>
+                    <td>{a.os}</td>
+                    <td>
+                      <span style={{
+                        fontSize: 12,
+                        padding: '2px 10px',
+                        borderRadius: 10,
+                        background: a.status === 'active' ? 'rgba(16,185,129,0.15)' : a.status === 'stale' ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)',
+                        color: a.status === 'active' ? '#10b981' : a.status === 'stale' ? '#f59e0b' : '#ef4444',
+                      }}>{a.status.toUpperCase()}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="chart-empty" style={{ padding: '48px 0' }}>
+              No agents registered yet
+            </div>
+          )}
         </div>
       )}
     </div>

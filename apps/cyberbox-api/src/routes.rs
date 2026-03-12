@@ -136,6 +136,8 @@ pub fn api_router() -> Router<AppState> {
         .route("/api/v1/agents/:id", patch(patch_agent))
         .route("/api/v1/agents/:id/heartbeat", post(agent_heartbeat))
         .route("/api/v1/agents/:id/config", post(push_agent_config))
+        // Dashboard stats
+        .route("/api/v1/dashboard/stats", get(dashboard_stats))
 }
 
 pub async fn healthz() -> Json<Value> {
@@ -2841,6 +2843,77 @@ pub async fn list_sources(
     // Most recently active first
     sources.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
     Json(sources)
+}
+
+// ── Dashboard stats ────────────────────────────────────────────────────────────
+
+/// `GET /api/v1/dashboard/stats` — aggregated stats for the dashboard.
+pub async fn dashboard_stats(
+    auth: AuthContext,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, CyberboxError> {
+    let tenant_id = &auth.tenant_id;
+
+    // Agent counts
+    let agents: Vec<_> = state
+        .agents
+        .iter()
+        .map(|e| {
+            let a = e.value();
+            json!({
+                "agent_id": a.agent_id,
+                "hostname": a.hostname,
+                "os": a.os,
+                "status": a.status(),
+            })
+        })
+        .collect();
+    let active_agents = agents.iter().filter(|a| a["status"] == "active").count();
+
+    // Rule count
+    let rule_count = if let Some(ch) = &state.clickhouse_event_store {
+        use cyberbox_storage::RuleStore;
+        ch.list_rules(tenant_id).await.unwrap_or_default().len()
+    } else {
+        use cyberbox_storage::RuleStore;
+        state
+            .storage
+            .list_rules(tenant_id)
+            .await
+            .unwrap_or_default()
+            .len()
+    };
+
+    // Alert count
+    let alert_count = state
+        .storage
+        .list_alerts(tenant_id)
+        .await
+        .unwrap_or_default()
+        .len();
+
+    // ClickHouse stats (if available)
+    let ch_stats = if let Some(ch) = &state.clickhouse_event_store {
+        ch.dashboard_stats(tenant_id).await.unwrap_or(json!({}))
+    } else {
+        json!({ "total_events": 0, "events_by_source": [], "hourly_events": [] })
+    };
+
+    let mut result = json!({
+        "active_agents": active_agents,
+        "total_agents": agents.len(),
+        "agents": agents,
+        "active_rules": rule_count,
+        "open_alerts": alert_count,
+    });
+    // Merge ClickHouse stats
+    if let (Some(r), Some(c)) = (result.as_object_mut(), ch_stats.as_object()) {
+        for (k, v) in c {
+            r.insert(k.clone(), v.clone());
+        }
+    }
+
+    Ok(Json(result))
 }
 
 // ── Agent registry ─────────────────────────────────────────────────────────────

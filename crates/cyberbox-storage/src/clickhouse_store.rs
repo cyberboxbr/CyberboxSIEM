@@ -837,6 +837,56 @@ impl ClickHouseEventStore {
         })
     }
 
+    /// Dashboard stats: total events, events by source, hourly counts for a tenant.
+    pub async fn dashboard_stats(&self, tenant_id: &str) -> Result<Value, CyberboxError> {
+        let safe_tenant = escape_sql_literal(tenant_id);
+
+        // Total events
+        let total_sql = format!(
+            "SELECT count() as c FROM {}.{} WHERE tenant_id = '{safe_tenant}'",
+            self.database, self.table
+        );
+        let total_body = self.execute_sql(&total_sql).await?;
+        let total_events: i64 = total_body.trim().parse().unwrap_or(0);
+
+        // Events by source (top 10)
+        let by_source_sql = format!(
+            "SELECT computer_name as source, count() as count \
+             FROM {db}.{tbl} WHERE tenant_id = '{t}' \
+             GROUP BY computer_name ORDER BY count DESC LIMIT 10 FORMAT JSON",
+            db = self.database,
+            tbl = self.table,
+            t = safe_tenant
+        );
+        let by_source = self
+            .execute_sql_json(&by_source_sql)
+            .await
+            .map(|r| r.data)
+            .unwrap_or_default();
+
+        // Hourly event counts (last 24h)
+        let hourly_sql = format!(
+            "SELECT toStartOfHour(event_time) as hour, count() as count \
+             FROM {db}.{tbl} \
+             WHERE tenant_id = '{t}' AND event_time >= now() - INTERVAL 24 HOUR \
+             GROUP BY hour ORDER BY hour FORMAT JSON",
+            db = self.database,
+            tbl = self.table,
+            t = safe_tenant
+        );
+        let hourly = self
+            .execute_sql_json(&hourly_sql)
+            .await
+            .map(|r| r.data)
+            .unwrap_or_default();
+
+        Ok(json!({
+            "total_events": total_events,
+            "events_by_source": by_source,
+            "hourly_events": hourly,
+        }))
+    }
+
     pub async fn list_scheduled_rules(&self) -> Result<Vec<DetectionRule>, CyberboxError> {
         let query = format!(
             "SELECT rule_id, tenant_id, sigma_source, compiled_plan, schedule_or_stream, schedule_interval_seconds, schedule_lookback_seconds, severity, enabled \
