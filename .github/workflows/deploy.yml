@@ -190,17 +190,29 @@ jobs:
           echo "=== Pod status ==="
           kubectl get pods -n ${{ env.HELM_NAMESPACE }} -o wide
           echo ""
+          echo "=== PVC status ==="
+          kubectl get pvc -n ${{ env.HELM_NAMESPACE }} 2>/dev/null || true
+          echo ""
+          echo "=== StorageClasses ==="
+          kubectl get storageclass 2>/dev/null || true
+          echo ""
+          echo "=== All pod logs (last 30 lines each) ==="
+          for pod in $(kubectl get pods -n ${{ env.HELM_NAMESPACE }} --no-headers | awk '{print $1}'); do
+            echo "--- logs $pod ---"
+            kubectl logs "$pod" -n ${{ env.HELM_NAMESPACE }} --tail=30 --all-containers 2>/dev/null || true
+            echo ""
+            # Also check previous container if it crashed
+            kubectl logs "$pod" -n ${{ env.HELM_NAMESPACE }} --tail=30 --all-containers --previous 2>/dev/null || true
+          done
+          echo ""
           echo "=== Pod describe (non-Running) ==="
           for pod in $(kubectl get pods -n ${{ env.HELM_NAMESPACE }} --no-headers | grep -v Running | awk '{print $1}'); do
-            echo "--- $pod ---"
+            echo "--- describe $pod ---"
             kubectl describe pod "$pod" -n ${{ env.HELM_NAMESPACE }} | tail -30
-            echo ""
-            echo "--- logs $pod ---"
-            kubectl logs "$pod" -n ${{ env.HELM_NAMESPACE }} --tail=50 2>/dev/null || true
             echo ""
           done
           echo "=== Events ==="
-          kubectl get events -n ${{ env.HELM_NAMESPACE }} --sort-by='.lastTimestamp' | tail -30
+          kubectl get events -n ${{ env.HELM_NAMESPACE }} --sort-by='.lastTimestamp' | tail -40
 
       - name: Verify deployment
         run: |

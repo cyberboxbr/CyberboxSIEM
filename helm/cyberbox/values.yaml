@@ -144,7 +144,7 @@ redpanda:
   image: docker.redpanda.com/redpandadata/redpanda:v24.3.3
   memory: "1536M"  # Redpanda --memory flag (NOT Kubernetes Mi format)
   storage: 30Gi
-  storageClass: ""  # empty = use cluster default (gp3 on EKS)
+  storageClass: "gp2"
   resources:
     requests:
       cpu: 250m
@@ -162,7 +162,7 @@ clickhouse:
   user: cyberbox
   password: cyberbox
   storage: 100Gi
-  storageClass: ""  # empty = use cluster default (gp3 on EKS)
+  storageClass: "gp2"
   resources:
     requests:
       cpu: 500m
