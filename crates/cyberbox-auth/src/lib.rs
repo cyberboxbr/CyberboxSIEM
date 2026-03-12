@@ -436,7 +436,7 @@ fn extract_from_headers(headers: &axum::http::HeaderMap) -> Result<AuthContext, 
         .get("x-tenant-id")
         .and_then(|v| v.to_str().ok())
         .map(ToOwned::to_owned)
-        .ok_or(CyberboxError::Unauthorized)?;
+        .unwrap_or_else(|| "default".to_string());
 
     let user_id = headers
         .get("x-user-id")

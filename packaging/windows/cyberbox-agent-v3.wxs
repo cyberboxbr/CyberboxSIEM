@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Cyberbox SIEM Agent - WiX v3 MSI installer
+    Build with candle.exe + light.exe (WiX Toolset v3.14)
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product
+    Id="*"
+    Name="Cyberbox SIEM Agent"
+    Manufacturer="Cyberbox Security"
+    Version="$(var.Version)"
+    UpgradeCode="A1B2C3D4-E5F6-7890-ABCD-EF1234567890"
+    Language="1033">
+
+    <Package
+      InstallerVersion="500"
+      Compressed="yes"
+      InstallScope="perMachine"
+      Description="Cyberbox SIEM Agent $(var.Version)"
+      Manufacturer="Cyberbox Security" />
+
+    <MajorUpgrade
+      DowngradeErrorMessage="A newer version of Cyberbox Agent is already installed."
+      AllowSameVersionUpgrades="yes" />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Branding -->
+    <Icon Id="CyberboxIcon" SourceFile="$(var.IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="CyberboxIcon" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/cyberboxsiem/CyberboxSIEM" />
+
+    <!-- Directory structure -->
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="CYBERBOXDIR" Name="Cyberbox">
+          <Directory Id="INSTALLDIR" Name="Agent" />
+        </Directory>
+      </Directory>
+      <Directory Id="CommonAppDataFolder">
+        <Directory Id="DATADIR" Name="Cyberbox" />
+      </Directory>
+    </Directory>
+
+    <!-- Agent binary + Windows Service -->
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="AgentBinary" Guid="B1C2D3E4-F5A6-7890-BCDE-F12345678901" Win64="yes">
+        <File Id="AgentExe"
+              Source="$(var.BinaryPath)"
+              Name="cyberbox-agent.exe"
+              KeyPath="yes" />
+
+        <ServiceInstall
+          Id="CyberboxAgentService"
+          Name="CyberboxAgent"
+          DisplayName="Cyberbox SIEM Agent"
+          Description="Lightweight log-forwarding agent for CyberboxSIEM. Collects Windows Event Logs, Sysmon events, and file integrity data."
+          Start="auto"
+          Type="ownProcess"
+          ErrorControl="normal"
+          Arguments="run --config &quot;[DATADIR]agent.toml&quot;" />
+
+        <ServiceControl
+          Id="StartCyberboxAgent"
+          Name="CyberboxAgent"
+          Start="install"
+          Stop="both"
+          Remove="uninstall"
+          Wait="yes" />
+      </Component>
+
+      <!-- Include signing cert for trust import -->
+      <Component Id="SigningCert" Guid="C2D3E4F5-A6B7-8901-CDEF-123456789012" Win64="yes">
+        <File Id="SigningCer"
+              Source="$(var.CertPath)"
+              Name="cyberbox-signing.cer"
+              KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <!-- Default config in ProgramData -->
+    <DirectoryRef Id="DATADIR">
+      <Component Id="DefaultConfig" Guid="D3E4F5A6-B7C8-9012-DEFA-234567890123" Win64="yes">
+        <File Id="AgentToml"
+              Source="$(var.ConfigPath)"
+              Name="agent.toml"
+              KeyPath="yes" />
+        <Condition>NOT Installed</Condition>
+      </Component>
+    </DirectoryRef>
+
+    <Feature Id="Complete" Title="Cyberbox Agent" Level="1">
+      <ComponentRef Id="AgentBinary" />
+      <ComponentRef Id="SigningCert" />
+      <ComponentRef Id="DefaultConfig" />
+    </Feature>
+
+  </Product>
+</Wix>
