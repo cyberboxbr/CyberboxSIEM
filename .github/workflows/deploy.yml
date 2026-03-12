@@ -157,13 +157,12 @@ jobs:
               kubectl delete configmap "$cm" -n ${{ env.HELM_NAMESPACE }} --ignore-not-found
             fi
           done
-          # Delete Services so Helm can recreate them with the correct type (ClusterIP→NodePort)
-          # Kubernetes does not allow in-place service type changes via patch
+          # Delete Services whose type changed — Kubernetes rejects in-place type patches
           for svc in cyberbox-api cyberbox-ui cyberbox-collector; do
             CURRENT_TYPE=$(kubectl get service "$svc" -n ${{ env.HELM_NAMESPACE }} \
               -o jsonpath='{.spec.type}' 2>/dev/null || echo "")
-            if [ "$CURRENT_TYPE" = "ClusterIP" ]; then
-              echo "Deleting ClusterIP service $svc so Helm can recreate as NodePort"
+            if [ "$CURRENT_TYPE" = "NodePort" ]; then
+              echo "Deleting NodePort service $svc so Helm can recreate as ClusterIP"
               kubectl delete service "$svc" -n ${{ env.HELM_NAMESPACE }} --ignore-not-found
             fi
           done
@@ -179,13 +178,6 @@ jobs:
             --set config.clickhouse.enabled=false \
             --set api.replicaCount=1 \
             --set worker.replicaCount=1 \
-            --set api.service.type=NodePort \
-            --set api.service.nodePort=30080 \
-            --set ui.service.type=NodePort \
-            --set ui.service.nodePort=30300 \
-            --set collector.service.type=NodePort \
-            --set collector.service.nodePorts.udp=30514 \
-            --set collector.service.nodePorts.tcp=30601 \
             --wait \
             --timeout 10m \
             --atomic
