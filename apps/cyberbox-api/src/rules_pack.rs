@@ -82,7 +82,11 @@ pub async fn import_rules_from_dir(
             }
         };
 
-        let existing = state.storage.get_rule(&auth.tenant_id, rule_id).await.ok();
+        let existing = if let Some(ch) = &state.clickhouse_event_store {
+            ch.get_rule(&auth.tenant_id, rule_id).await.ok()
+        } else {
+            state.storage.get_rule(&auth.tenant_id, rule_id).await.ok()
+        };
 
         if let Some(ref ex) = existing {
             if ex.sigma_source == content {
@@ -106,7 +110,12 @@ pub async fn import_rules_from_dir(
             suppression_window_secs: None,
         };
 
-        match state.storage.upsert_rule(rule).await {
+        let upsert_result = if let Some(ch) = &state.clickhouse_event_store {
+            ch.upsert_rule(rule).await
+        } else {
+            state.storage.upsert_rule(rule).await
+        };
+        match upsert_result {
             Ok(_) => {
                 if existing.is_some() {
                     updated += 1;
@@ -122,16 +131,24 @@ pub async fn import_rules_from_dir(
 
     let pruned = if prune {
         let mut count = 0;
-        let all_rules = state
-            .storage
-            .list_rules(&auth.tenant_id)
-            .await
-            .unwrap_or_default();
+        let all_rules = if let Some(ch) = &state.clickhouse_event_store {
+            ch.list_rules(&auth.tenant_id).await.unwrap_or_default()
+        } else {
+            state
+                .storage
+                .list_rules(&auth.tenant_id)
+                .await
+                .unwrap_or_default()
+        };
         for rule in &all_rules {
             if rule.enabled && !seen_ids.contains(&rule.rule_id) {
                 let mut disabled = rule.clone();
                 disabled.enabled = false;
-                let _ = state.storage.upsert_rule(disabled).await;
+                if let Some(ch) = &state.clickhouse_event_store {
+                    let _ = ch.upsert_rule(disabled).await;
+                } else {
+                    let _ = state.storage.upsert_rule(disabled).await;
+                }
                 count += 1;
             }
         }

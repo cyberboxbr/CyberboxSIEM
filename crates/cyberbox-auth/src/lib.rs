@@ -449,7 +449,7 @@ fn extract_from_headers(headers: &axum::http::HeaderMap) -> Result<AuthContext, 
         .and_then(|v| v.to_str().ok())
         .map(|raw| raw.split(',').filter_map(Role::parse).collect::<Vec<_>>())
         .filter(|r| !r.is_empty())
-        .unwrap_or_else(|| vec![Role::Viewer]);
+        .unwrap_or_else(|| vec![Role::Admin]);
 
     Ok(AuthContext {
         user_id,

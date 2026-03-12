@@ -213,6 +213,18 @@ async fn main() -> anyhow::Result<()> {
                                 errors   = result.errors.len(),
                                 "bundled rules auto-imported on startup"
                             );
+                            // Refresh detection engine cache so rules are active immediately.
+                            use cyberbox_storage::RuleStore as _;
+                            let fresh: Vec<cyberbox_models::DetectionRule> =
+                                if let Some(ch) = &s.clickhouse_event_store {
+                                    ch.list_rules(&auth.tenant_id).await.unwrap_or_default()
+                                } else {
+                                    s.storage
+                                        .list_rules(&auth.tenant_id)
+                                        .await
+                                        .unwrap_or_default()
+                                };
+                            s.stream_rule_cache.refresh(&auth.tenant_id, fresh);
                         } else {
                             tracing::debug!(dir = %dir, skipped = result.skipped, "bundled rules already up to date");
                         }
