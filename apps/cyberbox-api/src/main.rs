@@ -183,9 +183,15 @@ async fn main() -> anyhow::Result<()> {
         if let Some(dir) = rules_dir {
             let s = state.clone();
             tokio::spawn(async move {
-                // Use a system auth context for the import
+                // Use a system auth context for the import.
+                // When tenant_id_override is set, import under that tenant
+                // so detection rules match events forced to the same tenant.
+                let tenant_id = s
+                    .tenant_id_override
+                    .clone()
+                    .unwrap_or_else(|| "default".to_string());
                 let auth = cyberbox_auth::AuthContext {
-                    tenant_id: "default".to_string(),
+                    tenant_id,
                     user_id: "system".to_string(),
                     roles: vec![cyberbox_auth::Role::Admin],
                 };
