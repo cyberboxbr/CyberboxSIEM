@@ -381,8 +381,8 @@ export interface NlqResponse {
 
 export interface CoveredTechnique {
   technique_id: string;
-  technique_name: string;
-  tactic: string;
+  technique_name: string | null;
+  tactic: string | null;
   rule_count: number;
   rule_ids: string[];
 }

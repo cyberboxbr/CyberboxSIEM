@@ -35,7 +35,8 @@ const TACTIC_LABELS: Record<string, string> = {
   'impact': 'Impact',
 };
 
-function normalizeTactic(tactic: string): string {
+function normalizeTactic(tactic: string | null | undefined): string {
+  if (!tactic) return 'unknown';
   return tactic.toLowerCase().replace(/[\s_]+/g, '-');
 }
 
