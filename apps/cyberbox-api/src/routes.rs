@@ -2534,7 +2534,9 @@ async fn issue_ws_token(
     // Evict stale tokens (lazy, amortised).
     let now = std::time::Instant::now();
     state.ws_tokens.retain(|_, (_, exp)| now < *exp);
-    state.ws_tokens.insert(token.clone(), (auth.tenant_id.clone(), expiry));
+    state
+        .ws_tokens
+        .insert(token.clone(), (auth.tenant_id.clone(), expiry));
     Ok(Json(
         json!({ "token": token, "expires_in_seconds": 60, "tenant_id": auth.tenant_id }),
     ))
