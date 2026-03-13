@@ -245,6 +245,7 @@ fn effective_batch_size(
 /// in-flight) then spawn a task to POST the batch.  The permit is held for
 /// the lifetime of the spawned task so at most `concurrency` POSTs run
 /// simultaneously.
+#[allow(clippy::too_many_arguments)]
 async fn dispatch_post(
     events: Vec<Value>,
     sem: &Arc<Semaphore>,
@@ -417,6 +418,7 @@ fn spill_to_queue(cfg: &ForwarderConfig, events: Vec<Value>) {
 /// Memory usage is bounded: at most one batch is held in RAM at any point.
 /// Unprocessed lines are streamed to a `.jsonl.tmp` sidecar; on completion
 /// the sidecar atomically replaces the queue file (or is deleted when empty).
+#[allow(clippy::too_many_arguments)]
 async fn drain_queue(
     client: &reqwest::Client,
     url: &str,
