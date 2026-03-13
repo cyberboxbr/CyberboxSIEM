@@ -17,7 +17,7 @@ import {
 } from '../api/client';
 
 interface AlertSparkPoint { day: string; value: number }
-type AssetOs = 'windows' | 'windows-server' | 'linux' | 'linux-server' | 'docker' | 'syslog';
+type AssetOs = 'windows' | 'windows-server' | 'linux' | 'linux-server' | 'docker' | 'syslog' | 'firewall';
 interface TopAlertRow {
   severity: 'critical' | 'high' | 'medium' | 'low';
   alert_name: string;
@@ -50,13 +50,19 @@ function buildAlertSparkline(alerts: AlertRecord[]): AlertSparkPoint[] {
   });
 }
 
-function osFromString(os?: string): AssetOs {
+const FIREWALL_KEYWORDS = ['opnsense', 'pfsense', 'fortinet', 'fortigate', 'sophos', 'paloalto', 'firewall', 'fw.', 'asa'];
+
+function osFromString(os?: string, hostname?: string): AssetOs {
   if (!os) return 'linux';
   const lower = os.toLowerCase();
-  if (lower === 'syslog') return 'syslog';
+  const host = (hostname || '').toLowerCase();
+  if (lower === 'firewall') return 'firewall';
+  if (FIREWALL_KEYWORDS.some(k => host.includes(k))) return 'firewall';
+  if (lower === 'syslog' && FIREWALL_KEYWORDS.some(k => host.includes(k))) return 'firewall';
   if (lower.includes('windows server')) return 'windows-server';
   if (lower.includes('windows')) return 'windows';
   if (lower.includes('docker') || lower.includes('container')) return 'docker';
+  if (lower === 'syslog') return 'linux';
   if (lower.includes('server')) return 'linux-server';
   return 'linux';
 }
@@ -124,6 +130,17 @@ const osIcons: Record<string, JSX.Element> = {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="2" y="3" width="20" height="18" rx="2"/>
       <path d="M7 8h10M7 12h6"/>
+    </svg>
+  ),
+  firewall: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+      <rect x="2" y="4" width="20" height="6" rx="1.5" stroke="#f45d5d" strokeWidth="1.5" fill="rgba(244,93,93,0.1)" />
+      <rect x="2" y="14" width="20" height="6" rx="1.5" stroke="#f45d5d" strokeWidth="1.5" fill="rgba(244,93,93,0.1)" />
+      <circle cx="5.5" cy="7" r="1" fill="#58d68d" />
+      <circle cx="5.5" cy="17" r="1" fill="#58d68d" />
+      <line x1="8" y1="7" x2="14" y2="7" stroke="#f45d5d" strokeWidth="1" strokeLinecap="round" />
+      <line x1="8" y1="17" x2="14" y2="17" stroke="#f45d5d" strokeWidth="1" strokeLinecap="round" />
+      <path d="M12 10V14" stroke="rgba(219,228,243,0.3)" strokeWidth="1.5" strokeDasharray="2 1" />
     </svg>
   ),
 };
@@ -204,7 +221,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
         severity: a.severity as TopAlertRow['severity'],
         alert_name: a.rule_title || `Rule ${a.rule_id.slice(0, 8)}`,
         target_asset: a.agent_meta?.hostname ?? '-',
-        asset_os: osFromString(a.agent_meta?.os),
+        asset_os: osFromString(a.agent_meta?.os, a.agent_meta?.hostname),
         vendor: 'CyberboxSIEM',
         assigned_to: a.assignee ?? null,
       }));
@@ -539,7 +556,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
               <div style={{ marginTop: 12 }}>
                 {stats?.agents?.map(a => (
                   <div key={a.agent_id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, fontSize: 13 }}>
-                    {osIcons[osFromString(a.os)] ?? null}
+                    {osIcons[osFromString(a.os, a.hostname)] ?? null}
                     <span style={{ color: 'var(--text-main)' }}>{a.hostname}</span>
                     <span style={{
                       marginLeft: 'auto',
@@ -691,11 +708,11 @@ export function Dashboard({ onRefresh }: DashboardProps) {
                 {stats.agents.map(a => (
                   <tr key={a.agent_id}>
                     <td style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      {osIcons[osFromString(a.os)] ?? null}
+                      {osIcons[osFromString(a.os, a.hostname)] ?? null}
                       {a.agent_id}
                     </td>
                     <td>{a.hostname}</td>
-                    <td>{a.os}</td>
+                    <td>{osFromString(a.os, a.hostname)}</td>
                     <td>
                       <span style={{
                         fontSize: 12,

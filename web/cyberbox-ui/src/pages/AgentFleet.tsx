@@ -72,6 +72,93 @@ function countBadge(count: number, color: string): React.CSSProperties {
 }
 
 // ---------------------------------------------------------------------------
+// OS icons (inline SVG)
+// ---------------------------------------------------------------------------
+
+const FIREWALL_HINTS = ['opnsense', 'pfsense', 'fortinet', 'fortigate', 'sophos', 'paloalto', 'firewall', 'fw.', 'asa'];
+
+function resolveOsType(agent: AgentRecord): 'windows' | 'linux' | 'firewall' | 'mac' | 'unknown' {
+  const os = (agent.os || '').toLowerCase();
+  const host = (agent.hostname || '').toLowerCase();
+  const id = (agent.agent_id || '').toLowerCase();
+
+  if (os === 'windows' || os === 'windows_sysmon') return 'windows';
+  if (os === 'macos' || os === 'darwin') return 'mac';
+
+  // Check for firewall hints in hostname / agent_id
+  if (FIREWALL_HINTS.some(h => host.includes(h) || id.includes(h))) return 'firewall';
+  if (os === 'firewall') return 'firewall';
+
+  // syslog sources on linux
+  if (os === 'linux' || os === 'syslog' || os === 'journald') return 'linux';
+
+  return 'unknown';
+}
+
+function OsIcon({ agent }: { agent: AgentRecord }) {
+  const type = resolveOsType(agent);
+  const size = 20;
+  const iconStyle: React.CSSProperties = { verticalAlign: 'middle', flexShrink: 0 };
+
+  if (type === 'windows') {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={iconStyle}>
+        <path d="M3 5.5L10.5 4.4V11.4H3V5.5Z" fill="#4a9eda" />
+        <path d="M11.5 4.2L21 3V11.4H11.5V4.2Z" fill="#4a9eda" />
+        <path d="M3 12.6H10.5V19.6L3 18.5V12.6Z" fill="#4a9eda" />
+        <path d="M11.5 12.6H21V21L11.5 19.8V12.6Z" fill="#4a9eda" />
+      </svg>
+    );
+  }
+
+  if (type === 'linux') {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={iconStyle}>
+        <ellipse cx="12" cy="7.5" rx="4" ry="4.5" fill="#f5a623" />
+        <circle cx="10.5" cy="6.5" r="0.8" fill="#091523" />
+        <circle cx="13.5" cy="6.5" r="0.8" fill="#091523" />
+        <path d="M10.5 9C11 9.5 13 9.5 13.5 9" stroke="#091523" strokeWidth="0.7" strokeLinecap="round" />
+        <path d="M8 12C8 10 9.5 9.5 12 9.5C14.5 9.5 16 10 16 12V16C16 17 15 17.5 14 17.5H10C9 17.5 8 17 8 16V12Z" fill="#f5a623" />
+        <path d="M8 16.5L5.5 19.5C5 20 5.2 20.5 6 20.5H8" stroke="#f5a623" strokeWidth="1.5" strokeLinecap="round" />
+        <path d="M16 16.5L18.5 19.5C19 20 18.8 20.5 18 20.5H16" stroke="#f5a623" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (type === 'firewall') {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={iconStyle}>
+        <rect x="2" y="4" width="20" height="6" rx="1.5" stroke="#f45d5d" strokeWidth="1.5" fill="rgba(244,93,93,0.1)" />
+        <rect x="2" y="14" width="20" height="6" rx="1.5" stroke="#f45d5d" strokeWidth="1.5" fill="rgba(244,93,93,0.1)" />
+        <circle cx="5.5" cy="7" r="1" fill="#58d68d" />
+        <circle cx="5.5" cy="17" r="1" fill="#58d68d" />
+        <line x1="8" y1="7" x2="14" y2="7" stroke="#f45d5d" strokeWidth="1" strokeLinecap="round" />
+        <line x1="8" y1="17" x2="14" y2="17" stroke="#f45d5d" strokeWidth="1" strokeLinecap="round" />
+        <path d="M12 10V14" stroke="rgba(219,228,243,0.3)" strokeWidth="1.5" strokeDasharray="2 1" />
+      </svg>
+    );
+  }
+
+  if (type === 'mac') {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={iconStyle}>
+        <path d="M18.7 12.4C18.7 15.8 16.2 19.8 13.5 19.8C12.7 19.8 12.2 19.4 11.5 19.4C10.8 19.4 10.2 19.8 9.5 19.8C7 19.8 4.3 16 4.3 12.4C4.3 9.2 6.5 7.5 8.5 7.5C9.4 7.5 10.2 8 11 8C11.7 8 12.6 7.4 13.7 7.5C15.5 7.5 16.8 8.5 17.5 10C16 10.8 15.2 12.2 15.2 13.5" stroke={s.text} strokeWidth="1.3" />
+        <path d="M14 4C14 5.5 12.8 7.2 11 7.5C11 6 12.2 4.2 14 4Z" fill={s.text} />
+      </svg>
+    );
+  }
+
+  // Unknown
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={iconStyle}>
+      <rect x="3" y="4" width="18" height="12" rx="2" stroke={s.dim} strokeWidth="1.5" />
+      <line x1="12" y1="16" x2="12" y2="19" stroke={s.dim} strokeWidth="1.5" />
+      <line x1="8" y1="19" x2="16" y2="19" stroke={s.dim} strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -244,7 +331,7 @@ export function AgentFleet() {
               <tr>
                 <th style={th}>Agent ID</th>
                 <th style={th}>Hostname</th>
-                <th style={th}>OS</th>
+                <th style={th}>Platform</th>
                 <th style={th}>Version</th>
                 <th style={th}>Last Seen</th>
                 <th style={th}>Status</th>
@@ -273,7 +360,10 @@ export function AgentFleet() {
                           <code style={{ fontSize: 11 }}>{agent.agent_id.slice(0, 12)}</code>
                         </span>
                         <span style={td}>{agent.hostname}</span>
-                        <span style={td}>{agent.os}</span>
+                        <span style={{ ...td, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <OsIcon agent={agent} />
+                          {resolveOsType(agent)}
+                        </span>
                         <span style={td}>{agent.version}</span>
                         <span style={td} title={agent.last_seen}>{relativeTime(agent.last_seen)}</span>
                         <span style={td}><span style={statusBadge(agent.status)}>{agent.status}</span></span>
@@ -316,7 +406,9 @@ export function AgentFleet() {
                             <div><strong style={{ color: s.dim }}>Tenant:</strong> {agent.tenant_id}</div>
                             <div><strong style={{ color: s.dim }}>IP:</strong> {agent.ip || 'N/A'}</div>
                             <div><strong style={{ color: s.dim }}>Hostname:</strong> {agent.hostname}</div>
-                            <div><strong style={{ color: s.dim }}>OS:</strong> {agent.os}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <strong style={{ color: s.dim }}>OS:</strong> <OsIcon agent={agent} /> {resolveOsType(agent)}
+                            </div>
                             <div><strong style={{ color: s.dim }}>Version:</strong> {agent.version}</div>
                             <div><strong style={{ color: s.dim }}>Last Seen:</strong> {new Date(agent.last_seen).toLocaleString()}</div>
                             <div><strong style={{ color: s.dim }}>Status:</strong> <span style={statusBadge(agent.status)}>{agent.status}</span></div>
