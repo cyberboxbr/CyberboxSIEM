@@ -865,25 +865,25 @@ impl ClickHouseEventStore {
     }
 
     /// Dashboard stats: total events, events by source, hourly counts for a tenant.
-    pub async fn dashboard_stats(&self, tenant_id: &str) -> Result<Value, CyberboxError> {
+    pub async fn dashboard_stats(&self, tenant_id: &str, range_seconds: i64) -> Result<Value, CyberboxError> {
         let safe_tenant = escape_sql_literal(tenant_id);
+        let interval = format!("{range_seconds} SECOND");
 
-        // Total events
+        // Total events (within selected range)
         let total_sql = format!(
-            "SELECT count() as c FROM {}.{} WHERE tenant_id = '{safe_tenant}'",
-            self.database, self.table
+            "SELECT count() as c FROM {db}.{tbl} \
+             WHERE tenant_id = '{t}' AND event_time >= now() - INTERVAL {iv}",
+            db = self.database, tbl = self.table, t = safe_tenant, iv = interval
         );
         let total_body = self.execute_sql(&total_sql).await?;
         let total_events: i64 = total_body.trim().parse().unwrap_or(0);
 
-        // Events by source (top 10)
+        // Events by source type (top 10, using actual source column)
         let by_source_sql = format!(
-            "SELECT computer_name as source, count() as count \
-             FROM {db}.{tbl} WHERE tenant_id = '{t}' \
-             GROUP BY computer_name ORDER BY count DESC LIMIT 10 FORMAT JSON",
-            db = self.database,
-            tbl = self.table,
-            t = safe_tenant
+            "SELECT source, count() as count \
+             FROM {db}.{tbl} WHERE tenant_id = '{t}' AND event_time >= now() - INTERVAL {iv} \
+             GROUP BY source ORDER BY count DESC LIMIT 10 FORMAT JSON",
+            db = self.database, tbl = self.table, t = safe_tenant, iv = interval
         );
         let by_source = self
             .execute_sql_json(&by_source_sql)
@@ -891,18 +891,90 @@ impl ClickHouseEventStore {
             .map(|r| r.data)
             .unwrap_or_default();
 
-        // Hourly event counts (last 24h)
-        let hourly_sql = format!(
-            "SELECT toStartOfHour(event_time) as hour, count() as count \
-             FROM {db}.{tbl} \
-             WHERE tenant_id = '{t}' AND event_time >= now() - INTERVAL 24 HOUR \
-             GROUP BY hour ORDER BY hour FORMAT JSON",
-            db = self.database,
-            tbl = self.table,
-            t = safe_tenant
+        // Events by hostname (top 10)
+        let by_host_sql = format!(
+            "SELECT if(computer_name = '', 'unknown', computer_name) as hostname, count() as count \
+             FROM {db}.{tbl} WHERE tenant_id = '{t}' AND event_time >= now() - INTERVAL {iv} \
+             GROUP BY hostname ORDER BY count DESC LIMIT 10 FORMAT JSON",
+            db = self.database, tbl = self.table, t = safe_tenant, iv = interval
         );
+        let by_host = self
+            .execute_sql_json(&by_host_sql)
+            .await
+            .map(|r| r.data)
+            .unwrap_or_default();
+
+        // Adaptive bucket: <=4h→5min, <=24h→1h, <=7d→6h, >7d→1day
+        let (bucket_fn, bucket_interval) = if range_seconds <= 4 * 3600 {
+            ("toStartOfFiveMinutes", "5 MINUTE")
+        } else if range_seconds <= 24 * 3600 {
+            ("toStartOfHour", "1 HOUR")
+        } else if range_seconds <= 7 * 24 * 3600 {
+            ("toStartOfInterval(event_time, INTERVAL 6 HOUR) as", "6 HOUR")
+        } else {
+            ("toStartOfDay", "1 DAY")
+        };
+
+        // Hourly/bucketed event counts
+        let hourly_sql = if bucket_fn.contains("toStartOfInterval") {
+            format!(
+                "SELECT {bucket_fn} bucket, count() as count \
+                 FROM {db}.{tbl} \
+                 WHERE tenant_id = '{t}' AND event_time >= now() - INTERVAL {iv} \
+                 GROUP BY bucket ORDER BY bucket FORMAT JSON",
+                db = self.database, tbl = self.table, t = safe_tenant, iv = interval,
+                bucket_fn = bucket_fn
+            )
+        } else {
+            format!(
+                "SELECT {bucket_fn}(event_time) as bucket, count() as count \
+                 FROM {db}.{tbl} \
+                 WHERE tenant_id = '{t}' AND event_time >= now() - INTERVAL {iv} \
+                 GROUP BY bucket ORDER BY bucket FORMAT JSON",
+                db = self.database, tbl = self.table, t = safe_tenant, iv = interval,
+                bucket_fn = bucket_fn
+            )
+        };
         let hourly = self
             .execute_sql_json(&hourly_sql)
+            .await
+            .map(|r| r.data)
+            .unwrap_or_default();
+
+        // Current EPS (events in last 60 seconds)
+        let eps_sql = format!(
+            "SELECT count() as c FROM {db}.{tbl} \
+             WHERE tenant_id = '{t}' AND event_time >= now() - INTERVAL 60 SECOND",
+            db = self.database, tbl = self.table, t = safe_tenant
+        );
+        let eps_body = self.execute_sql(&eps_sql).await?;
+        let events_last_60s: f64 = eps_body.trim().parse().unwrap_or(0.0);
+        let current_eps = events_last_60s / 60.0;
+
+        // EPS trend (same bucket size as volume chart)
+        let eps_trend_sql = if bucket_fn.contains("toStartOfInterval") {
+            format!(
+                "SELECT {bucket_fn} bucket, \
+                 count() / {bucket_secs} as eps \
+                 FROM {db}.{tbl} \
+                 WHERE tenant_id = '{t}' AND event_time >= now() - INTERVAL {iv} \
+                 GROUP BY bucket ORDER BY bucket FORMAT JSON",
+                db = self.database, tbl = self.table, t = safe_tenant, iv = interval,
+                bucket_fn = bucket_fn, bucket_secs = Self::bucket_seconds(bucket_interval)
+            )
+        } else {
+            format!(
+                "SELECT {bucket_fn}(event_time) as bucket, \
+                 count() / {bucket_secs} as eps \
+                 FROM {db}.{tbl} \
+                 WHERE tenant_id = '{t}' AND event_time >= now() - INTERVAL {iv} \
+                 GROUP BY bucket ORDER BY bucket FORMAT JSON",
+                db = self.database, tbl = self.table, t = safe_tenant, iv = interval,
+                bucket_fn = bucket_fn, bucket_secs = Self::bucket_seconds(bucket_interval)
+            )
+        };
+        let eps_trend = self
+            .execute_sql_json(&eps_trend_sql)
             .await
             .map(|r| r.data)
             .unwrap_or_default();
@@ -910,8 +982,21 @@ impl ClickHouseEventStore {
         Ok(json!({
             "total_events": total_events,
             "events_by_source": by_source,
+            "events_by_host": by_host,
             "hourly_events": hourly,
+            "current_eps": (current_eps * 100.0).round() / 100.0,
+            "eps_trend": eps_trend,
         }))
+    }
+
+    fn bucket_seconds(interval: &str) -> i64 {
+        match interval {
+            "5 MINUTE" => 300,
+            "1 HOUR" => 3600,
+            "6 HOUR" => 21600,
+            "1 DAY" => 86400,
+            _ => 3600,
+        }
     }
 
     // ── Agent persistence ─────────────────────────────────────────────────

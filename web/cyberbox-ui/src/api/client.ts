@@ -557,16 +557,19 @@ export async function getMetrics(): Promise<string> {
 export interface DashboardStats {
   total_events: number;
   events_by_source: { source: string; count: string }[];
-  hourly_events: { hour: string; count: string }[];
+  events_by_host: { hostname: string; count: string }[];
+  hourly_events: { bucket: string; count: string }[];
   active_agents: number;
   total_agents: number;
   agents: { agent_id: string; hostname: string; os: string; status: string }[];
   active_rules: number;
   open_alerts: number;
+  current_eps: number;
+  eps_trend: { bucket: string; eps: string }[];
 }
 
-export async function getDashboardStats(): Promise<DashboardStats> {
-  return apiRequest<DashboardStats>('/api/v1/dashboard/stats');
+export async function getDashboardStats(range = '24h'): Promise<DashboardStats> {
+  return apiRequest<DashboardStats>(`/api/v1/dashboard/stats?range=${encodeURIComponent(range)}`);
 }
 
 // ── Events ─────────────────────────────────────────────────────────────────

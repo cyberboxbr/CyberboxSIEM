@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Area,
   AreaChart,
   Bar,
   BarChart,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -28,7 +30,14 @@ interface TopAlertRow {
 }
 
 
-/* -- Helpers: build sparkline buckets from alert first_seen timestamps -- */
+/* -- Helpers -- */
+
+function formatCompact(n: number): string {
+  if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1).replace(/\.0$/, '') + 'B';
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+  return String(n);
+}
 
 function buildAlertSparkline(alerts: AlertRecord[]): AlertSparkPoint[] {
   const now = new Date();
@@ -65,6 +74,28 @@ function osFromString(os?: string, hostname?: string): AssetOs {
   if (lower === 'syslog') return 'linux';
   if (lower.includes('server')) return 'linux-server';
   return 'linux';
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  syslog: 'Syslog',
+  otlp: 'OTLP',
+  api: 'API',
+  agent: 'Agent',
+  cef: 'CEF',
+  leef: 'LEEF',
+  json: 'JSON',
+  gelf: 'GELF',
+  netflow: 'NetFlow',
+  wineventlog: 'Windows Event Log',
+  file: 'File',
+  s3: 'S3',
+  okta: 'Okta',
+  o365: 'Office 365',
+};
+
+function prettySource(raw: string): string {
+  if (!raw || raw === '') return 'Other';
+  return SOURCE_LABELS[raw.toLowerCase()] ?? raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
 /* -- Props */
@@ -137,6 +168,10 @@ const osIcons: Record<string, JSX.Element> = {
   ),
 };
 
+/* -- Tooltip formatter */
+const compactTooltipFormatter = (value: number | undefined) => [formatCompact(value ?? 0), 'Events'];
+const epsTooltipFormatter = (value: number | undefined) => [(value ?? 0).toFixed(1), 'EPS'];
+
 /* -- Main Dashboard */
 
 export function Dashboard({ onRefresh }: DashboardProps) {
@@ -160,6 +195,11 @@ export function Dashboard({ onRefresh }: DashboardProps) {
   const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState<DashboardStats | null>(null);
 
+  const timeRangeLabel = useMemo(() => {
+    if (customLabel) return customLabel;
+    return [...TIME_RANGE_QUICK, ...TIME_RANGE_PRECISE].find(o => o.value === timeRange)?.label ?? timeRange;
+  }, [timeRange, customLabel]);
+
   const filteredTopAlerts = useMemo(() => {
     return topAlerts.filter(row => {
       if (severityFilters.size > 0 && !severityFilters.has(row.severity)) return false;
@@ -171,16 +211,38 @@ export function Dashboard({ onRefresh }: DashboardProps) {
   const hourlyChartData = useMemo(() => {
     if (!stats?.hourly_events?.length) return [];
     return stats.hourly_events.map(h => ({
-      hour: new Date(h.hour).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      time: new Date(h.bucket).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       count: parseInt(h.count, 10) || 0,
     }));
   }, [stats]);
 
   const sourceChartData = useMemo(() => {
     if (!stats?.events_by_source?.length) return [];
-    return stats.events_by_source.slice(0, 6).map(s => ({
-      source: s.source || 'unknown',
-      count: parseInt(s.count, 10) || 0,
+    return stats.events_by_source
+      .filter(s => s.source && s.source !== '')
+      .slice(0, 6)
+      .map(s => ({
+        source: prettySource(s.source),
+        count: parseInt(s.count, 10) || 0,
+      }));
+  }, [stats]);
+
+  const hostChartData = useMemo(() => {
+    if (!stats?.events_by_host?.length) return [];
+    return stats.events_by_host
+      .filter(h => h.hostname && h.hostname !== 'unknown')
+      .slice(0, 6)
+      .map(h => ({
+        hostname: h.hostname,
+        count: parseInt(h.count, 10) || 0,
+      }));
+  }, [stats]);
+
+  const epsTrendData = useMemo(() => {
+    if (!stats?.eps_trend?.length) return [];
+    return stats.eps_trend.map(p => ({
+      time: new Date(p.bucket).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      eps: parseFloat(p.eps) || 0,
     }));
   }, [stats]);
 
@@ -189,11 +251,11 @@ export function Dashboard({ onRefresh }: DashboardProps) {
     return stats.agents.map(a => a.hostname);
   }, [stats]);
 
-  const loadDashboardData = async () => {
-    // Fetch dashboard stats + alerts in parallel
+  const loadDashboardData = useCallback(async () => {
+    const rangeParam = timeRange === 'custom' ? '24h' : timeRange;
     const [openAlerts, dashStats] = await Promise.all([
       getAllAlerts({ status: 'open' }).catch(() => [] as AlertRecord[]),
-      getDashboardStats().catch(() => null),
+      getDashboardStats(rangeParam).catch(() => null),
     ]);
 
     if (dashStats) setStats(dashStats);
@@ -218,7 +280,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
         assigned_to: a.assignee ?? null,
       }));
     setTopAlerts(top5);
-  };
+  }, [timeRange]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -235,7 +297,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
     loadDashboardData();
     const id = setInterval(loadDashboardData, 15_000);
     return () => clearInterval(id);
-  }, []);
+  }, [loadDashboardData]);
 
   return (
     <div className="page">
@@ -278,7 +340,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
               </svg>
-              {customLabel ?? [...TIME_RANGE_QUICK, ...TIME_RANGE_PRECISE].find(o => o.value === timeRange)?.label ?? timeRange}
+              {timeRangeLabel}
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 'auto' }}>
                 <polyline points="6 9 12 15 18 9"/>
               </svg>
@@ -294,7 +356,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
                         key={opt.value}
                         type="button"
                         className={`dash-time-picker-option${opt.value === timeRange && !customLabel ? ' dash-time-picker-option--active' : ''}`}
-                        onClick={() => { setTimeRange(opt.value); setCustomLabel(null); setTimeDropdownOpen(false); handleRefresh(); }}
+                        onClick={() => { setTimeRange(opt.value); setCustomLabel(null); setTimeDropdownOpen(false); }}
                       >
                         {opt.label}
                       </button>
@@ -308,7 +370,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
                         key={opt.value}
                         type="button"
                         className={`dash-time-picker-option${opt.value === timeRange && !customLabel ? ' dash-time-picker-option--active' : ''}`}
-                        onClick={() => { setTimeRange(opt.value); setCustomLabel(null); setTimeDropdownOpen(false); handleRefresh(); }}
+                        onClick={() => { setTimeRange(opt.value); setCustomLabel(null); setTimeDropdownOpen(false); }}
                       >
                         {opt.label}
                       </button>
@@ -369,7 +431,6 @@ export function Dashboard({ onRefresh }: DashboardProps) {
                         setCustomLabel(`${fmt(from)} - ${fmt(to)}`);
                         setShowCustomPicker(false);
                         setTimeDropdownOpen(false);
-                        handleRefresh();
                       }}
                     >
                       Apply
@@ -502,11 +563,11 @@ export function Dashboard({ onRefresh }: DashboardProps) {
       {activeTab === 'overview' && (
         <>
           {/* KPI cards row */}
-          <div className="dash-kpis" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+          <div className="dash-kpis" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
             <div className="panel dash-kpi-card">
               <span className="kpi-label">TOTAL EVENTS</span>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 2 }}>
-                <span className="dash-big-number">{stats?.total_events?.toLocaleString() ?? '-'}</span>
+                <span className="dash-big-number">{stats?.total_events != null ? formatCompact(stats.total_events) : '-'}</span>
               </div>
               <div style={{ marginTop: 8, height: 48 }}>
                 {hourlyChartData.length > 0 && (
@@ -519,6 +580,28 @@ export function Dashboard({ onRefresh }: DashboardProps) {
                         </linearGradient>
                       </defs>
                       <Area type="monotone" dataKey="count" stroke="#10b981" fill="url(#eventsFill)" strokeWidth={2} dot={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+            <div className="panel dash-kpi-card">
+              <span className="kpi-label">EPS USAGE</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                <span className="dash-big-number" style={{ color: '#f59e0b' }}>{stats?.current_eps?.toFixed(1) ?? '0'}</span>
+                <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>events/s</span>
+              </div>
+              <div style={{ marginTop: 8, height: 48 }}>
+                {epsTrendData.length > 0 && (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={epsTrendData} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="epsFill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.35} />
+                          <stop offset="100%" stopColor="#f59e0b" stopOpacity={0.02} />
+                        </linearGradient>
+                      </defs>
+                      <Area type="monotone" dataKey="eps" stroke="#f59e0b" fill="url(#epsFill)" strokeWidth={2} dot={false} />
                     </AreaChart>
                   </ResponsiveContainer>
                 )}
@@ -582,15 +665,15 @@ export function Dashboard({ onRefresh }: DashboardProps) {
 
           {/* Charts row */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16 }}>
-            {/* Event volume (24h) */}
+            {/* Event volume */}
             <div className="panel" style={{ padding: '16px 20px' }}>
-              <h2 className="panel-title" style={{ marginBottom: 12 }}>Event volume (last 24h)</h2>
+              <h2 className="panel-title" style={{ marginBottom: 12 }}>Event volume ({timeRangeLabel.toLowerCase()})</h2>
               {hourlyChartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={hourlyChartData}>
-                    <XAxis dataKey="hour" tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(hourlyChartData.length / 8) - 1)} />
-                    <YAxis tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} width={40} />
-                    <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} labelStyle={{ color: '#aaa' }} />
+                    <XAxis dataKey="time" tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(hourlyChartData.length / 8) - 1)} />
+                    <YAxis tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} width={48} tickFormatter={formatCompact} />
+                    <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} labelStyle={{ color: '#aaa' }} formatter={compactTooltipFormatter} />
                     <Bar dataKey="count" fill="#6366f1" radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -599,15 +682,15 @@ export function Dashboard({ onRefresh }: DashboardProps) {
               )}
             </div>
 
-            {/* Events by source */}
+            {/* Events by source type */}
             <div className="panel" style={{ padding: '16px 20px' }}>
               <h2 className="panel-title" style={{ marginBottom: 12 }}>Events by source</h2>
               {sourceChartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={sourceChartData} layout="vertical">
-                    <XAxis type="number" tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} />
-                    <YAxis type="category" dataKey="source" tick={{ fill: '#ccc', fontSize: 12 }} tickLine={false} axisLine={false} width={140} />
-                    <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} labelStyle={{ color: '#aaa' }} />
+                    <XAxis type="number" tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={formatCompact} />
+                    <YAxis type="category" dataKey="source" tick={{ fill: '#ccc', fontSize: 12 }} tickLine={false} axisLine={false} width={120} />
+                    <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} labelStyle={{ color: '#aaa' }} formatter={compactTooltipFormatter} />
                     <Bar dataKey="count" fill="#10b981" radius={[0, 3, 3, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -616,6 +699,23 @@ export function Dashboard({ onRefresh }: DashboardProps) {
               )}
             </div>
           </div>
+
+          {/* Events by host row */}
+          {hostChartData.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, marginTop: 16 }}>
+              <div className="panel" style={{ padding: '16px 20px' }}>
+                <h2 className="panel-title" style={{ marginBottom: 12 }}>Events by host ({timeRangeLabel.toLowerCase()})</h2>
+                <ResponsiveContainer width="100%" height={Math.max(120, hostChartData.length * 36)}>
+                  <BarChart data={hostChartData} layout="vertical">
+                    <XAxis type="number" tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={formatCompact} />
+                    <YAxis type="category" dataKey="hostname" tick={{ fill: '#ccc', fontSize: 12 }} tickLine={false} axisLine={false} width={180} />
+                    <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} labelStyle={{ color: '#aaa' }} formatter={compactTooltipFormatter} />
+                    <Bar dataKey="count" fill="#8b5cf6" radius={[0, 3, 3, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
 
           {/* Top unmitigated alerts */}
           <div className="panel dash-table-panel" style={{ marginTop: 16 }}>
@@ -661,28 +761,48 @@ export function Dashboard({ onRefresh }: DashboardProps) {
 
       {/* -- Trends tab */}
       {activeTab === 'trends' && (
-        <div className="panel" style={{ padding: '16px 20px' }}>
-          <h2 className="panel-title" style={{ marginBottom: 12 }}>Event volume (last 24h)</h2>
-          {hourlyChartData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={hourlyChartData}>
-                <XAxis dataKey="hour" tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} />
-                <YAxis tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} width={50} />
-                <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} labelStyle={{ color: '#aaa' }} />
-                <defs>
-                  <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#6366f1" stopOpacity={0.3} />
-                    <stop offset="100%" stopColor="#6366f1" stopOpacity={0.02} />
-                  </linearGradient>
-                </defs>
-                <Area type="monotone" dataKey="count" stroke="#6366f1" fill="url(#trendFill)" strokeWidth={2} dot={false} />
-              </AreaChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="chart-empty" style={{ padding: '60px 0' }}>
-              Waiting for event data to populate trends...
-            </div>
-          )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="panel" style={{ padding: '16px 20px' }}>
+            <h2 className="panel-title" style={{ marginBottom: 12 }}>Event volume ({timeRangeLabel.toLowerCase()})</h2>
+            {hourlyChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <AreaChart data={hourlyChartData}>
+                  <XAxis dataKey="time" tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} width={50} tickFormatter={formatCompact} />
+                  <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} labelStyle={{ color: '#aaa' }} formatter={compactTooltipFormatter} />
+                  <defs>
+                    <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#6366f1" stopOpacity={0.3} />
+                      <stop offset="100%" stopColor="#6366f1" stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <Area type="monotone" dataKey="count" stroke="#6366f1" fill="url(#trendFill)" strokeWidth={2} dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="chart-empty" style={{ padding: '60px 0' }}>
+                Waiting for event data to populate trends...
+              </div>
+            )}
+          </div>
+
+          <div className="panel" style={{ padding: '16px 20px' }}>
+            <h2 className="panel-title" style={{ marginBottom: 12 }}>EPS usage ({timeRangeLabel.toLowerCase()})</h2>
+            {epsTrendData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <LineChart data={epsTrendData}>
+                  <XAxis dataKey="time" tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} width={50} />
+                  <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} labelStyle={{ color: '#aaa' }} formatter={epsTooltipFormatter} />
+                  <Line type="monotone" dataKey="eps" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="chart-empty" style={{ padding: '60px 0' }}>
+                Waiting for EPS data...
+              </div>
+            )}
+          </div>
         </div>
       )}
 

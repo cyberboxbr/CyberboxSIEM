@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Instant;
@@ -2847,12 +2848,17 @@ pub async fn list_sources(
 
 // ── Dashboard stats ────────────────────────────────────────────────────────────
 
-/// `GET /api/v1/dashboard/stats` — aggregated stats for the dashboard.
+/// `GET /api/v1/dashboard/stats?range=24h` — aggregated stats for the dashboard.
 pub async fn dashboard_stats(
     auth: AuthContext,
     State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, CyberboxError> {
     let tenant_id = &auth.tenant_id;
+
+    // Parse time range (default 24h)
+    let range_str = params.get("range").map(|s| s.as_str()).unwrap_or("24h");
+    let range_seconds = parse_range_to_seconds(range_str);
 
     // Agent counts
     let agents: Vec<_> = state
@@ -2894,9 +2900,9 @@ pub async fn dashboard_stats(
 
     // ClickHouse stats (if available)
     let ch_stats = if let Some(ch) = &state.clickhouse_event_store {
-        ch.dashboard_stats(tenant_id).await.unwrap_or(json!({}))
+        ch.dashboard_stats(tenant_id, range_seconds).await.unwrap_or(json!({}))
     } else {
-        json!({ "total_events": 0, "events_by_source": [], "hourly_events": [] })
+        json!({ "total_events": 0, "events_by_source": [], "events_by_host": [], "hourly_events": [], "current_eps": 0.0, "eps_trend": [] })
     };
 
     let mut result = json!({
@@ -2914,6 +2920,19 @@ pub async fn dashboard_stats(
     }
 
     Ok(Json(result))
+}
+
+fn parse_range_to_seconds(range: &str) -> i64 {
+    let s = range.trim();
+    if let Some(n) = s.strip_suffix('m') {
+        n.parse::<i64>().unwrap_or(1440) * 60
+    } else if let Some(n) = s.strip_suffix('h') {
+        n.parse::<i64>().unwrap_or(24) * 3600
+    } else if let Some(n) = s.strip_suffix('d') {
+        n.parse::<i64>().unwrap_or(1) * 86400
+    } else {
+        86400 // default 24h
+    }
 }
 
 // ── Agent registry ─────────────────────────────────────────────────────────────
