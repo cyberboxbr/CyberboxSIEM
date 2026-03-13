@@ -2900,7 +2900,9 @@ pub async fn dashboard_stats(
 
     // ClickHouse stats (if available)
     let ch_stats = if let Some(ch) = &state.clickhouse_event_store {
-        ch.dashboard_stats(tenant_id, range_seconds).await.unwrap_or(json!({}))
+        ch.dashboard_stats(tenant_id, range_seconds)
+            .await
+            .unwrap_or(json!({}))
     } else {
         json!({ "total_events": 0, "events_by_source": [], "events_by_host": [], "hourly_events": [], "current_eps": 0.0, "eps_trend": [] })
     };

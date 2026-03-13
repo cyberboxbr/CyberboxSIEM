@@ -865,7 +865,11 @@ impl ClickHouseEventStore {
     }
 
     /// Dashboard stats: total events, events by source, hourly counts for a tenant.
-    pub async fn dashboard_stats(&self, tenant_id: &str, range_seconds: i64) -> Result<Value, CyberboxError> {
+    pub async fn dashboard_stats(
+        &self,
+        tenant_id: &str,
+        range_seconds: i64,
+    ) -> Result<Value, CyberboxError> {
         let safe_tenant = escape_sql_literal(tenant_id);
         let interval = format!("{range_seconds} SECOND");
 
@@ -873,7 +877,10 @@ impl ClickHouseEventStore {
         let total_sql = format!(
             "SELECT count() as c FROM {db}.{tbl} \
              WHERE tenant_id = '{t}' AND event_time >= now() - INTERVAL {iv}",
-            db = self.database, tbl = self.table, t = safe_tenant, iv = interval
+            db = self.database,
+            tbl = self.table,
+            t = safe_tenant,
+            iv = interval
         );
         let total_body = self.execute_sql(&total_sql).await?;
         let total_events: i64 = total_body.trim().parse().unwrap_or(0);
@@ -883,7 +890,10 @@ impl ClickHouseEventStore {
             "SELECT source, count() as count \
              FROM {db}.{tbl} WHERE tenant_id = '{t}' AND event_time >= now() - INTERVAL {iv} \
              GROUP BY source ORDER BY count DESC LIMIT 10 FORMAT JSON",
-            db = self.database, tbl = self.table, t = safe_tenant, iv = interval
+            db = self.database,
+            tbl = self.table,
+            t = safe_tenant,
+            iv = interval
         );
         let by_source = self
             .execute_sql_json(&by_source_sql)
@@ -910,7 +920,10 @@ impl ClickHouseEventStore {
         } else if range_seconds <= 24 * 3600 {
             ("toStartOfHour", "1 HOUR")
         } else if range_seconds <= 7 * 24 * 3600 {
-            ("toStartOfInterval(event_time, INTERVAL 6 HOUR) as", "6 HOUR")
+            (
+                "toStartOfInterval(event_time, INTERVAL 6 HOUR) as",
+                "6 HOUR",
+            )
         } else {
             ("toStartOfDay", "1 DAY")
         };
@@ -922,7 +935,10 @@ impl ClickHouseEventStore {
                  FROM {db}.{tbl} \
                  WHERE tenant_id = '{t}' AND event_time >= now() - INTERVAL {iv} \
                  GROUP BY bucket ORDER BY bucket FORMAT JSON",
-                db = self.database, tbl = self.table, t = safe_tenant, iv = interval,
+                db = self.database,
+                tbl = self.table,
+                t = safe_tenant,
+                iv = interval,
                 bucket_fn = bucket_fn
             )
         } else {
@@ -931,7 +947,10 @@ impl ClickHouseEventStore {
                  FROM {db}.{tbl} \
                  WHERE tenant_id = '{t}' AND event_time >= now() - INTERVAL {iv} \
                  GROUP BY bucket ORDER BY bucket FORMAT JSON",
-                db = self.database, tbl = self.table, t = safe_tenant, iv = interval,
+                db = self.database,
+                tbl = self.table,
+                t = safe_tenant,
+                iv = interval,
                 bucket_fn = bucket_fn
             )
         };
@@ -945,7 +964,9 @@ impl ClickHouseEventStore {
         let eps_sql = format!(
             "SELECT count() as c FROM {db}.{tbl} \
              WHERE tenant_id = '{t}' AND event_time >= now() - INTERVAL 60 SECOND",
-            db = self.database, tbl = self.table, t = safe_tenant
+            db = self.database,
+            tbl = self.table,
+            t = safe_tenant
         );
         let eps_body = self.execute_sql(&eps_sql).await?;
         let events_last_60s: f64 = eps_body.trim().parse().unwrap_or(0.0);
@@ -959,8 +980,12 @@ impl ClickHouseEventStore {
                  FROM {db}.{tbl} \
                  WHERE tenant_id = '{t}' AND event_time >= now() - INTERVAL {iv} \
                  GROUP BY bucket ORDER BY bucket FORMAT JSON",
-                db = self.database, tbl = self.table, t = safe_tenant, iv = interval,
-                bucket_fn = bucket_fn, bucket_secs = Self::bucket_seconds(bucket_interval)
+                db = self.database,
+                tbl = self.table,
+                t = safe_tenant,
+                iv = interval,
+                bucket_fn = bucket_fn,
+                bucket_secs = Self::bucket_seconds(bucket_interval)
             )
         } else {
             format!(
@@ -969,8 +994,12 @@ impl ClickHouseEventStore {
                  FROM {db}.{tbl} \
                  WHERE tenant_id = '{t}' AND event_time >= now() - INTERVAL {iv} \
                  GROUP BY bucket ORDER BY bucket FORMAT JSON",
-                db = self.database, tbl = self.table, t = safe_tenant, iv = interval,
-                bucket_fn = bucket_fn, bucket_secs = Self::bucket_seconds(bucket_interval)
+                db = self.database,
+                tbl = self.table,
+                t = safe_tenant,
+                iv = interval,
+                bucket_fn = bucket_fn,
+                bucket_secs = Self::bucket_seconds(bucket_interval)
             )
         };
         let eps_trend = self
