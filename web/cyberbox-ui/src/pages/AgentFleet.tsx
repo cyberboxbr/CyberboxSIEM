@@ -112,7 +112,7 @@ function OsIcon({ agent }: { agent: AgentRecord }) {
   }
 
   if (type === 'linux') {
-    return <img src="/tux.svg" width={size} height={size} alt="Linux" style={iconStyle} />;
+    return <img src="/tux.png" width={size} height={size} alt="Linux" style={iconStyle} />;
   }
 
   if (type === 'firewall') {

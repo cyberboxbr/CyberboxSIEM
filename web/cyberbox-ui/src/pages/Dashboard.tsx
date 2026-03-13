@@ -108,10 +108,10 @@ const osIcons: Record<string, JSX.Element> = {
     </svg>
   ),
   linux: (
-    <img src="/tux.svg" width="16" height="16" alt="Linux" style={{ verticalAlign: 'middle' }} />
+    <img src="/tux.png" width="16" height="16" alt="Linux" style={{ verticalAlign: 'middle' }} />
   ),
   'linux-server': (
-    <img src="/tux.svg" width="16" height="16" alt="Linux Server" style={{ verticalAlign: 'middle' }} />
+    <img src="/tux.png" width="16" height="16" alt="Linux Server" style={{ verticalAlign: 'middle' }} />
   ),
   docker: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style={{ color: '#2496ED' }}>
