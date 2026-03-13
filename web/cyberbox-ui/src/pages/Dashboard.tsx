@@ -231,7 +231,11 @@ export function Dashboard({ onRefresh }: DashboardProps) {
     }
   };
 
-  useEffect(() => { loadDashboardData(); }, []);
+  useEffect(() => {
+    loadDashboardData();
+    const id = setInterval(loadDashboardData, 15_000);
+    return () => clearInterval(id);
+  }, []);
 
   return (
     <div className="page">

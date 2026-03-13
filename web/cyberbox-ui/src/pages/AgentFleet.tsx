@@ -178,7 +178,11 @@ export function AgentFleet() {
     }
   }, [groupFilter]);
 
-  useEffect(() => { loadAgents(); }, [loadAgents]);
+  useEffect(() => {
+    loadAgents();
+    const id = setInterval(loadAgents, 15_000);
+    return () => clearInterval(id);
+  }, [loadAgents]);
 
   // Compute groups for dropdown
   const groups = Array.from(new Set(agents.map((a) => a.group).filter(Boolean))) as string[];
