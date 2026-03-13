@@ -2954,6 +2954,19 @@ pub async fn register_agent(
         pending_config,
     };
     state.agents.insert(body.agent_id.clone(), record);
+
+    // Persist to ClickHouse (best-effort, non-blocking)
+    if let Some(ch) = &state.clickhouse_event_store {
+        let ch = ch.clone();
+        if let Some(agent) = state.agents.get(&body.agent_id).map(|e| e.value().clone()) {
+            tokio::spawn(async move {
+                if let Err(e) = ch.upsert_agent(&agent).await {
+                    tracing::warn!(error = %e, "failed to persist agent registration to ClickHouse");
+                }
+            });
+        }
+    }
+
     Json(json!({ "agent_id": body.agent_id, "status": "registered" }))
 }
 
@@ -2966,6 +2979,18 @@ pub async fn agent_heartbeat(
     if let Some(mut entry) = state.agents.get_mut(&id) {
         entry.last_seen = Utc::now();
         let cfg = entry.pending_config.take(); // deliver once, then clear
+
+        // Persist cleared state to ClickHouse (best-effort)
+        if let Some(ch) = &state.clickhouse_event_store {
+            let ch = ch.clone();
+            let snapshot = entry.clone();
+            tokio::spawn(async move {
+                if let Err(e) = ch.upsert_agent(&snapshot).await {
+                    tracing::warn!(error = %e, "failed to persist agent heartbeat to ClickHouse");
+                }
+            });
+        }
+
         let body = if let Some(toml) = cfg {
             json!({ "pending_config": toml })
         } else {
@@ -3000,6 +3025,18 @@ pub async fn patch_agent(
         if let Some(t) = body.tags {
             entry.tags = t;
         }
+
+        // Persist to ClickHouse (best-effort)
+        if let Some(ch) = &state.clickhouse_event_store {
+            let ch = ch.clone();
+            let snapshot = entry.clone();
+            tokio::spawn(async move {
+                if let Err(e) = ch.upsert_agent(&snapshot).await {
+                    tracing::warn!(error = %e, "failed to persist agent patch to ClickHouse");
+                }
+            });
+        }
+
         (
             StatusCode::OK,
             Json(json!({
@@ -3033,6 +3070,18 @@ pub async fn push_agent_config(
             return StatusCode::FORBIDDEN.into_response();
         }
         entry.pending_config = Some(body.config_toml);
+
+        // Persist to ClickHouse (best-effort)
+        if let Some(ch) = &state.clickhouse_event_store {
+            let ch = ch.clone();
+            let snapshot = entry.clone();
+            tokio::spawn(async move {
+                if let Err(e) = ch.upsert_agent(&snapshot).await {
+                    tracing::warn!(error = %e, "failed to persist agent config push to ClickHouse");
+                }
+            });
+        }
+
         (
             StatusCode::ACCEPTED,
             Json(json!({

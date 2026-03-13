@@ -58,6 +58,25 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
         }
+
+        // Reload persisted agent registrations into the in-memory DashMap
+        match clickhouse_store.list_agents_all().await {
+            Ok(agents) => {
+                let count = agents.len();
+                for agent in agents {
+                    state.agents.insert(agent.agent_id.clone(), agent);
+                }
+                if count > 0 {
+                    tracing::info!(count, "loaded agent registrations from ClickHouse");
+                }
+            }
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "failed to load agents from ClickHouse — agent list will start empty"
+                );
+            }
+        }
     }
 
     // Start the ClickHouse async write buffer if the sink is enabled.

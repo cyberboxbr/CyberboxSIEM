@@ -6,8 +6,8 @@ use uuid::Uuid;
 
 use cyberbox_core::CyberboxError;
 use cyberbox_models::{
-    AlertRecord, AlertStatus, AssignAlertRequest, AuditLogRecord, CaseRecord, CaseStatus,
-    CloseAlertRequest, DetectionMode, DetectionRule, EnrichmentMetadata, EventEnvelope,
+    AgentRecord, AlertRecord, AlertStatus, AssignAlertRequest, AuditLogRecord, CaseRecord,
+    CaseStatus, CloseAlertRequest, DetectionMode, DetectionRule, EnrichmentMetadata, EventEnvelope,
     EventSource, RuleScheduleConfig, RuleSchedulerHealth, SearchQueryRequest, SearchQueryResponse,
     Severity, UpdateCaseRequest,
 };
@@ -43,6 +43,7 @@ pub struct ClickHouseEventStore {
     hourly_rollup_mv: String,
     watermarks_table: String,
     cases_table: String,
+    agents_table: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -79,6 +80,7 @@ impl ClickHouseEventStore {
             hourly_rollup_mv: format!("{}_hourly_rollup_mv", table),
             watermarks_table: format!("{}_rule_watermarks", table),
             cases_table: format!("{}_cases", table),
+            agents_table: format!("{}_agents", table),
         }
     }
 
@@ -613,6 +615,31 @@ impl ClickHouseEventStore {
         );
         self.execute_sql(&cases_ddl).await?;
 
+        let agents_engine = self.replacing_merge_tree_engine(&self.agents_table, "version_col");
+        let agents_ddl = format!(
+            r#"
+            CREATE TABLE IF NOT EXISTS {}.{} (
+                agent_id       String,
+                tenant_id      String,
+                hostname       String,
+                os             LowCardinality(String),
+                version        String,
+                ip             Nullable(String),
+                registered_at  DateTime64(3, 'UTC'),
+                last_seen      DateTime64(3, 'UTC'),
+                group_name     Nullable(String),
+                tags           String DEFAULT '[]',
+                pending_config Nullable(String),
+                updated_at     DateTime64(3, 'UTC'),
+                version_col    UInt64
+            )
+            ENGINE = {}
+            ORDER BY (tenant_id, agent_id)
+            "#,
+            self.database, self.agents_table, agents_engine
+        );
+        self.execute_sql(&agents_ddl).await?;
+
         Ok(())
     }
 
@@ -885,6 +912,51 @@ impl ClickHouseEventStore {
             "events_by_source": by_source,
             "hourly_events": hourly,
         }))
+    }
+
+    // ── Agent persistence ─────────────────────────────────────────────────
+
+    /// Upsert an agent record (insert or replace via ReplacingMergeTree).
+    pub async fn upsert_agent(&self, agent: &AgentRecord) -> Result<(), CyberboxError> {
+        let now = Utc::now();
+        let version_col = now.timestamp_millis().max(0) as u64;
+        let row = json!({
+            "agent_id":       agent.agent_id,
+            "tenant_id":      agent.tenant_id,
+            "hostname":       agent.hostname,
+            "os":             agent.os,
+            "version":        agent.version,
+            "ip":             agent.ip,
+            "registered_at":  agent.registered_at.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+            "last_seen":      agent.last_seen.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+            "group_name":     agent.group,
+            "tags":           serde_json::to_string(&agent.tags).unwrap_or_else(|_| "[]".into()),
+            "pending_config": agent.pending_config,
+            "updated_at":     now.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+            "version_col":    version_col,
+        });
+        let json_line =
+            serde_json::to_string(&row).map_err(|e| CyberboxError::Internal(e.to_string()))?;
+        let query = format!(
+            "INSERT INTO {}.{} FORMAT JSONEachRow\n{}\n",
+            self.database, self.agents_table, json_line
+        );
+        self.execute_sql(&query).await?;
+        Ok(())
+    }
+
+    /// Load all persisted agents (for startup reload into DashMap).
+    pub async fn list_agents_all(&self) -> Result<Vec<AgentRecord>, CyberboxError> {
+        let query = format!(
+            "SELECT agent_id, tenant_id, hostname, os, version, ip, \
+             registered_at, last_seen, group_name, tags, pending_config \
+             FROM {}.{} FINAL \
+             ORDER BY tenant_id, agent_id \
+             FORMAT JSON",
+            self.database, self.agents_table
+        );
+        let resp = self.execute_sql_json(&query).await?;
+        resp.data.iter().map(parse_agent_row).collect()
     }
 
     pub async fn list_scheduled_rules(&self) -> Result<Vec<DetectionRule>, CyberboxError> {
@@ -1450,6 +1522,50 @@ fn case_status_to_string(status: &CaseStatus) -> String {
         .ok()
         .and_then(|v| v.as_str().map(ToOwned::to_owned))
         .unwrap_or_else(|| "open".to_string())
+}
+
+fn parse_agent_row(row: &Value) -> Result<AgentRecord, CyberboxError> {
+    let agent_id = parse_string_field(row, "agent_id")?;
+    let tenant_id = parse_string_field(row, "tenant_id")?;
+    let hostname = parse_string_field(row, "hostname")?;
+    let os = parse_string_field(row, "os")?;
+    let version = parse_string_field(row, "version")?;
+    let ip = row
+        .get("ip")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(String::from);
+    let registered_at = parse_datetime_field(row, "registered_at")?;
+    let last_seen = parse_datetime_field(row, "last_seen")?;
+    let group = row
+        .get("group_name")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(String::from);
+    let tags: Vec<String> = row
+        .get("tags")
+        .and_then(|v| v.as_str())
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_default();
+    let pending_config = row
+        .get("pending_config")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(String::from);
+
+    Ok(AgentRecord {
+        agent_id,
+        tenant_id,
+        hostname,
+        os,
+        version,
+        ip,
+        registered_at,
+        last_seen,
+        group,
+        tags,
+        pending_config,
+    })
 }
 
 fn parse_case_row(row: &Value) -> Result<CaseRecord, CyberboxError> {
