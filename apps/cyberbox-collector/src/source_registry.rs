@@ -158,7 +158,10 @@ impl SourceRegistry {
 
             // Send heartbeat for active (non-stale) sources that are registered.
             if !stale {
-                if let Err(e) = self.heartbeat(client, api_url, tenant_id, &agent_id, api_key).await {
+                if let Err(e) = self
+                    .heartbeat(client, api_url, tenant_id, &agent_id, api_key)
+                    .await
+                {
                     debug!(source_ip, %e, "heartbeat failed for syslog source");
                 }
             }
@@ -193,10 +196,7 @@ impl SourceRegistry {
             req = req.header("X-Api-Key", key);
         }
 
-        let resp = req
-            .json(&body)
-            .send()
-            .await?;
+        let resp = req.json(&body).send().await?;
 
         // Treat any 2xx as success; 409 (already registered) is also fine.
         let status = resp.status();
@@ -235,9 +235,7 @@ impl SourceRegistry {
             req = req.header("X-Api-Key", key);
         }
 
-        let resp = req
-            .send()
-            .await?;
+        let resp = req.send().await?;
 
         let status = resp.status();
         if !status.is_success() {

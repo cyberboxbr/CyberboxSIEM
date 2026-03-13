@@ -273,7 +273,16 @@ async fn dispatch_post(
         let _permit = permit; // released when this task ends
         let t0 = std::time::Instant::now();
 
-        match post_events(&client2, &url2, &tenant2, &events, secret2.as_deref(), api_key2.as_deref()).await {
+        match post_events(
+            &client2,
+            &url2,
+            &tenant2,
+            &events,
+            secret2.as_deref(),
+            api_key2.as_deref(),
+        )
+        .await
+        {
             Ok(()) => {
                 let latency_ms = t0.elapsed().as_millis() as u64;
                 debug!(count, latency_ms, "batch POSTed successfully");
