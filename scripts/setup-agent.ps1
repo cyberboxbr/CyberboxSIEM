@@ -7,7 +7,7 @@ $ConfigDir = "$env:ProgramData\Cyberbox"
 $ConfigFile = "$ConfigDir\agent.toml"
 
 # --- Configuration ---
-$CollectorHost = "10.10.0.1"
+$CollectorHost = "192.168.26.128"
 $CollectorPort = 601
 $TenantId = "safebox"
 # ---------------------
@@ -72,6 +72,10 @@ tenant_id = "$TenantId"
 [[source]]
 type = "wineventlog"
 channels = ["Security", "System", "Application"]
+
+[api]
+url = "https://siem.cyberboxsecurity.com.br"
+heartbeat_secs = 30
 "@
 
 Set-Content -Path $ConfigFile -Value $Config -Encoding UTF8

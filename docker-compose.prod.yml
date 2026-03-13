@@ -85,7 +85,7 @@ services:
       CYBERBOX__TENANT_ID_OVERRIDE: "safebox"
       CYBERBOX__INGEST_API_KEY: ${INGEST_API_KEY}
       # Rate limiting
-      CYBERBOX__EPS_LIMIT_PER_TENANT: "5000"
+      CYBERBOX__EPS_LIMIT_PER_TENANT: "50000"
       # State persistence
       CYBERBOX__STATE_DIR: /data
     volumes:
