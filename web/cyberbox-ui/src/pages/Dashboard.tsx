@@ -108,18 +108,10 @@ const osIcons: Record<string, JSX.Element> = {
     </svg>
   ),
   linux: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style={{ color: '#FCC624' }}>
-      <path d="M12 2C9.2 2 7 5.1 7 9c0 2.4.8 4.5 2 5.9-.8.5-2.3 1.6-2.8 2.5-.6 1-.2 2.1.8 2.6 1.4.7 3 .5 4-.5.3.3.6.5 1 .5s.7-.2 1-.5c1 1 2.6 1.2 4 .5 1-.5 1.4-1.6.8-2.6-.5-.9-2-2-2.8-2.5 1.2-1.4 2-3.5 2-5.9 0-3.9-2.2-7-5-7zm-2 7c0-2.8 1-5 2-5s2 2.2 2 5-.9 5-2 5-2-2.2-2-5z"/>
-    </svg>
+    <img src="/tux.svg" width="16" height="16" alt="Linux" style={{ verticalAlign: 'middle' }} />
   ),
   'linux-server': (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FCC624" strokeWidth="1.5">
-      <rect x="4" y="1" width="16" height="22" rx="2"/>
-      <circle cx="12" cy="5" r="1.5" fill="#FCC624"/>
-      <line x1="8" y1="10" x2="16" y2="10"/>
-      <line x1="8" y1="14" x2="16" y2="14"/>
-      <line x1="8" y1="18" x2="16" y2="18"/>
-    </svg>
+    <img src="/tux.svg" width="16" height="16" alt="Linux Server" style={{ verticalAlign: 'middle' }} />
   ),
   docker: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style={{ color: '#2496ED' }}>

@@ -112,17 +112,7 @@ function OsIcon({ agent }: { agent: AgentRecord }) {
   }
 
   if (type === 'linux') {
-    return (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={iconStyle}>
-        <ellipse cx="12" cy="7.5" rx="4" ry="4.5" fill="#f5a623" />
-        <circle cx="10.5" cy="6.5" r="0.8" fill="#091523" />
-        <circle cx="13.5" cy="6.5" r="0.8" fill="#091523" />
-        <path d="M10.5 9C11 9.5 13 9.5 13.5 9" stroke="#091523" strokeWidth="0.7" strokeLinecap="round" />
-        <path d="M8 12C8 10 9.5 9.5 12 9.5C14.5 9.5 16 10 16 12V16C16 17 15 17.5 14 17.5H10C9 17.5 8 17 8 16V12Z" fill="#f5a623" />
-        <path d="M8 16.5L5.5 19.5C5 20 5.2 20.5 6 20.5H8" stroke="#f5a623" strokeWidth="1.5" strokeLinecap="round" />
-        <path d="M16 16.5L18.5 19.5C19 20 18.8 20.5 18 20.5H16" stroke="#f5a623" strokeWidth="1.5" strokeLinecap="round" />
-      </svg>
-    );
+    return <img src="/tux.svg" width={size} height={size} alt="Linux" style={iconStyle} />;
   }
 
   if (type === 'firewall') {
