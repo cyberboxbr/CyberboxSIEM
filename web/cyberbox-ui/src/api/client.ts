@@ -924,6 +924,10 @@ export async function pushAgentConfig(agentId: string, configToml: string): Prom
   });
 }
 
+export async function deleteAgent(agentId: string): Promise<void> {
+  await apiRequest(`/api/v1/agents/${agentId}`, { method: 'DELETE' });
+}
+
 // ── Audit Logs ─────────────────────────────────────────────────────────────
 
 export async function getAuditLogs(query: AuditLogsQuery = {}): Promise<AuditLogsResponse> {

@@ -93,6 +93,7 @@ impl SourceRegistry {
         api_url: String,
         tenant_id: String,
         mut shutdown: watch::Receiver<bool>,
+        api_key: Option<String>,
     ) {
         let mut interval = tokio::time::interval(Duration::from_secs(TICK_INTERVAL_SECS));
         // First tick fires immediately — skip it so we give sources time to appear.
@@ -111,13 +112,13 @@ impl SourceRegistry {
                     break;
                 }
                 _ = interval.tick() => {
-                    self.tick(&client, &api_url, &tenant_id).await;
+                    self.tick(&client, &api_url, &tenant_id, api_key.as_deref()).await;
                 }
             }
         }
     }
 
-    async fn tick(&self, client: &Client, api_url: &str, tenant_id: &str) {
+    async fn tick(&self, client: &Client, api_url: &str, tenant_id: &str, api_key: Option<&str>) {
         let now = Instant::now();
 
         // Collect entries to process (avoid holding DashMap refs across await).
@@ -139,7 +140,7 @@ impl SourceRegistry {
             // Register if not yet done.
             if !registered {
                 match self
-                    .register(client, api_url, tenant_id, &agent_id, &hostname)
+                    .register(client, api_url, tenant_id, &agent_id, &hostname, api_key)
                     .await
                 {
                     Ok(()) => {
@@ -157,7 +158,7 @@ impl SourceRegistry {
 
             // Send heartbeat for active (non-stale) sources that are registered.
             if !stale {
-                if let Err(e) = self.heartbeat(client, api_url, tenant_id, &agent_id).await {
+                if let Err(e) = self.heartbeat(client, api_url, tenant_id, &agent_id, api_key).await {
                     debug!(source_ip, %e, "heartbeat failed for syslog source");
                 }
             }
@@ -171,6 +172,7 @@ impl SourceRegistry {
         tenant_id: &str,
         agent_id: &str,
         hostname: &str,
+        api_key: Option<&str>,
     ) -> Result<(), reqwest::Error> {
         let url = format!("{api_url}/api/v1/agents/register");
         let body = json!({
@@ -181,11 +183,17 @@ impl SourceRegistry {
             "version": "collector-detected",
         });
 
-        let resp = client
+        let mut req = client
             .post(&url)
             .header("x-tenant-id", tenant_id)
             .header("x-user-id", "cyberbox-collector")
-            .header("x-roles", "ingestor")
+            .header("x-roles", "ingestor");
+
+        if let Some(key) = api_key {
+            req = req.header("X-Api-Key", key);
+        }
+
+        let resp = req
             .json(&body)
             .send()
             .await?;
@@ -213,14 +221,21 @@ impl SourceRegistry {
         api_url: &str,
         tenant_id: &str,
         agent_id: &str,
+        api_key: Option<&str>,
     ) -> Result<(), reqwest::Error> {
         let url = format!("{api_url}/api/v1/agents/{agent_id}/heartbeat");
 
-        let resp = client
+        let mut req = client
             .post(&url)
             .header("x-tenant-id", tenant_id)
             .header("x-user-id", "cyberbox-collector")
-            .header("x-roles", "ingestor")
+            .header("x-roles", "ingestor");
+
+        if let Some(key) = api_key {
+            req = req.header("X-Api-Key", key);
+        }
+
+        let resp = req
             .send()
             .await?;
 

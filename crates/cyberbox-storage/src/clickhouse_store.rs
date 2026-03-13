@@ -1073,6 +1073,18 @@ impl ClickHouseEventStore {
         resp.data.iter().map(parse_agent_row).collect()
     }
 
+    pub async fn delete_agent(&self, tenant_id: &str, agent_id: &str) -> Result<(), CyberboxError> {
+        let sql = format!(
+            "ALTER TABLE {}.{} DELETE WHERE tenant_id = '{}' AND agent_id = '{}'",
+            self.database,
+            self.agents_table,
+            tenant_id.replace('\'', "\\'"),
+            agent_id.replace('\'', "\\'"),
+        );
+        self.execute_sql(&sql).await?;
+        Ok(())
+    }
+
     pub async fn list_scheduled_rules(&self) -> Result<Vec<DetectionRule>, CyberboxError> {
         let query = format!(
             "SELECT rule_id, tenant_id, sigma_source, compiled_plan, schedule_or_stream, schedule_interval_seconds, schedule_lookback_seconds, severity, enabled \

@@ -65,6 +65,8 @@ pub struct ForwarderConfig {
     pub channel_capacity: usize,
     /// If set, sign each POST with `X-Cyberbox-Signature: sha256=<hex>`.
     pub hmac_secret: Option<String>,
+    /// If set, send `X-Api-Key` header on each POST for authenticated ingest.
+    pub api_key: Option<String>,
     /// When notified, immediately attempt to drain the disk queue (for the
     /// `POST /drain-dlq` management endpoint).
     pub drain_trigger: Arc<Notify>,
@@ -116,6 +118,7 @@ pub async fn run(
     let ingest_url = Arc::new(format!("{}/api/v1/events:ingest", cfg.api_url));
     let tenant_id = Arc::new(cfg.tenant_id.clone());
     let hmac_secret = Arc::new(cfg.hmac_secret.clone());
+    let api_key = Arc::new(cfg.api_key.clone());
     let drain_trigger = Arc::clone(&cfg.drain_trigger);
 
     let concurrency = cfg.concurrency.max(1);
@@ -153,14 +156,14 @@ pub async fn run(
                         batch.push(ev);
                         if batch.len() >= cur_batch_size {
                             let events = std::mem::take(&mut batch);
-                            dispatch_post(events, &sem, &result_tx, &client, &ingest_url, &tenant_id, &hmac_secret).await;
+                            dispatch_post(events, &sem, &result_tx, &client, &ingest_url, &tenant_id, &hmac_secret, &api_key).await;
                         }
                     }
                     None => {
                         // Channel closed — flush remaining events then wait for all in-flight.
                         if !batch.is_empty() {
                             let events = std::mem::take(&mut batch);
-                            dispatch_post(events, &sem, &result_tx, &client, &ingest_url, &tenant_id, &hmac_secret).await;
+                            dispatch_post(events, &sem, &result_tx, &client, &ingest_url, &tenant_id, &hmac_secret, &api_key).await;
                         }
                         // Acquire all N permits → every in-flight task has finished.
                         let _ = sem.acquire_many(concurrency as u32).await;
@@ -172,20 +175,20 @@ pub async fn run(
             }
             _ = ticker.tick() => {
                 if needs_drain {
-                    drain_queue(&client, &ingest_url, &tenant_id, &cfg, &mut health, &metrics, hmac_secret.as_deref()).await;
+                    drain_queue(&client, &ingest_url, &tenant_id, &cfg, &mut health, &metrics, hmac_secret.as_deref(), api_key.as_deref()).await;
                     if health.online && !cfg.queue_path.exists() {
                         needs_drain = false;
                     }
                 }
                 if !batch.is_empty() {
                     let events = std::mem::take(&mut batch);
-                    dispatch_post(events, &sem, &result_tx, &client, &ingest_url, &tenant_id, &hmac_secret).await;
+                    dispatch_post(events, &sem, &result_tx, &client, &ingest_url, &tenant_id, &hmac_secret, &api_key).await;
                 }
             }
             _ = drain_trigger.notified() => {
                 info!("drain-dlq triggered via management endpoint");
                 needs_drain = true;
-                drain_queue(&client, &ingest_url, &tenant_id, &cfg, &mut health, &metrics, hmac_secret.as_deref()).await;
+                drain_queue(&client, &ingest_url, &tenant_id, &cfg, &mut health, &metrics, hmac_secret.as_deref(), api_key.as_deref()).await;
                 if health.online && !cfg.queue_path.exists() {
                     needs_drain = false;
                 }
@@ -250,6 +253,7 @@ async fn dispatch_post(
     url: &Arc<String>,
     tenant_id: &Arc<String>,
     hmac_secret: &Arc<Option<String>>,
+    api_key: &Arc<Option<String>>,
 ) {
     let count = events.len() as u64;
     let permit = sem
@@ -262,13 +266,14 @@ async fn dispatch_post(
     let url2 = Arc::clone(url);
     let tenant2 = Arc::clone(tenant_id);
     let secret2 = Arc::clone(hmac_secret);
+    let api_key2 = Arc::clone(api_key);
     let result_tx2 = result_tx.clone();
 
     tokio::spawn(async move {
         let _permit = permit; // released when this task ends
         let t0 = std::time::Instant::now();
 
-        match post_events(&client2, &url2, &tenant2, &events, secret2.as_deref()).await {
+        match post_events(&client2, &url2, &tenant2, &events, secret2.as_deref(), api_key2.as_deref()).await {
             Ok(()) => {
                 let latency_ms = t0.elapsed().as_millis() as u64;
                 debug!(count, latency_ms, "batch POSTed successfully");
@@ -330,6 +335,7 @@ async fn post_events(
     tenant_id: &str,
     events: &[Value],
     hmac_secret: Option<&str>,
+    api_key: Option<&str>,
 ) -> anyhow::Result<()> {
     let body = json!({ "events": events });
     let json_bytes = serde_json::to_vec(&body)?;
@@ -346,6 +352,10 @@ async fn post_events(
         .header("x-roles", "admin")
         .header("Content-Type", "application/json")
         .header("Content-Encoding", "gzip");
+
+    if let Some(key) = api_key {
+        req = req.header("X-Api-Key", key);
+    }
 
     if let Some(secret) = hmac_secret {
         let mut mac =
@@ -406,6 +416,7 @@ async fn drain_queue(
     health: &mut ApiHealth,
     metrics: &CollectorMetrics,
     hmac_secret: Option<&str>,
+    api_key: Option<&str>,
 ) {
     let path = &cfg.queue_path;
     if !path.exists() {
@@ -451,7 +462,7 @@ async fn drain_queue(
 
         let count = events.len() as u64;
         let t0 = std::time::Instant::now();
-        match post_events(client, url, tenant_id, &events, hmac_secret).await {
+        match post_events(client, url, tenant_id, &events, hmac_secret, api_key).await {
             Ok(_) => {
                 let latency_ms = t0.elapsed().as_millis() as u64;
                 metrics.batch_latency.observe(latency_ms);

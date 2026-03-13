@@ -136,6 +136,7 @@ services:
       RUST_LOG: "cyberbox_collector=info"
       COLLECTOR_API_URL: "http://cyberbox-api:8080"
       COLLECTOR_TENANT_ID: "safebox"
+      COLLECTOR_API_KEY: ${INGEST_API_KEY}
       COLLECTOR_UDP_BIND: "0.0.0.0:514"
       COLLECTOR_TCP_BIND: "0.0.0.0:601"
       COLLECTOR_BATCH_SIZE: "500"
@@ -174,6 +175,7 @@ services:
     volumes:
       - ./config/nginx-proxy.conf:/etc/nginx/nginx.conf:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /opt/cyberbox/downloads:/srv/downloads:ro
     networks:
       - cyberbox
     restart: unless-stopped

@@ -134,7 +134,10 @@ pub fn api_router() -> Router<AppState> {
         // Agent registry
         .route("/api/v1/agents", get(list_agents))
         .route("/api/v1/agents/register", post(register_agent))
-        .route("/api/v1/agents/:id", patch(patch_agent))
+        .route(
+            "/api/v1/agents/:id",
+            patch(patch_agent).delete(delete_agent),
+        )
         .route("/api/v1/agents/:id/heartbeat", post(agent_heartbeat))
         .route("/api/v1/agents/:id/config", post(push_agent_config))
         // Dashboard stats
@@ -3067,6 +3070,36 @@ pub async fn patch_agent(
             })),
         )
             .into_response()
+    } else {
+        StatusCode::NOT_FOUND.into_response()
+    }
+}
+
+/// `DELETE /api/v1/agents/:id` — remove an agent from the fleet.
+pub async fn delete_agent(
+    auth: AuthContext,
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    if let Some((_, agent)) = state.agents.remove(&id) {
+        if agent.tenant_id != auth.tenant_id {
+            // Put it back — not this tenant's agent.
+            state.agents.insert(id, agent);
+            return StatusCode::FORBIDDEN.into_response();
+        }
+        // Best-effort delete from ClickHouse
+        if let Some(ch) = &state.clickhouse_event_store {
+            let ch = ch.clone();
+            let tid = auth.tenant_id.clone();
+            let aid = agent.agent_id.clone();
+            tokio::spawn(async move {
+                if let Err(e) = ch.delete_agent(&tid, &aid).await {
+                    tracing::warn!(error = %e, "failed to delete agent from ClickHouse");
+                }
+            });
+        }
+        tracing::info!(actor = %auth.user_id, agent_id = %agent.agent_id, "agent deleted");
+        Json(json!({ "deleted": true, "agent_id": agent.agent_id })).into_response()
     } else {
         StatusCode::NOT_FOUND.into_response()
     }

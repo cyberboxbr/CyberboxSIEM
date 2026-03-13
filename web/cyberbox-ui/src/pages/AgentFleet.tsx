@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useState } from 'react';
 import {
   AgentRecord,
   AgentUpdateInput,
+  deleteAgent,
   getAgents,
   pushAgentConfig,
   updateAgent,
@@ -242,6 +243,17 @@ export function AgentFleet() {
     }
   };
 
+  const onDeleteAgent = async (agentId: string) => {
+    if (!window.confirm(`Remove agent "${agentId}" from the fleet?`)) return;
+    try {
+      await deleteAgent(agentId);
+      setExpandedId(null);
+      loadAgents();
+    } catch (err) {
+      setError(`Delete failed: ${String(err)}`);
+    }
+  };
+
   // ─── table cell style ────────────────────────────────────────────────────
 
   const th: React.CSSProperties = {
@@ -469,6 +481,23 @@ export function AgentFleet() {
                                 </span>
                               )}
                             </div>
+                          </div>
+
+                          {/* Delete agent */}
+                          <div style={{ borderTop: `1px solid ${s.border}`, paddingTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
+                            <button
+                              type="button"
+                              onClick={() => onDeleteAgent(agent.agent_id)}
+                              style={{
+                                padding: '8px 20px',
+                                background: 'rgba(244,93,93,0.15)',
+                                borderColor: s.bad,
+                                color: s.bad,
+                                fontWeight: 600,
+                              }}
+                            >
+                              Remove Agent
+                            </button>
                           </div>
                         </div>
                       )}

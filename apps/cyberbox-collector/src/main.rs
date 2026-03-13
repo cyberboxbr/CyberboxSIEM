@@ -49,6 +49,7 @@
 //! | `COLLECTOR_GELF_TCP_BIND`        | *(empty)*                      | GELF TCP listener (empty = disabled)                |
 //! | `COLLECTOR_OTLP_HTTP_BIND`       | *(empty)*                      | OTLP HTTP/JSON receiver (empty = disabled)          |
 //! | `COLLECTOR_FWD_CONCURRENCY`      | `4`                            | Concurrent forwarder HTTP POSTs in-flight           |
+//! | `COLLECTOR_API_KEY`              | *(empty)*                      | API key for `X-Api-Key` header (authenticated ingest) |
 //! | `COLLECTOR_API_HMAC_SECRET`      | *(empty)*                      | HMAC-SHA256 key for `X-Cyberbox-Signature` header  |
 //! | `COLLECTOR_HEALTHZ_BIND`         | *(empty)*                      | JSON /healthz endpoint bind address (disabled if empty) |
 //! | `COLLECTOR_DLQ_PATH`             | *(empty)*                      | Dead-letter queue file for parse failures           |
@@ -140,6 +141,8 @@ struct Config {
     fwd_concurrency: usize,
     // Forwarder HMAC signing
     api_hmac_secret: Option<String>,
+    // Forwarder API key authentication
+    api_key: Option<String>,
     // Dead-letter queue
     dlq_path: Option<PathBuf>,
     dlq_max_mb: u64,
@@ -309,6 +312,14 @@ impl Config {
                 .context("invalid COLLECTOR_FWD_CONCURRENCY")?,
             api_hmac_secret: {
                 let s = env_str("COLLECTOR_API_HMAC_SECRET", "");
+                if s.is_empty() {
+                    None
+                } else {
+                    Some(s)
+                }
+            },
+            api_key: {
+                let s = env_str("COLLECTOR_API_KEY", "");
                 if s.is_empty() {
                     None
                 } else {
@@ -564,6 +575,7 @@ async fn main() -> Result<()> {
         concurrency: cfg.fwd_concurrency,
         channel_capacity,
         hmac_secret: cfg.api_hmac_secret.clone(),
+        api_key: cfg.api_key.clone(),
         drain_trigger: Arc::clone(&drain_trigger),
     };
     let fwd_handle = tokio::spawn(forwarder::run(
@@ -775,7 +787,8 @@ async fn main() -> Result<()> {
         let api = cfg.api_url.clone();
         let tid = cfg.tenant_id.clone();
         let sd = shutdown_rx.clone();
-        tokio::spawn(reg.run(cl2, api, tid, sd));
+        let ak = cfg.api_key.clone();
+        tokio::spawn(reg.run(cl2, api, tid, sd, ak));
     }
 
     // ── JSON input sources ────────────────────────────────────────────────────
