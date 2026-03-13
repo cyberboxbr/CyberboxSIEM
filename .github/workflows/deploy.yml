@@ -112,11 +112,23 @@ jobs:
       name: ${{ inputs.environment || 'production' }}
       url: https://siem.cyberboxsecurity.com.br
     steps:
+      - uses: actions/checkout@v4
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sync deploy script to EC2
+        run: |
+          B64=$(base64 -w0 scripts/deploy.sh)
+          aws ssm send-command \
+            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "{\"commands\":[\"echo '$B64' | base64 -d > /opt/cyberbox/deploy.sh && chmod +x /opt/cyberbox/deploy.sh\"]}" \
+            --query 'Command.CommandId' --output text
+          sleep 5
 
       - name: Deploy via SSM
         run: |
