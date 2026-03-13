@@ -37,14 +37,14 @@ docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans
 
 # Restart nginx so it resolves new container IPs (Docker DNS caching)
 echo "=== Restarting nginx ==="
-docker compose -f docker-compose.prod.yml restart nginx
+docker compose --env-file .env -f docker-compose.prod.yml restart nginx
 
 echo "=== Waiting for health ==="
 sleep 10
 
 # Check API health
 for attempt in $(seq 1 12); do
-  if docker compose -f docker-compose.prod.yml exec -T cyberbox-api \
+  if docker compose --env-file .env -f docker-compose.prod.yml exec -T cyberbox-api \
     wget -qO- http://localhost:8080/healthz 2>/dev/null; then
     echo ""
     echo "API healthy"
@@ -56,17 +56,24 @@ done
 
 echo ""
 echo "=== Auth smoke test ==="
-# Catch 401 regressions: /api/v1/agents must work without headers in bypass mode
-AUTH_HTTP=$(docker compose -f docker-compose.prod.yml exec -T cyberbox-api \
-  wget --spider -S http://localhost:8080/api/v1/agents 2>&1 | grep "HTTP/" | tail -1 | awk '{print $2}')
-if [ "$AUTH_HTTP" = "200" ]; then
-  echo "Auth bypass OK (200)"
+# Verify the API key auth path works (same key the collector uses).
+# We read INGEST_API_KEY from .env; if unset, skip the test.
+INGEST_KEY=$(grep '^INGEST_API_KEY=' .env 2>/dev/null | cut -d= -f2- || true)
+if [ -n "$INGEST_KEY" ]; then
+  AUTH_HTTP=$(docker compose --env-file .env -f docker-compose.prod.yml exec -T cyberbox-api \
+    wget --spider -S --header="X-Api-Key: $INGEST_KEY" \
+    http://localhost:8080/api/v1/agents 2>&1 | grep "HTTP/" | tail -1 | awk '{print $2}') || true
+  if [ "$AUTH_HTTP" = "200" ]; then
+    echo "API key auth OK (200)"
+  else
+    echo "WARNING: /api/v1/agents returned HTTP $AUTH_HTTP with API key"
+  fi
 else
-  echo "WARNING: /api/v1/agents returned HTTP $AUTH_HTTP — auth bypass may be broken!"
+  echo "INGEST_API_KEY not in .env — skipping auth smoke test"
 fi
 
 echo ""
 echo "=== Container status ==="
-docker compose -f docker-compose.prod.yml ps
+docker compose --env-file .env -f docker-compose.prod.yml ps
 
 echo "=== Deploy complete: $IMAGE_TAG ==="
