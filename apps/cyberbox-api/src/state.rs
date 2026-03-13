@@ -198,9 +198,9 @@ pub struct AppState {
     pub suppression_map: Arc<DashMap<String, std::time::Instant>>,
     /// Directory where persistent JSON state (feeds, RBAC) is saved. Empty = disabled.
     pub state_dir: String,
-    /// Short-lived WebSocket auth tokens: opaque token string → expiry Instant.
+    /// Short-lived WebSocket auth tokens: opaque token string → (tenant_id, expiry Instant).
     /// Tokens are issued by `GET /api/v1/alerts/ws-token` and validated on WebSocket upgrade.
-    pub ws_tokens: Arc<DashMap<String, std::time::Instant>>,
+    pub ws_tokens: Arc<DashMap<String, (String, std::time::Instant)>>,
     /// Per-(tenant_id, source_type) ingestion statistics for `GET /api/v1/sources`.
     /// Updated on every accepted event batch in the ingest hot path.
     pub sources: Arc<DashMap<String, SourceInfo>>,

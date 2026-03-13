@@ -2533,8 +2533,8 @@ async fn issue_ws_token(
     let expiry = std::time::Instant::now() + std::time::Duration::from_secs(60);
     // Evict stale tokens (lazy, amortised).
     let now = std::time::Instant::now();
-    state.ws_tokens.retain(|_, exp| now < *exp);
-    state.ws_tokens.insert(token.clone(), expiry);
+    state.ws_tokens.retain(|_, (_, exp)| now < *exp);
+    state.ws_tokens.insert(token.clone(), (auth.tenant_id.clone(), expiry));
     Ok(Json(
         json!({ "token": token, "expires_in_seconds": 60, "tenant_id": auth.tenant_id }),
     ))
@@ -2549,31 +2549,28 @@ struct WsTokenQuery {
 
 /// GET /api/v1/alerts/ws — live WebSocket push of new alerts.
 /// Upgrades the connection via the `Upgrade: websocket` header.
-/// Accepts an optional `?token=<ws-token>` query parameter for token-based auth
-/// (required when `auth_disabled = false` and the client cannot send headers).
-/// Each frame is a JSON-serialised `AlertRecord` text message.
+/// Requires a `?token=<ws-token>` query parameter obtained from
+/// `GET /api/v1/alerts/ws-token`.  The token embeds the tenant_id so
+/// that the WebSocket upgrade request does not need an Authorization header
+/// (browsers cannot set custom headers on WebSocket connections).
 async fn alert_ws(
     ws: WebSocketUpgrade,
     Query(q): Query<WsTokenQuery>,
-    auth: AuthContext,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    // If a token is provided validate it; otherwise fall through to header-based auth.
     let tenant_id = if let Some(ref token) = q.token {
         let now = std::time::Instant::now();
-        if let Some(expiry) = state.ws_tokens.get(token).map(|e| *e) {
+        if let Some((_, (tid, expiry))) = state.ws_tokens.remove(token) {
             if now < expiry {
-                state.ws_tokens.remove(token); // single-use
-                auth.tenant_id.clone()
+                tid
             } else {
-                state.ws_tokens.remove(token);
                 return axum::http::StatusCode::UNAUTHORIZED.into_response();
             }
         } else {
             return axum::http::StatusCode::UNAUTHORIZED.into_response();
         }
     } else {
-        auth.tenant_id.clone()
+        return axum::http::StatusCode::UNAUTHORIZED.into_response();
     };
     ws.on_upgrade(move |socket| handle_alert_ws(socket, tenant_id, state))
 }
