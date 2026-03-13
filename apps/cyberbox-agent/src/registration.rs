@@ -87,6 +87,21 @@ pub async fn run(cfg: RegistrationConfig, mut shutdown: watch::Receiver<bool>) {
         }
         match req.send().await {
             Err(e) => error!(%e, "heartbeat failed"),
+            Ok(resp) if resp.status() == reqwest::StatusCode::NOT_FOUND => {
+                // Agent unknown after API restart — re-register
+                warn!("heartbeat returned 404 — re-registering agent");
+                let mut rr = client.post(&reg_url).json(&body);
+                if let Some(ref tok) = cfg.token {
+                    rr = rr.bearer_auth(tok);
+                }
+                match rr.send().await {
+                    Ok(r) if r.status().is_success() => {
+                        info!(agent_id = %cfg.agent_id, "agent re-registered after 404");
+                    }
+                    Ok(r) => warn!(status = %r.status(), "re-registration failed"),
+                    Err(e) => warn!(%e, "re-registration request failed"),
+                }
+            }
             Ok(resp) => {
                 // Check for queued config delivery
                 if let Ok(body) = resp.json::<serde_json::Value>().await {
