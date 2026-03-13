@@ -366,7 +366,7 @@ export interface SearchQueryResponse {
 }
 
 export interface NlqInput {
-  question: string;
+  query: string;
   time_range: TimeRange;
 }
 

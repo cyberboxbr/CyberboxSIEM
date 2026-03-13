@@ -407,7 +407,7 @@ export function Search() {
         setGeneratedSql(null);
       } else {
         const resp: NlqResponse = await naturalLanguageQuery({
-          question: nlqText,
+          query: nlqText,
           time_range: buildTimeRange(),
         });
         setRows(resp.rows);
