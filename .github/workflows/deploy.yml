@@ -120,15 +120,20 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Sync deploy script to EC2
+      - name: Sync config files to EC2
         run: |
-          B64=$(base64 -w0 scripts/deploy.sh)
-          aws ssm send-command \
+          B64_DEPLOY=$(base64 -w0 scripts/deploy.sh)
+          B64_COMPOSE=$(base64 -w0 docker-compose.prod.yml)
+          CMD_ID=$(aws ssm send-command \
             --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
             --document-name "AWS-RunShellScript" \
-            --parameters "{\"commands\":[\"echo '$B64' | base64 -d > /opt/cyberbox/deploy.sh && chmod +x /opt/cyberbox/deploy.sh\"]}" \
-            --query 'Command.CommandId' --output text
+            --parameters "{\"commands\":[\"cd /opt/cyberbox && echo '$B64_DEPLOY' | base64 -d > deploy.sh && chmod +x deploy.sh && echo '$B64_COMPOSE' | base64 -d > docker-compose.prod.yml && echo synced\"]}" \
+            --query 'Command.CommandId' --output text)
           sleep 5
+          aws ssm get-command-invocation \
+            --command-id "$CMD_ID" \
+            --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
+            --query '[Status,StandardOutputContent]' --output text
 
       - name: Deploy via SSM
         run: |
