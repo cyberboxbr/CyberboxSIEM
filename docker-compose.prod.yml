@@ -84,6 +84,11 @@ services:
       CYBERBOX__OIDC_AUDIENCE: "api://3fd8922e-d137-4d50-b160-b552ceda18c1"
       CYBERBOX__TENANT_ID_OVERRIDE: "safebox"
       CYBERBOX__INGEST_API_KEY: ${INGEST_API_KEY}
+      # NLQ (Natural Language Query — Claude or OpenAI)
+      CYBERBOX__NLQ_ENABLED: "true"
+      CYBERBOX__NLQ_PROVIDER: ${NLQ_PROVIDER:-auto}
+      CYBERBOX__ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CYBERBOX__OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       # Rate limiting
       CYBERBOX__EPS_LIMIT_PER_TENANT: "50000"
       # State persistence

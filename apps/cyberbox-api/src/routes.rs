@@ -2230,8 +2230,8 @@ async fn nlq_search(
             "NLQ is not enabled on this instance (set nlq_enabled = true)".to_string(),
         ));
     }
-    let api_key = state.anthropic_api_key.as_deref().ok_or_else(|| {
-        CyberboxError::Internal("NLQ enabled but anthropic_api_key not configured".to_string())
+    let (provider, api_key) = state.nlq_provider.as_ref().ok_or_else(|| {
+        CyberboxError::Internal("NLQ enabled but no LLM API key configured".to_string())
     })?;
 
     if req.query.trim().is_empty() {
@@ -2240,10 +2240,15 @@ async fn nlq_search(
         ));
     }
 
-    let translation =
-        cyberbox_core::nlq::translate(&req, &auth.tenant_id, api_key, &state.http_client)
-            .await
-            .map_err(|e| CyberboxError::Internal(format!("NLQ translation failed: {e}")))?;
+    let translation = cyberbox_core::nlq::translate(
+        &req,
+        &auth.tenant_id,
+        api_key,
+        *provider,
+        &state.http_client,
+    )
+    .await
+    .map_err(|e| CyberboxError::Internal(format!("NLQ translation failed: {e}")))?;
 
     tracing::info!(
         actor = %auth.user_id,
@@ -2291,8 +2296,8 @@ async fn generate_sigma_rule(
             "AI rule generation is not enabled (set nlq_enabled = true)".to_string(),
         ));
     }
-    let api_key = state.anthropic_api_key.as_deref().ok_or_else(|| {
-        CyberboxError::Internal("nlq_enabled but anthropic_api_key not configured".to_string())
+    let (provider, api_key) = state.nlq_provider.as_ref().ok_or_else(|| {
+        CyberboxError::Internal("NLQ enabled but no LLM API key configured".to_string())
     })?;
     if req.description.trim().is_empty() {
         return Err(CyberboxError::BadRequest(
@@ -2300,7 +2305,7 @@ async fn generate_sigma_rule(
         ));
     }
 
-    let result = cyberbox_core::nlq::generate_sigma(&req, api_key, &state.http_client)
+    let result = cyberbox_core::nlq::generate_sigma(&req, api_key, *provider, &state.http_client)
         .await
         .map_err(|e| CyberboxError::Internal(format!("Sigma generation failed: {e}")))?;
 
@@ -2333,8 +2338,8 @@ async fn explain_alert_handler(
             "AI alert explanation is not enabled (set nlq_enabled = true)".to_string(),
         ));
     }
-    let api_key = state.anthropic_api_key.as_deref().ok_or_else(|| {
-        CyberboxError::Internal("nlq_enabled but anthropic_api_key not configured".to_string())
+    let (provider, api_key) = state.nlq_provider.as_ref().ok_or_else(|| {
+        CyberboxError::Internal("NLQ enabled but no LLM API key configured".to_string())
     })?;
 
     // Fetch the alert — list then find (no get_alert on trait).
@@ -2344,7 +2349,7 @@ async fn explain_alert_handler(
         .find(|a| a.alert_id == id)
         .ok_or(CyberboxError::NotFound)?;
 
-    // Build a compact context string for Claude using available fields.
+    // Build a compact context string for the LLM using available fields.
     let context = serde_json::json!({
         "rule_id":     alert.rule_id,
         "status":      format!("{:?}", alert.status),
@@ -2356,10 +2361,14 @@ async fn explain_alert_handler(
         "evidence_refs": alert.evidence_refs,
     });
 
-    let explanation =
-        cyberbox_core::nlq::explain_alert(&context.to_string(), api_key, &state.http_client)
-            .await
-            .map_err(|e| CyberboxError::Internal(format!("Alert explanation failed: {e}")))?;
+    let explanation = cyberbox_core::nlq::explain_alert(
+        &context.to_string(),
+        api_key,
+        *provider,
+        &state.http_client,
+    )
+    .await
+    .map_err(|e| CyberboxError::Internal(format!("Alert explanation failed: {e}")))?;
 
     tracing::info!(
         actor = %auth.user_id,
@@ -2739,8 +2748,8 @@ async fn tune_rule_handler(
             "Rule tuning requires nlq_enabled = true".to_string(),
         ));
     }
-    let api_key = state.anthropic_api_key.as_deref().ok_or_else(|| {
-        CyberboxError::Internal("nlq_enabled but anthropic_api_key not configured".to_string())
+    let (provider, api_key) = state.nlq_provider.as_ref().ok_or_else(|| {
+        CyberboxError::Internal("NLQ enabled but no LLM API key configured".to_string())
     })?;
 
     // Fetch the rule.
@@ -2774,6 +2783,7 @@ async fn tune_rule_handler(
         &rule.sigma_source,
         &history_json,
         api_key,
+        *provider,
         &state.http_client,
     )
     .await

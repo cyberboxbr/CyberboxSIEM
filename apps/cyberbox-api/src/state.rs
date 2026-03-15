@@ -169,8 +169,8 @@ pub struct AppState {
     pub geoip_enricher: Option<Arc<GeoIpEnricher>>,
     /// Enable the POST /api/v1/events/nlq endpoint.
     pub nlq_enabled: bool,
-    /// Anthropic API key for NLQ Claude calls. `None` when `nlq_enabled = false`.
-    pub anthropic_api_key: Option<String>,
+    /// Resolved NLQ provider + API key. `None` when `nlq_enabled = false` or no key configured.
+    pub nlq_provider: Option<(cyberbox_core::nlq::NlqProvider, String)>,
     /// Short-window event deduplication cache.
     /// Duplicate events (same integrity_hash within the configured window) are dropped at ingest.
     /// Uses VecDeque-based amortised O(1) eviction instead of O(n) DashMap::retain().
@@ -264,7 +264,7 @@ impl AppState {
             http_client: reqwest::Client::new(),
             geoip_enricher: None,
             nlq_enabled: false,
-            anthropic_api_key: None,
+            nlq_provider: None,
             event_dedup_cache: DedupCache::disabled(),
             event_dedup_window_secs: 0,
             threshold_counters: Arc::new(DashMap::new()),
@@ -353,8 +353,21 @@ impl AppState {
             last_report_sent_at: Arc::new(std::sync::Mutex::new(None)),
             rbac_store: Arc::new(DashMap::new()),
             nlq_enabled: config.nlq_enabled,
-            anthropic_api_key: if config.nlq_enabled && !config.anthropic_api_key.is_empty() {
-                Some(config.anthropic_api_key.clone())
+            nlq_provider: if config.nlq_enabled {
+                cyberbox_core::nlq::NlqProvider::from_config(
+                    &config.nlq_provider,
+                    &config.anthropic_api_key,
+                    &config.openai_api_key,
+                )
+                .map(|p| {
+                    let key = match p {
+                        cyberbox_core::nlq::NlqProvider::Anthropic => {
+                            config.anthropic_api_key.clone()
+                        }
+                        cyberbox_core::nlq::NlqProvider::OpenAI => config.openai_api_key.clone(),
+                    };
+                    (p, key)
+                })
             } else {
                 None
             },

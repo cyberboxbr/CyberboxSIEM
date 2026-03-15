@@ -98,11 +98,18 @@ pub struct AppConfig {
     /// this window are dropped at ingest. `0` disables deduplication.
     pub event_dedup_window_secs: u64,
     // ── Natural Language Query ────────────────────────────────────────────────
-    /// Enable POST /api/v1/events/nlq.  Requires `anthropic_api_key`.
+    /// Enable POST /api/v1/events/nlq.  Requires at least one LLM API key.
     pub nlq_enabled: bool,
     /// Anthropic API key used by the NLQ engine to call Claude.
     /// Set via environment variable `CYBERBOX__ANTHROPIC_API_KEY`.
     pub anthropic_api_key: String,
+    /// OpenAI API key used by the NLQ engine as an alternative to Claude.
+    /// Set via environment variable `CYBERBOX__OPENAI_API_KEY`.
+    pub openai_api_key: String,
+    /// Which LLM provider to use: "anthropic", "openai", or "auto" (default).
+    /// "auto" prefers Anthropic when both keys are set.
+    /// Set via environment variable `CYBERBOX__NLQ_PROVIDER`.
+    pub nlq_provider: String,
     // ── State persistence ─────────────────────────────────────────────────────
     /// Directory for persistent JSON state (feeds, RBAC). Empty = in-memory only.
     pub state_dir: String,
@@ -194,6 +201,8 @@ impl Default for AppConfig {
             event_dedup_window_secs: 0,
             nlq_enabled: false,
             anthropic_api_key: String::new(),
+            openai_api_key: String::new(),
+            nlq_provider: "auto".to_string(),
             state_dir: "data".to_string(),
             jwks_refresh_interval_secs: 300,
             otlp_endpoint: String::new(),

@@ -1,32 +1,92 @@
 //! Natural Language Query (NLQ) — translates a plain-English security question
-//! into a `SearchQueryRequest` using the Claude API.
+//! into a `SearchQueryRequest` using an LLM (Claude or OpenAI).
 //!
 //! ## Flow
 //! ```text
 //!  "show failed SSH logins from root in the last hour"
 //!          │
-//!          ▼  POST https://api.anthropic.com/v1/messages
-//!  Claude  →  { "sql_where": "...", "time_range_hours": 1, "limit": 200 }
+//!          ▼  POST to Claude or OpenAI API
+//!  LLM   →  { "sql_where": "...", "time_range_hours": 1, "limit": 200 }
 //!          │
 //!          ▼  sanitise: strip dangerous tokens
 //!  SearchQueryRequest { extra_where: Some("..."), time_range, pagination }
 //! ```
 //!
 //! ## Safety
-//! The WHERE clause returned by Claude is checked for dangerous SQL tokens
+//! The WHERE clause returned by the LLM is checked for dangerous SQL tokens
 //! (DROP, UNION, INSERT, …) before use. The mandatory `tenant_id` predicate
-//! is always injected server-side by the event store — Claude cannot bypass it.
+//! is always injected server-side by the event store — the LLM cannot bypass it.
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use cyberbox_models::{Pagination, QueryFilter, SearchQueryRequest, TimeRange};
 
-// ─── Claude API constants ──────────────────────────────────────────────────────
+// ─── Provider selection ──────────────────────────────────────────────────────
+
+/// Which LLM provider to use for NLQ features.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NlqProvider {
+    Anthropic,
+    OpenAI,
+}
+
+impl NlqProvider {
+    /// Auto-detect provider from available API keys.
+    /// Prefers Anthropic when both keys are set.
+    pub fn auto_detect(anthropic_key: &str, openai_key: &str) -> Option<Self> {
+        if !anthropic_key.is_empty() {
+            Some(Self::Anthropic)
+        } else if !openai_key.is_empty() {
+            Some(Self::OpenAI)
+        } else {
+            None
+        }
+    }
+
+    /// Parse from a config string. Falls back to auto-detection if unrecognised.
+    pub fn from_config(s: &str, anthropic_key: &str, openai_key: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "anthropic" | "claude" => {
+                if !anthropic_key.is_empty() {
+                    Some(Self::Anthropic)
+                } else {
+                    None
+                }
+            }
+            "openai" | "gpt" => {
+                if !openai_key.is_empty() {
+                    Some(Self::OpenAI)
+                } else {
+                    None
+                }
+            }
+            "" | "auto" => Self::auto_detect(anthropic_key, openai_key),
+            _ => Self::auto_detect(anthropic_key, openai_key),
+        }
+    }
+}
+
+impl std::fmt::Display for NlqProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Anthropic => write!(f, "anthropic"),
+            Self::OpenAI => write!(f, "openai"),
+        }
+    }
+}
+
+// ─── API constants ───────────────────────────────────────────────────────────
 
 const ANTHROPIC_MESSAGES_URL: &str = "https://api.anthropic.com/v1/messages";
-/// Use Haiku for low-latency, low-cost NLQ translation.
-const MODEL: &str = "claude-haiku-4-5-20251001";
+const OPENAI_CHAT_URL: &str = "https://api.openai.com/v1/chat/completions";
+
+/// Anthropic: use Haiku for low-latency, low-cost NLQ translation.
+const ANTHROPIC_MODEL: &str = "claude-haiku-4-5-20251001";
+/// OpenAI: use GPT-4.1-mini for comparable speed/cost.
+const OPENAI_MODEL: &str = "gpt-4.1-mini";
+
 const MAX_TOKENS: u32 = 512;
 
 const SYSTEM_PROMPT: &str = "\
@@ -78,7 +138,7 @@ pub struct NlqTranslation {
     pub interpreted_as: String,
 }
 
-// ─── Claude API wire types ────────────────────────────────────────────────────
+// ─── Anthropic (Claude) wire types ───────────────────────────────────────────
 
 #[derive(Serialize)]
 struct ClaudeRequest<'a> {
@@ -104,6 +164,38 @@ struct ClaudeContent {
     text: String,
 }
 
+// ─── OpenAI wire types ───────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+struct OpenAIRequest<'a> {
+    model: &'a str,
+    max_tokens: u32,
+    messages: Vec<OpenAIMsg<'a>>,
+}
+
+#[derive(Serialize)]
+struct OpenAIMsg<'a> {
+    role: &'a str,
+    content: &'a str,
+}
+
+#[derive(Deserialize)]
+struct OpenAIResponse {
+    choices: Vec<OpenAIChoice>,
+}
+
+#[derive(Deserialize)]
+struct OpenAIChoice {
+    message: OpenAIMessageContent,
+}
+
+#[derive(Deserialize)]
+struct OpenAIMessageContent {
+    content: String,
+}
+
+// ─── Shared parsed NLQ response ──────────────────────────────────────────────
+
 #[derive(Deserialize)]
 struct ParsedNlq {
     sql_where: String,
@@ -124,13 +216,22 @@ pub async fn translate(
     req: &NlqRequest,
     tenant_id: &str,
     api_key: &str,
+    provider: NlqProvider,
     client: &reqwest::Client,
 ) -> anyhow::Result<NlqTranslation> {
-    let text = call_claude(SYSTEM_PROMPT, &req.query, MAX_TOKENS, api_key, client).await?;
+    let text = call_llm(
+        SYSTEM_PROMPT,
+        &req.query,
+        MAX_TOKENS,
+        api_key,
+        provider,
+        client,
+    )
+    .await?;
 
     let json_str = strip_code_fences(&text);
     let parsed: ParsedNlq = serde_json::from_str(json_str.trim())
-        .map_err(|e| anyhow::anyhow!("Claude returned non-JSON: {e}\nraw: {json_str}"))?;
+        .map_err(|e| anyhow::anyhow!("LLM returned non-JSON: {e}\nraw: {json_str}"))?;
 
     let where_clause = sanitise_where(&parsed.sql_where);
     let hours = parsed.time_range_hours.unwrap_or(24).clamp(1, 720);
@@ -157,7 +258,7 @@ pub async fn translate(
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/// Strip ` ```json ... ``` ` or ` ``` ... ``` ` fences from Claude output.
+/// Strip ` ```json ... ``` ` or ` ``` ... ``` ` fences from LLM output.
 fn strip_code_fences(s: &str) -> &str {
     let s = s.trim();
     if s.starts_with("```") {
@@ -172,7 +273,7 @@ fn strip_code_fences(s: &str) -> &str {
     s
 }
 
-/// Reject SQL tokens that could be dangerous if Claude's response were
+/// Reject SQL tokens that could be dangerous if the LLM's response were
 /// compromised.  This is defence-in-depth; the store also enforces SELECT-only
 /// on the `sql` field and always injects the `tenant_id` predicate server-side.
 pub fn sanitise_where(raw: &str) -> String {
@@ -255,14 +356,23 @@ pub struct GenerateSigmaResponse {
     pub description: String,
 }
 
-/// Generate a Sigma rule from a plain-English description using Claude.
+/// Generate a Sigma rule from a plain-English description.
 pub async fn generate_sigma(
     req: &GenerateSigmaRequest,
     api_key: &str,
+    provider: NlqProvider,
     client: &reqwest::Client,
 ) -> anyhow::Result<GenerateSigmaResponse> {
-    let text = call_claude(SIGMA_SYSTEM_PROMPT, &req.description, 1024, api_key, client).await?;
-    // Strip fences if Claude wrapped the YAML
+    let text = call_llm(
+        SIGMA_SYSTEM_PROMPT,
+        &req.description,
+        1024,
+        api_key,
+        provider,
+        client,
+    )
+    .await?;
+    // Strip fences if the LLM wrapped the YAML
     let yaml = strip_code_fences(&text).to_string();
     Ok(GenerateSigmaResponse {
         sigma_yaml: yaml,
@@ -295,20 +405,28 @@ pub struct AlertExplanation {
     pub false_positive_likelihood: String,
 }
 
-/// Ask Claude to explain an alert in plain English.
+/// Ask the LLM to explain an alert in plain English.
 ///
 /// `alert_context` should be a compact JSON string of the alert fields that
-/// Claude needs: rule title, severity, matched fields, raw payload excerpt.
+/// the LLM needs: rule title, severity, matched fields, raw payload excerpt.
 pub async fn explain_alert(
     alert_context: &str,
     api_key: &str,
+    provider: NlqProvider,
     client: &reqwest::Client,
 ) -> anyhow::Result<AlertExplanation> {
-    let text = call_claude(EXPLAIN_SYSTEM_PROMPT, alert_context, 512, api_key, client).await?;
+    let text = call_llm(
+        EXPLAIN_SYSTEM_PROMPT,
+        alert_context,
+        512,
+        api_key,
+        provider,
+        client,
+    )
+    .await?;
     let json_str = strip_code_fences(&text);
-    let explanation: AlertExplanation = serde_json::from_str(json_str.trim()).map_err(|e| {
-        anyhow::anyhow!("Claude returned non-JSON explanation: {e}\nraw: {json_str}")
-    })?;
+    let explanation: AlertExplanation = serde_json::from_str(json_str.trim())
+        .map_err(|e| anyhow::anyhow!("LLM returned non-JSON explanation: {e}\nraw: {json_str}"))?;
     Ok(explanation)
 }
 
@@ -349,7 +467,7 @@ pub struct TuneRuleResponse {
     pub estimated_fp_reduction_pct: u32,
 }
 
-/// Ask Claude to analyze a rule + its recent alert history and suggest improvements.
+/// Ask the LLM to analyze a rule + its recent alert history and suggest improvements.
 ///
 /// `sigma_source` is the raw YAML; `alert_history_json` is a compact JSON string
 /// summarising recent alerts (status, resolution, hit counts, etc.).
@@ -357,22 +475,47 @@ pub async fn tune_rule(
     sigma_source: &str,
     alert_history_json: &str,
     api_key: &str,
+    provider: NlqProvider,
     client: &reqwest::Client,
 ) -> anyhow::Result<TuneRuleResponse> {
     let user_msg = format!(
         "Sigma rule:\n```yaml\n{sigma_source}\n```\n\nRecent alert history:\n{alert_history_json}"
     );
-    let text = call_claude(TUNE_SYSTEM_PROMPT, &user_msg, 1024, api_key, client).await?;
+    let text = call_llm(
+        TUNE_SYSTEM_PROMPT,
+        &user_msg,
+        1024,
+        api_key,
+        provider,
+        client,
+    )
+    .await?;
     let json_str = strip_code_fences(&text);
     let response: TuneRuleResponse = serde_json::from_str(json_str.trim()).map_err(|e| {
-        anyhow::anyhow!("Claude returned non-JSON tune response: {e}\nraw: {json_str}")
+        anyhow::anyhow!("LLM returned non-JSON tune response: {e}\nraw: {json_str}")
     })?;
     Ok(response)
 }
 
-// ─── Shared Claude caller ─────────────────────────────────────────────────────
+// ─── Shared LLM caller ──────────────────────────────────────────────────────
 
-async fn call_claude(
+async fn call_llm(
+    system: &str,
+    user_msg: &str,
+    max_tokens: u32,
+    api_key: &str,
+    provider: NlqProvider,
+    client: &reqwest::Client,
+) -> anyhow::Result<String> {
+    match provider {
+        NlqProvider::Anthropic => {
+            call_anthropic(system, user_msg, max_tokens, api_key, client).await
+        }
+        NlqProvider::OpenAI => call_openai(system, user_msg, max_tokens, api_key, client).await,
+    }
+}
+
+async fn call_anthropic(
     system: &str,
     user_msg: &str,
     max_tokens: u32,
@@ -380,7 +523,7 @@ async fn call_claude(
     client: &reqwest::Client,
 ) -> anyhow::Result<String> {
     let req = ClaudeRequest {
-        model: MODEL,
+        model: ANTHROPIC_MODEL,
         max_tokens,
         system,
         messages: vec![ClaudeMsg {
@@ -403,6 +546,44 @@ async fn call_claude(
         .into_iter()
         .next()
         .map(|c| c.text)
+        .unwrap_or_default())
+}
+
+async fn call_openai(
+    system: &str,
+    user_msg: &str,
+    max_tokens: u32,
+    api_key: &str,
+    client: &reqwest::Client,
+) -> anyhow::Result<String> {
+    let req = OpenAIRequest {
+        model: OPENAI_MODEL,
+        max_tokens,
+        messages: vec![
+            OpenAIMsg {
+                role: "system",
+                content: system,
+            },
+            OpenAIMsg {
+                role: "user",
+                content: user_msg,
+            },
+        ],
+    };
+    let resp = client
+        .post(OPENAI_CHAT_URL)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .json(&req)
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<OpenAIResponse>()
+        .await?;
+    Ok(resp
+        .choices
+        .into_iter()
+        .next()
+        .map(|c| c.message.content)
         .unwrap_or_default())
 }
 
@@ -457,5 +638,43 @@ mod tests {
     fn strip_fences_passthrough_plain_json() {
         let s = "{\"sql_where\":\"1=1\"}";
         assert_eq!(strip_code_fences(s), s);
+    }
+
+    #[test]
+    fn provider_auto_detect_anthropic_preferred() {
+        assert_eq!(
+            NlqProvider::auto_detect("sk-ant-key", "sk-openai-key"),
+            Some(NlqProvider::Anthropic)
+        );
+    }
+
+    #[test]
+    fn provider_auto_detect_openai_fallback() {
+        assert_eq!(
+            NlqProvider::auto_detect("", "sk-openai-key"),
+            Some(NlqProvider::OpenAI)
+        );
+    }
+
+    #[test]
+    fn provider_auto_detect_none() {
+        assert_eq!(NlqProvider::auto_detect("", ""), None);
+    }
+
+    #[test]
+    fn provider_from_config_explicit() {
+        assert_eq!(
+            NlqProvider::from_config("openai", "", "sk-key"),
+            Some(NlqProvider::OpenAI)
+        );
+        assert_eq!(
+            NlqProvider::from_config("anthropic", "sk-ant", ""),
+            Some(NlqProvider::Anthropic)
+        );
+    }
+
+    #[test]
+    fn provider_from_config_missing_key() {
+        assert_eq!(NlqProvider::from_config("openai", "sk-ant", ""), None);
     }
 }
