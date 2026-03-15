@@ -2943,13 +2943,113 @@ pub async fn dashboard_stats(
             .len()
     };
 
-    // Alert count
-    let alert_count = state
+    // Alerts — compute severity breakdown, top rules, and trend
+    let all_alerts = state
         .storage
         .list_alerts(tenant_id)
         .await
-        .unwrap_or_default()
-        .len();
+        .unwrap_or_default();
+    let open_count = all_alerts
+        .iter()
+        .filter(|a| a.status == cyberbox_models::AlertStatus::Open)
+        .count();
+
+    // Alerts by severity
+    let mut sev_counts = std::collections::HashMap::new();
+    for a in &all_alerts {
+        *sev_counts
+            .entry(format!("{:?}", a.severity).to_lowercase())
+            .or_insert(0u64) += 1;
+    }
+    let alerts_by_severity = json!({
+        "critical": sev_counts.get("critical").copied().unwrap_or(0),
+        "high":     sev_counts.get("high").copied().unwrap_or(0),
+        "medium":   sev_counts.get("medium").copied().unwrap_or(0),
+        "low":      sev_counts.get("low").copied().unwrap_or(0),
+    });
+
+    // Top triggered rules (by alert count, top 10)
+    let mut rule_alert_count: std::collections::HashMap<Uuid, (String, String, u64)> =
+        std::collections::HashMap::new();
+    for a in &all_alerts {
+        let entry = rule_alert_count.entry(a.rule_id).or_insert_with(|| {
+            (
+                a.rule_title.clone(),
+                format!("{:?}", a.severity).to_lowercase(),
+                0,
+            )
+        });
+        entry.2 += 1;
+    }
+    let mut top_rules: Vec<_> = rule_alert_count
+        .into_iter()
+        .map(|(id, (title, sev, count))| {
+            json!({
+                "rule_id": id,
+                "rule_title": if title.is_empty() { format!("Rule {}", &id.to_string()[..8]) } else { title },
+                "severity": sev,
+                "alert_count": count,
+            })
+        })
+        .collect();
+    top_rules.sort_by(|a, b| b["alert_count"].as_u64().cmp(&a["alert_count"].as_u64()));
+    top_rules.truncate(10);
+
+    // Alert trend — bucket alerts by hour over the requested range
+    let range_start = Utc::now() - chrono::Duration::seconds(range_seconds);
+    let bucket_secs: i64 = if range_seconds <= 4 * 3600 {
+        300 // 5-min buckets
+    } else if range_seconds <= 86400 {
+        3600 // 1-hour buckets
+    } else if range_seconds <= 7 * 86400 {
+        6 * 3600 // 6-hour buckets
+    } else {
+        86400 // 1-day buckets
+    };
+    let mut alert_buckets: std::collections::BTreeMap<i64, u64> = std::collections::BTreeMap::new();
+    // Pre-fill buckets with zeros
+    let start_ts = range_start.timestamp();
+    let now_ts = Utc::now().timestamp();
+    let mut t = start_ts - (start_ts % bucket_secs);
+    while t <= now_ts {
+        alert_buckets.insert(t, 0);
+        t += bucket_secs;
+    }
+    for a in &all_alerts {
+        let ts = a.first_seen.timestamp();
+        if ts >= start_ts {
+            let bucket = ts - (ts % bucket_secs);
+            *alert_buckets.entry(bucket).or_insert(0) += 1;
+        }
+    }
+    let alert_trend: Vec<_> = alert_buckets
+        .into_iter()
+        .map(|(ts, count)| {
+            json!({
+                "bucket": chrono::DateTime::from_timestamp(ts, 0)
+                    .unwrap_or_default()
+                    .to_rfc3339(),
+                "count": count.to_string(),
+            })
+        })
+        .collect();
+
+    // MTTD — average time from first_seen to when alert was created (approximated
+    // as time between first_seen and last_seen for multi-hit alerts, or 0 for single-hit).
+    // For closed alerts we can compute MTTR as close_time - first_seen.
+    let closed_alerts: Vec<_> = all_alerts
+        .iter()
+        .filter(|a| a.status == cyberbox_models::AlertStatus::Closed)
+        .collect();
+    let mttr_seconds = if closed_alerts.is_empty() {
+        None
+    } else {
+        let total: f64 = closed_alerts
+            .iter()
+            .map(|a| (a.last_seen - a.first_seen).num_seconds().max(0) as f64)
+            .sum();
+        Some(total / closed_alerts.len() as f64)
+    };
 
     // ClickHouse stats (if available)
     let ch_stats = if let Some(ch) = &state.clickhouse_event_store {
@@ -2965,7 +3065,12 @@ pub async fn dashboard_stats(
         "total_agents": agents.len(),
         "agents": agents,
         "active_rules": rule_count,
-        "open_alerts": alert_count,
+        "open_alerts": open_count,
+        "total_alerts": all_alerts.len(),
+        "alerts_by_severity": alerts_by_severity,
+        "top_rules": top_rules,
+        "alert_trend": alert_trend,
+        "mttr_seconds": mttr_seconds,
     });
     // Merge ClickHouse stats
     if let (Some(r), Some(c)) = (result.as_object_mut(), ch_stats.as_object()) {

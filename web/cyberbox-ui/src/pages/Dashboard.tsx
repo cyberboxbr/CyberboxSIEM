@@ -4,6 +4,7 @@ import {
   AreaChart,
   Bar,
   BarChart,
+  Cell,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -243,6 +244,25 @@ export function Dashboard({ onRefresh }: DashboardProps) {
     return stats.eps_trend.map(p => ({
       time: new Date(p.bucket).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       eps: parseFloat(p.eps) || 0,
+    }));
+  }, [stats]);
+
+  const sevChartData = useMemo(() => {
+    if (!stats?.alerts_by_severity) return [];
+    const s = stats.alerts_by_severity;
+    return [
+      { severity: 'Critical', count: s.critical, fill: '#ef4444' },
+      { severity: 'High', count: s.high, fill: '#f59e0b' },
+      { severity: 'Medium', count: s.medium, fill: '#6366f1' },
+      { severity: 'Low', count: s.low, fill: '#10b981' },
+    ].filter(d => d.count > 0);
+  }, [stats]);
+
+  const alertTrendData = useMemo(() => {
+    if (!stats?.alert_trend?.length) return [];
+    return stats.alert_trend.map(p => ({
+      time: new Date(p.bucket).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      count: parseInt(p.count, 10) || 0,
     }));
   }, [stats]);
 
@@ -700,12 +720,38 @@ export function Dashboard({ onRefresh }: DashboardProps) {
             </div>
           </div>
 
-          {/* Events by host row */}
-          {hostChartData.length > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, marginTop: 16 }}>
+          {/* Alerts by severity + Events by host */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16 }}>
+            <div className="panel" style={{ padding: '16px 20px' }}>
+              <h2 className="panel-title" style={{ marginBottom: 12 }}>Alerts by severity</h2>
+              {sevChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={sevChartData} layout="vertical">
+                    <XAxis type="number" tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} />
+                    <YAxis type="category" dataKey="severity" tick={{ fill: '#ccc', fontSize: 12 }} tickLine={false} axisLine={false} width={80} />
+                    <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} labelStyle={{ color: '#aaa' }} formatter={(v: number | undefined) => [v ?? 0, 'Alerts']} />
+                    <Bar dataKey="count" radius={[0, 3, 3, 0]}>
+                      {sevChartData.map((entry, idx) => (
+                        <Cell key={idx} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="chart-empty" style={{ padding: '40px 0' }}>No alerts yet</div>
+              )}
+              {stats?.mttr_seconds != null && (
+                <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-dim)', display: 'flex', gap: 16 }}>
+                  <span>Total alerts: <strong style={{ color: 'var(--text-main)' }}>{stats.total_alerts}</strong></span>
+                  <span>Avg response time: <strong style={{ color: 'var(--text-main)' }}>{stats.mttr_seconds < 3600 ? `${Math.round(stats.mttr_seconds / 60)}m` : `${(stats.mttr_seconds / 3600).toFixed(1)}h`}</strong></span>
+                </div>
+              )}
+            </div>
+
+            {hostChartData.length > 0 ? (
               <div className="panel" style={{ padding: '16px 20px' }}>
                 <h2 className="panel-title" style={{ marginBottom: 12 }}>Events by host ({timeRangeLabel.toLowerCase()})</h2>
-                <ResponsiveContainer width="100%" height={Math.max(120, hostChartData.length * 36)}>
+                <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={hostChartData} layout="vertical">
                     <XAxis type="number" tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={formatCompact} />
                     <YAxis type="category" dataKey="hostname" tick={{ fill: '#ccc', fontSize: 12 }} tickLine={false} axisLine={false} width={180} />
@@ -714,6 +760,40 @@ export function Dashboard({ onRefresh }: DashboardProps) {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
+            ) : (
+              <div className="panel" style={{ padding: '16px 20px' }}>
+                <h2 className="panel-title" style={{ marginBottom: 12 }}>Events by host</h2>
+                <div className="chart-empty" style={{ padding: '40px 0' }}>No host data yet</div>
+              </div>
+            )}
+          </div>
+
+          {/* Top triggered rules */}
+          {stats?.top_rules && stats.top_rules.length > 0 && (
+            <div className="panel dash-table-panel" style={{ marginTop: 16 }}>
+              <h2 className="panel-title">Top triggered rules</h2>
+              <table className="dash-table">
+                <thead>
+                  <tr>
+                    <th>Rule</th>
+                    <th>Severity</th>
+                    <th style={{ textAlign: 'right' }}>Alerts</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.top_rules.map((rule) => (
+                    <tr key={rule.rule_id}>
+                      <td className="dash-alert-name">{rule.rule_title}</td>
+                      <td>
+                        <span className={`dash-sev-badge dash-sev-badge--${rule.severity}`}>
+                          {rule.severity.charAt(0).toUpperCase() + rule.severity.slice(1)}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{rule.alert_count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
 
@@ -762,6 +842,23 @@ export function Dashboard({ onRefresh }: DashboardProps) {
       {/* -- Trends tab */}
       {activeTab === 'trends' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Alert trend */}
+          <div className="panel" style={{ padding: '16px 20px' }}>
+            <h2 className="panel-title" style={{ marginBottom: 12 }}>Alert trend ({timeRangeLabel.toLowerCase()})</h2>
+            {alertTrendData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={alertTrendData}>
+                  <XAxis dataKey="time" tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(alertTrendData.length / 8) - 1)} />
+                  <YAxis tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} width={40} allowDecimals={false} />
+                  <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} labelStyle={{ color: '#aaa' }} formatter={(v: number | undefined) => [v ?? 0, 'Alerts']} />
+                  <Bar dataKey="count" fill="#ef4444" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="chart-empty" style={{ padding: '60px 0' }}>No alerts in this time range</div>
+            )}
+          </div>
+
           <div className="panel" style={{ padding: '16px 20px' }}>
             <h2 className="panel-title" style={{ marginBottom: 12 }}>Event volume ({timeRangeLabel.toLowerCase()})</h2>
             {hourlyChartData.length > 0 ? (

@@ -564,8 +564,13 @@ export interface DashboardStats {
   agents: { agent_id: string; hostname: string; os: string; status: string }[];
   active_rules: number;
   open_alerts: number;
+  total_alerts: number;
   current_eps: number;
   eps_trend: { bucket: string; eps: string }[];
+  alerts_by_severity: { critical: number; high: number; medium: number; low: number };
+  top_rules: { rule_id: string; rule_title: string; severity: string; alert_count: number }[];
+  alert_trend: { bucket: string; count: string }[];
+  mttr_seconds: number | null;
 }
 
 export async function getDashboardStats(range = '24h'): Promise<DashboardStats> {
