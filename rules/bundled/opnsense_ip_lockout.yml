@@ -1,0 +1,21 @@
+title: OPNsense IP Locked Out After Brute Force
+id: 0907f5d6-c2a5-4e3a-bf72-5e22
+status: stable
+description: |
+  Detects when OPNsense locks out an IP address after repeated failed
+  authentication attempts. The lockout_handler logs the offending IP
+  and the number of attempts that triggered the lockout.
+logsource:
+  product: linux
+  service: syslog
+detection:
+  selection:
+    app_name: lockout_handler
+    message|contains: lockout
+  condition: selection
+level: high
+tags:
+  - attack.credential_access
+  - attack.t1110
+falsepositives:
+  - Legitimate admin locked out after mistyped credentials

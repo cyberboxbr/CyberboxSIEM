@@ -1,0 +1,25 @@
+title: OPNsense Blocked Inbound Port Scan
+id: 0907f5d6-c2a5-4e3a-bf72-5e23
+status: stable
+description: |
+  Detects a high volume of blocked inbound connections from the same source,
+  indicating a port scan or brute force. Matches filterlog entries with
+  action=block and direction=in in the CSV message field.
+logsource:
+  product: linux
+  service: syslog
+detection:
+  selection:
+    app_name: filterlog
+    message|contains|all:
+      - ',block,'
+      - ',in,'
+  condition: selection | count() by source_ip > 20
+  timeframe: 5m
+level: medium
+tags:
+  - attack.discovery
+  - attack.t1046
+falsepositives:
+  - Noisy vulnerability scanners on the internet (high baseline)
+  - Misconfigured internal service retrying connections

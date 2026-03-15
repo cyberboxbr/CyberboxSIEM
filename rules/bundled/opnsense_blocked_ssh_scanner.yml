@@ -1,0 +1,26 @@
+title: OPNsense Blocked Inbound SSH Attempt
+id: 0907f5d6-c2a5-4e3a-bf72-5e24
+status: stable
+description: |
+  Detects blocked inbound TCP connections to port 22 (SSH) on the OPNsense
+  firewall. Filterlog CSV: action=block, direction=in, protocol=tcp,
+  destination port 22.
+logsource:
+  product: linux
+  service: syslog
+detection:
+  selection:
+    app_name: filterlog
+    message|contains|all:
+      - ',block,'
+      - ',in,'
+      - ',tcp,'
+      - ',22,'
+  condition: selection | count() by source_ip > 5
+  timeframe: 10m
+level: medium
+tags:
+  - attack.credential_access
+  - attack.t1110
+falsepositives:
+  - Internet background noise hitting port 22

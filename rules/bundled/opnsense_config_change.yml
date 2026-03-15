@@ -1,0 +1,22 @@
+title: OPNsense Configuration Change
+id: 0907f5d6-c2a5-4e3a-bf72-5e25
+status: stable
+description: |
+  Detects configuration changes on the OPNsense firewall via configd.py.
+  Monitors for actions like saving config, applying filters, reloading
+  services. Useful for change auditing and detecting unauthorized modifications.
+logsource:
+  product: linux
+  service: syslog
+detection:
+  selection_configd:
+    app_name: configd.py
+    message|contains: action allowed
+  condition: selection_configd
+level: low
+tags:
+  - attack.defense_evasion
+  - attack.t1562
+falsepositives:
+  - Routine configuration changes by authorized administrators
+  - Automated config management (cron jobs, plugins)

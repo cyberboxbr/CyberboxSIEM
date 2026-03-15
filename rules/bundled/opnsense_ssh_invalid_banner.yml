@@ -1,0 +1,23 @@
+title: OPNsense SSH Invalid Banner Exchange (Scanner)
+id: 0907f5d6-c2a5-4e3a-bf72-5e27
+status: stable
+description: |
+  Detects SSH connections with invalid banner exchange on OPNsense.
+  This is a strong indicator of automated scanning tools (Shodan, Censys,
+  custom scanners) that probe SSH but don't speak the protocol correctly.
+logsource:
+  product: linux
+  service: syslog
+detection:
+  selection:
+    app_name: sshd-session
+    message|contains|all:
+      - 'banner exchange'
+      - 'invalid format'
+  condition: selection
+level: medium
+tags:
+  - attack.reconnaissance
+  - attack.t1595
+falsepositives:
+  - Very old or misconfigured SSH clients
