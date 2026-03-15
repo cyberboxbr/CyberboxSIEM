@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { BrowserRouter, Route, Routes, useParams, useNavigate } from 'react-router-dom';
 import { PublicClientApplication } from '@azure/msal-browser';
 import { MsalProvider } from '@azure/msal-react';
@@ -10,6 +10,7 @@ import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { CommandPalette } from './components/CommandPalette';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { useIdleTimeout } from './hooks/useIdleTimeout';
 
 import { SignIn } from './pages/SignIn';
 import { Dashboard } from './pages/Dashboard';
@@ -92,12 +93,33 @@ function AuthGate() {
 
 // ── Main app shell (only rendered when authenticated) ───────────────────────
 
+const SESSION_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
+const SESSION_WARNING_MS = 60 * 1000;      // warn 1 minute before
+
 function AppShell() {
+  const { signOut } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [sessionWarning, setSessionWarning] = useState(false);
+
+  const handleTimeout = useCallback(() => {
+    setSessionWarning(false);
+    signOut();
+  }, [signOut]);
+
+  const handleWarning = useCallback(() => {
+    setSessionWarning(true);
+  }, []);
+
+  useIdleTimeout(SESSION_TIMEOUT_MS, handleTimeout, SESSION_WARNING_MS, handleWarning);
 
   return (
     <div className="app-shell">
+      {sessionWarning && (
+        <div className="session-timeout-banner" onClick={() => setSessionWarning(false)}>
+          Session expires in 1 minute due to inactivity. Move your mouse to stay signed in.
+        </div>
+      )}
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
