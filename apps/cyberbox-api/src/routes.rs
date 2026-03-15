@@ -2475,15 +2475,36 @@ async fn delete_rbac_user(
 
 /// GET /api/v1/events/stream — live SSE push of ingested events for the authenticated tenant.
 ///
+/// Accepts `?token=<ws-token>` for browser auth (EventSource cannot send headers).
+/// Falls back to normal AuthContext if no token is provided.
+///
 /// Each SSE event carries a JSON-serialised `EventEnvelope`.  The stream never ends
 /// (clients should reconnect on disconnect).  Lagging consumers silently drop
 /// overflowed messages (broadcast channel capacity = 4 096).
 async fn event_stream(
-    auth: AuthContext,
+    auth: Option<AuthContext>,
+    Query(q): Query<WsTokenQuery>,
     State(state): State<AppState>,
-) -> Sse<impl futures::Stream<Item = Result<Event, Infallible>>> {
+) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>>>, axum::http::StatusCode> {
+    // Resolve tenant: token first, then normal auth
+    let tenant_id = if let Some(ref token) = q.token {
+        let now = std::time::Instant::now();
+        if let Some((_, (tid, expiry))) = state.ws_tokens.remove(token) {
+            if now < expiry {
+                tid
+            } else {
+                return Err(axum::http::StatusCode::UNAUTHORIZED);
+            }
+        } else {
+            return Err(axum::http::StatusCode::UNAUTHORIZED);
+        }
+    } else if let Some(a) = auth {
+        a.tenant_id
+    } else {
+        return Err(axum::http::StatusCode::UNAUTHORIZED);
+    };
+
     let rx = state.event_tx.subscribe();
-    let tenant_id = auth.tenant_id.clone();
 
     let stream = BroadcastStream::new(rx).filter_map(move |item| {
         let tenant = tenant_id.clone();
@@ -2496,22 +2517,42 @@ async fn event_stream(
         }
     });
 
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 // ─── SSE Alert Stream ─────────────────────────────────────────────────────────
 
 /// GET /api/v1/alerts/stream — live SSE push of new alerts for the authenticated tenant.
 ///
+/// Accepts `?token=<ws-token>` for browser auth (EventSource cannot send headers).
+/// Falls back to normal AuthContext if no token is provided.
+///
 /// Each SSE event carries a JSON-serialised `AlertRecord`.  The stream never ends
 /// (clients should reconnect on disconnect).  Lagging consumers silently drop
 /// overflowed messages (broadcast channel capacity = 1 024).
 async fn alert_stream(
-    auth: AuthContext,
+    auth: Option<AuthContext>,
+    Query(q): Query<WsTokenQuery>,
     State(state): State<AppState>,
-) -> Sse<impl futures::Stream<Item = Result<Event, Infallible>>> {
+) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>>>, axum::http::StatusCode> {
+    let tenant_id = if let Some(ref token) = q.token {
+        let now = std::time::Instant::now();
+        if let Some((_, (tid, expiry))) = state.ws_tokens.remove(token) {
+            if now < expiry {
+                tid
+            } else {
+                return Err(axum::http::StatusCode::UNAUTHORIZED);
+            }
+        } else {
+            return Err(axum::http::StatusCode::UNAUTHORIZED);
+        }
+    } else if let Some(a) = auth {
+        a.tenant_id
+    } else {
+        return Err(axum::http::StatusCode::UNAUTHORIZED);
+    };
+
     let rx = state.alert_tx.subscribe();
-    let tenant_id = auth.tenant_id.clone();
 
     let stream = BroadcastStream::new(rx).filter_map(move |item| {
         let tenant = tenant_id.clone();
@@ -2524,7 +2565,7 @@ async fn alert_stream(
         }
     });
 
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 // ─── WebSocket Auth Token ─────────────────────────────────────────────────────

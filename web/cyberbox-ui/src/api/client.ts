@@ -777,16 +777,20 @@ export async function connectAlertWebSocket(): Promise<WebSocket> {
 
 /**
  * Open an SSE EventSource for the real-time alert stream.
+ * Fetches a single-use ws-token first (EventSource cannot send headers).
  */
-export function connectAlertSSE(): EventSource {
-  return new EventSource('/api/v1/alerts/stream');
+export async function connectAlertSSE(): Promise<EventSource> {
+  const { token } = await getWsToken();
+  return new EventSource(`/api/v1/alerts/stream?token=${encodeURIComponent(token)}`);
 }
 
 /**
  * Open an SSE EventSource for the real-time event stream (live tail).
+ * Fetches a single-use ws-token first (EventSource cannot send headers).
  */
-export function connectEventSSE(): EventSource {
-  return new EventSource('/api/v1/events/stream');
+export async function connectEventSSE(): Promise<EventSource> {
+  const { token } = await getWsToken();
+  return new EventSource(`/api/v1/events/stream?token=${encodeURIComponent(token)}`);
 }
 
 // ── Cases ──────────────────────────────────────────────────────────────────

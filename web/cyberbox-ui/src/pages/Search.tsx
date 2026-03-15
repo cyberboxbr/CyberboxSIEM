@@ -290,7 +290,7 @@ export function Search() {
   }, []);
 
   // Live tail management
-  const startLiveTail = useCallback(() => {
+  const startLiveTail = useCallback(async () => {
     if (sseRef.current) sseRef.current.close();
     liveTailRows.current = [];
     setRows([]);
@@ -302,7 +302,7 @@ export function Search() {
     setError('');
 
     try {
-      const sse = connectEventSSE();
+      const sse = await connectEventSSE();
       sseRef.current = sse;
 
       sse.onmessage = (msg) => {
@@ -335,7 +335,10 @@ export function Search() {
 
       sse.onerror = () => {
         setError('Live tail connection lost. Reconnecting...');
-        // EventSource auto-reconnects
+        // Close broken connection and re-establish with a new token
+        if (sseRef.current) sseRef.current.close();
+        sseRef.current = null;
+        setTimeout(() => { startLiveTail(); }, 2000);
       };
     } catch {
       setError('Failed to start live tail — API may be unreachable');
@@ -370,10 +373,14 @@ export function Search() {
     };
   }, []);
 
-  // When switching away from live mode, stop the tail
+  // Auto-start live tail when entering live mode, stop when leaving
   useEffect(() => {
-    if (mode !== 'live' && liveTailActive) stopLiveTail();
-  }, [mode, liveTailActive, stopLiveTail]);
+    if (mode === 'live' && !liveTailActive) {
+      startLiveTail();
+    } else if (mode !== 'live' && liveTailActive) {
+      stopLiveTail();
+    }
+  }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const applyQuickRange = (hours: number, label: string) => {
     const now = new Date();
