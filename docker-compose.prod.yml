@@ -89,6 +89,11 @@ services:
       CYBERBOX__NLQ_PROVIDER: ${NLQ_PROVIDER:-auto}
       CYBERBOX__ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       CYBERBOX__OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Event deduplication (drop identical events within 5 min window)
+      CYBERBOX__EVENT_DEDUP_WINDOW_SECS: "300"
+      # GeoIP enrichment (MaxMind GeoLite2-City)
+      CYBERBOX__GEOIP_ENABLED: "true"
+      CYBERBOX__GEOIP_DB_PATH: /data/GeoLite2-City.mmdb
       # Rate limiting
       CYBERBOX__EPS_LIMIT_PER_TENANT: "50000"
       # State persistence
