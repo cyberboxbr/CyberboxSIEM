@@ -52,12 +52,24 @@ impl GeoIpEnricher {
     }
 
     /// Scan common IP field names in a raw event payload and return the first
-    /// successful public-IP lookup.
+    /// successful public-IP lookup.  If no dedicated IP field contains a public
+    /// address, falls back to extracting IPs from the `message` field (common
+    /// in syslog where the forwarder IP is private but attacker IPs are in the
+    /// message text).
     pub fn enrich_event(&self, payload: &Value) -> Option<GeoIpResult> {
+        // 1. Check dedicated IP fields first
         for field in IP_FIELD_NAMES {
             if let Some(ip_str) = payload.get(*field).and_then(|v| v.as_str()) {
                 if let Some(result) = self.lookup_str(ip_str) {
                     return Some(result);
+                }
+            }
+        }
+        // 2. Fall back: extract IPs from the message field (syslog, filterlog, etc.)
+        if let Some(msg) = payload.get("message").and_then(|v| v.as_str()) {
+            for result in extract_ips_from_text(msg) {
+                if let Some(geo) = self.lookup_str(&result) {
+                    return Some(geo);
                 }
             }
         }
@@ -136,6 +148,36 @@ static IP_FIELD_NAMES: &[&str] = &[
     "responder_ip",
 ];
 
+/// Extract IPv4 addresses from free-form text (e.g. syslog message field).
+/// Returns them in order of appearance.  Private/loopback IPs are included
+/// in the output but will be filtered by `lookup_str`.
+fn extract_ips_from_text(text: &str) -> Vec<String> {
+    // Simple regex-free extraction: walk through the string looking for
+    // digit sequences separated by dots that parse as valid IPv4.
+    let mut ips = Vec::new();
+    let bytes = text.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+    while i < len {
+        if bytes[i].is_ascii_digit() {
+            let start = i;
+            // Scan ahead for a potential IPv4 address (max 15 chars: 255.255.255.255)
+            while i < len && i - start < 16 && (bytes[i].is_ascii_digit() || bytes[i] == b'.') {
+                i += 1;
+            }
+            let candidate = &text[start..i];
+            if candidate.contains('.') {
+                if let Ok(ip) = candidate.parse::<std::net::Ipv4Addr>() {
+                    ips.push(ip.to_string());
+                }
+            }
+        } else {
+            i += 1;
+        }
+    }
+    ips
+}
+
 /// Returns `true` for addresses that should be skipped during GeoIP lookup
 /// (RFC 1918 private ranges, loopback, link-local, and the unspecified
 /// address).
@@ -190,6 +232,21 @@ mod tests {
     fn loopback_ipv6_is_private() {
         let ip: IpAddr = "::1".parse().unwrap();
         assert!(is_private(&ip));
+    }
+
+    #[test]
+    fn extract_ips_from_syslog_message() {
+        let msg = "Connection closed by 185.208.159.193 port 59186";
+        let ips = extract_ips_from_text(msg);
+        assert_eq!(ips, vec!["185.208.159.193"]);
+    }
+
+    #[test]
+    fn extract_ips_from_filterlog_csv() {
+        let msg = "51,,,tracker,xn0,match,block,in,4,0x0,,53,30323,0,DF,6,tcp,60,137.184.151.191,192.168.56.218,60778,22,0,S,1794717069,,64240,,mss";
+        let ips = extract_ips_from_text(msg);
+        assert!(ips.contains(&"137.184.151.191".to_string()));
+        assert!(ips.contains(&"192.168.56.218".to_string()));
     }
 
     #[test]
