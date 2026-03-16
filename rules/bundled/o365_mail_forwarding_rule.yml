@@ -1,0 +1,28 @@
+title: Office 365 Mailbox Forwarding Rule Created
+id: 0907f5d6-c2a5-4e3a-bf72-5e35
+status: stable
+description: |
+  Detects creation of a mailbox forwarding or redirect rule in Exchange
+  Online. Attackers commonly set up forwarding rules to exfiltrate email
+  to an external address after compromising an account.
+logsource:
+  product: azure
+  service: o365
+detection:
+  selection:
+    Operation|contains:
+      - New-InboxRule
+      - Set-InboxRule
+      - Set-Mailbox
+    message|contains:
+      - ForwardTo
+      - RedirectTo
+      - ForwardingSmtpAddress
+  condition: selection
+level: high
+tags:
+  - attack.collection
+  - attack.t1114.003
+falsepositives:
+  - Users setting up legitimate forwarding rules
+  - IT configuring shared mailbox forwarding

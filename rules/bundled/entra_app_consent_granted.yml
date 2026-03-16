@@ -1,0 +1,23 @@
+title: Entra ID Application Consent Granted
+id: 0907f5d6-c2a5-4e3a-bf72-5e31
+status: stable
+description: |
+  Detects when admin consent is granted to an application in Entra ID.
+  Malicious OAuth apps abuse consent grants to gain persistent access
+  to mailboxes, files, and directory data without needing credentials.
+logsource:
+  product: azure
+  service: entra_id
+detection:
+  selection:
+    Operation|contains:
+      - Consent to application
+      - Add OAuth2PermissionGrant
+      - Add app role assignment
+  condition: selection
+level: medium
+tags:
+  - attack.persistence
+  - attack.t1098.003
+falsepositives:
+  - Legitimate app onboarding by IT team

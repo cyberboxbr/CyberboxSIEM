@@ -1,0 +1,20 @@
+title: Entra ID Guest User Invited
+id: 0907f5d6-c2a5-4e3a-bf72-5e34
+status: stable
+description: |
+  Detects when a guest (external) user is invited to the Entra ID tenant.
+  Guest users can access shared resources; unauthorized invitations may
+  indicate an attacker establishing external access.
+logsource:
+  product: azure
+  service: entra_id
+detection:
+  selection:
+    Operation|contains: Invite external user
+  condition: selection
+level: low
+tags:
+  - attack.persistence
+  - attack.t1136.003
+falsepositives:
+  - Normal B2B collaboration invitations

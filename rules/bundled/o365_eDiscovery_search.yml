@@ -1,0 +1,23 @@
+title: Office 365 eDiscovery Search Executed
+id: 0907f5d6-c2a5-4e3a-bf72-5e36
+status: stable
+description: |
+  Detects when an eDiscovery (content search) is executed in Office 365.
+  Attackers with sufficient privileges abuse eDiscovery to search and
+  export all mailbox content across the organization.
+logsource:
+  product: azure
+  service: o365
+detection:
+  selection:
+    Operation|contains:
+      - SearchStarted
+      - New-ComplianceSearch
+      - SearchExportDownloaded
+  condition: selection
+level: high
+tags:
+  - attack.collection
+  - attack.t1114.002
+falsepositives:
+  - Authorized legal/compliance investigations

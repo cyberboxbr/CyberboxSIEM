@@ -781,7 +781,14 @@ pub fn logsource_matches_event(logsource: &LogSource, source: &EventSource) -> b
                 }
             }
             "aws" | "gcp" | "azure" | "okta" | "cloud" | "google" => {
-                if !matches!(source, EventSource::CloudAudit | EventSource::Otlp) {
+                if !matches!(
+                    source,
+                    EventSource::CloudAudit
+                        | EventSource::EntraId
+                        | EventSource::O365
+                        | EventSource::Okta
+                        | EventSource::Otlp
+                ) {
                     return false;
                 }
             }

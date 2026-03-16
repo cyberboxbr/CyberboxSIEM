@@ -1,0 +1,24 @@
+title: Entra ID Privileged Role Assigned
+id: 0907f5d6-c2a5-4e3a-bf72-5e30
+status: stable
+description: |
+  Detects when a privileged admin role (Global Administrator, Security
+  Administrator, etc.) is assigned to a user in Entra ID. Role elevation
+  should be rare and audited.
+logsource:
+  product: azure
+  service: entra_id
+detection:
+  selection:
+    Operation|contains: Add member to role
+  filter_low_priv:
+    message|contains:
+      - 'Directory Readers'
+      - 'Reports Reader'
+  condition: selection and not filter_low_priv
+level: high
+tags:
+  - attack.persistence
+  - attack.t1098
+falsepositives:
+  - Planned role assignments by IT administrators
