@@ -105,9 +105,12 @@ export function Cases() {
   const loadCases = async () => {
     try {
       setLoading(true);
-      const [casesResp, breachResp] = await Promise.all([getCases(), getSlaBreaches()]);
-      setCases(casesResp);
-      setSlaBreaches(breachResp);
+      const [casesResp, breachResp] = await Promise.all([
+        getCases().catch(() => []),
+        getSlaBreaches().catch(() => []),
+      ]);
+      setCases(casesResp ?? []);
+      setSlaBreaches(breachResp ?? []);
       setError('');
     } catch (err) {
       setError(String(err));

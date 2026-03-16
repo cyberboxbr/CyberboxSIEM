@@ -1993,7 +1993,7 @@ async fn list_cases(
     State(state): State<AppState>,
     Query(q): Query<ListCasesQuery>,
 ) -> Result<Json<Value>, CyberboxError> {
-    auth.require_any(&[Role::Admin, Role::Analyst])?;
+    auth.require_any(&[Role::Admin, Role::Analyst, Role::Viewer])?;
     let mut cases = state.storage.list_cases(&auth.tenant_id).await?;
     if let Some(status) = &q.status {
         cases.retain(|c| format!("{:?}", c.status).eq_ignore_ascii_case(status));
@@ -2013,7 +2013,7 @@ async fn list_sla_breaches(
     auth: AuthContext,
     State(state): State<AppState>,
 ) -> Result<Json<Value>, CyberboxError> {
-    auth.require_any(&[Role::Admin, Role::Analyst])?;
+    auth.require_any(&[Role::Admin, Role::Analyst, Role::Viewer])?;
     let breaches = state.storage.list_sla_breaches(&auth.tenant_id).await?;
     counter!("cyberbox_case_sla_breaches_total", "tenant" => auth.tenant_id.clone())
         .absolute(breaches.len() as u64);
