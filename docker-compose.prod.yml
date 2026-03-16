@@ -146,6 +146,12 @@ services:
       COLLECTOR_TCP_BIND: "0.0.0.0:601"
       COLLECTOR_BATCH_SIZE: "500"
       COLLECTOR_FLUSH_MS: "1000"
+      # Microsoft 365 / Entra ID audit log collection
+      COLLECTOR_O365_ENABLED: "true"
+      COLLECTOR_O365_TENANT_ID: "a8014c28-79d4-4695-8890-0ed0bf766668"
+      COLLECTOR_O365_CLIENT_ID: "3fd8922e-d137-4d50-b160-b552ceda18c1"
+      COLLECTOR_O365_CLIENT_SECRET: ${O365_CLIENT_SECRET}
+      COLLECTOR_O365_CONTENT_TYPES: "Audit.AzureActiveDirectory,Audit.Exchange,Audit.SharePoint,Audit.General"
     networks:
       - cyberbox
     restart: unless-stopped
