@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   falsePositiveAlert,
   explainAlert,
+  getRules,
 } from '../api/client';
 import type { AlertRecord } from '../api/client';
 import { useAlertStream } from '../hooks/useAlertStream';
@@ -20,12 +21,13 @@ function timeAgo(iso: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-function ruleTitle(alert: AlertRecord): string {
+function ruleTitle(alert: AlertRecord, ruleTitles: Record<string, string> = {}): string {
   if (alert.rule_title && alert.rule_title.length > 0) return alert.rule_title;
   const plan = (alert as any).compiled_plan;
   if (plan && typeof plan === 'object' && typeof plan.title === 'string' && plan.title.length > 0) {
     return plan.title;
   }
+  if (ruleTitles[alert.rule_id]) return ruleTitles[alert.rule_id];
   return `Rule ${alert.rule_id.slice(0, 8)}`;
 }
 
@@ -99,6 +101,21 @@ export function AlertQueue() {
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('all');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Rule title lookup — fill in titles for alerts that have empty rule_title
+  const [ruleTitles, setRuleTitles] = useState<Record<string, string>>({});
+  useEffect(() => {
+    getRules()
+      .then((rules) => {
+        const map: Record<string, string> = {};
+        for (const r of rules) {
+          const title = (r.compiled_plan as any)?.title;
+          if (typeof title === 'string' && title.length > 0) map[r.rule_id] = title;
+        }
+        setRuleTitles(map);
+      })
+      .catch(() => {});
+  }, []);
 
   // explain panel
   const [explainAlertId, setExplainAlertId] = useState<string | null>(null);
@@ -372,7 +389,7 @@ export function AlertQueue() {
 
                     {/* Alert name + process */}
                     <span className="aq-col-rule">
-                      <span className="aq-alert-name">{ruleTitle(alert)}</span>
+                      <span className="aq-alert-name">{ruleTitle(alert, ruleTitles)}</span>
                       {processName && (
                         <span className="aq-process-name">{processName}</span>
                       )}

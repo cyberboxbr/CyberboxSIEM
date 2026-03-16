@@ -185,7 +185,7 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
       const result = await runSearch({
         sql: `SELECT * FROM events WHERE (${likeClause}) LIMIT 10`,
         time_range: { start: weekAgo.toISOString(), end: now.toISOString() },
-        pagination: { page_size: 10 },
+        pagination: { page: 1, page_size: 10 },
       });
       setEvidenceEvents(result.rows ?? []);
     } catch { /* ignore */ }

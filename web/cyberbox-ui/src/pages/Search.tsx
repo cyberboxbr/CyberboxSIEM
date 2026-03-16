@@ -400,7 +400,7 @@ export function Search() {
         const resp: SearchQueryResponse = await runSearch({
           sql: sqlText,
           time_range: buildTimeRange(),
-          pagination: { page_size: 50, cursor },
+          pagination: { page: 1, page_size: 50, cursor },
         });
         if (cursor) {
           setRows((prev) => [...prev, ...resp.rows]);

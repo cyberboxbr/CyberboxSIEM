@@ -350,6 +350,7 @@ export interface TimeRange {
 }
 
 export interface SearchPagination {
+  page: number;
   page_size: number;
   cursor?: string;
 }
@@ -855,7 +856,7 @@ export async function searchRecent(sql: string, hoursBack = 1, pageSize = 25): P
   return runSearch({
     sql,
     time_range: { start: start.toISOString(), end: now.toISOString() },
-    pagination: { page_size: pageSize },
+    pagination: { page: 1, page_size: pageSize },
   });
 }
 
