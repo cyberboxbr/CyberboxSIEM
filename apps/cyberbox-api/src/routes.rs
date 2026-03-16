@@ -411,6 +411,7 @@ pub async fn ingest_events(
                         let corr_state = state.clone();
                         let corr_alert = saved.clone();
                         tokio::spawn(async move {
+                            tracing::debug!(alert_id = %corr_alert.alert_id, "spawning auto_correlate_alert");
                             auto_correlate_alert(corr_state, corr_alert).await;
                         });
                         let _ = state.alert_tx.send(saved);
@@ -2736,6 +2737,12 @@ async fn restore_rule_version(
 /// Group a fired alert into an existing open case for the same rule, or create
 /// a new case automatically.  Runs as a background task — never blocks ingest.
 pub async fn auto_correlate_alert(state: AppState, alert: AlertRecord) {
+    tracing::info!(
+        alert_id = %alert.alert_id,
+        rule_id = %alert.rule_id,
+        tenant = %alert.tenant_id,
+        "auto_correlate_alert: starting"
+    );
     let rule = state
         .storage
         .get_rule(&alert.tenant_id, alert.rule_id)
