@@ -64,7 +64,7 @@ services:
     environment:
       RUST_LOG: "cyberbox_api=info,tower_http=info"
       # Kafka / Redpanda
-      CYBERBOX__KAFKA_PUBLISH_RAW_ENABLED: "true"
+      CYBERBOX__KAFKA_PUBLISH_RAW_ENABLED: "false"
       CYBERBOX__REDPANDA_BROKERS: "redpanda:9092"
       CYBERBOX__KAFKA_RAW_TOPIC: "cyberbox.events.raw"
       CYBERBOX__KAFKA_NORMALIZED_TOPIC: "cyberbox.events.normalized"
