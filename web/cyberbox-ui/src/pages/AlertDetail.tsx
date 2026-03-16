@@ -179,7 +179,8 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
     setEvidenceLoading(true);
     try {
       const refs = alert.evidence_refs.slice(0, 5);
-      const likeClause = refs.map((r) => `raw_payload LIKE '%${r.replace(/'/g, "''")}%'`).join(' OR ');
+      const ids = refs.map((r) => `'${r.replace(/^event:/, '').replace(/'/g, "''")}'`).join(',');
+      const likeClause = `event_id IN (${ids})`;
       const now = new Date();
       const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       const result = await runSearch({
@@ -393,17 +394,22 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
             {evidenceRefs.length === 0 ? <p className="empty-state">No evidence references.</p> : (
               <>
                 <div className="ad-evidence-list">
-                  {evidenceRefs.map((ref: string, i: number) => (
+                  {evidenceRefs.slice(0, 5).map((ref: string, i: number) => (
                     <div key={i} className="ad-evidence-item">
                       <code className="ad-evidence-ref">{ref}</code>
                       <button type="button" className="cd-action-btn cd-action-btn--small" onClick={() => {
                         const eventId = ref.replace(/^event:/, '');
-                        navigate(`/search?q=${encodeURIComponent(`SELECT * FROM cyberbox.events_hot WHERE raw_payload LIKE '%${eventId}%' LIMIT 10`)}`);
+                        navigate(`/search?q=${encodeURIComponent(`SELECT * FROM cyberbox.events_hot WHERE event_id = '${eventId}' LIMIT 1`)}`);
                       }}>
                         Search
                       </button>
                     </div>
                   ))}
+                  {evidenceRefs.length > 5 && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', padding: '4px 0' }}>
+                      +{evidenceRefs.length - 5} more evidence references
+                    </div>
+                  )}
                 </div>
                 {/* Expanded raw events */}
                 {evidenceOpen && (

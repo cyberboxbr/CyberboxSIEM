@@ -598,11 +598,9 @@ export function AlertQueue() {
                           )}
 
                           <h4 className="aq-detail-title" style={{ marginTop: 16 }}>Evidence</h4>
-                          <div className="aq-evidence-list">
-                            {(alert as any).evidence_refs?.map((ref: string, i: number) => (
-                              <span key={i} className="aq-evidence-ref" title={ref}>{ref}</span>
-                            )) ?? <span className="aq-dim" style={{ fontSize: 12 }}>None</span>}
-                          </div>
+                          <span className="aq-dim" style={{ fontSize: 12 }}>
+                            {(alert as any).evidence_refs?.length ?? 0} event(s) — click Full Detail to view
+                          </span>
                         </div>
                       </div>
 
