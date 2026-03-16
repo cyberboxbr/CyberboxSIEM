@@ -12,8 +12,15 @@ detection:
   selection_configd:
     app_name: configd.py
     message|contains: action allowed
-  condition: selection_configd
-level: low
+  filter_routine:
+    message|contains:
+      - syslog.archive
+      - syslog.list.applications
+      - health.updaterrd
+      - filter.update_tables
+      - ping_hosts
+  condition: selection_configd and not filter_routine
+level: medium
 tags:
   - attack.defense_evasion
   - attack.t1562
