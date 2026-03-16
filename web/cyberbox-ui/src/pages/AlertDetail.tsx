@@ -251,7 +251,8 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
   /* ── Derived ─────────────────────────────────── */
 
   const sev = alert.severity ?? 'low';
-  const title = alert.rule_title || `Rule ${alert.rule_id.slice(0, 8)}`;
+  const ruleCompiledTitle = (rule?.compiled_plan as any)?.title;
+  const title = alert.rule_title || ruleCompiledTitle || `Rule ${alert.rule_id.slice(0, 8)}`;
   const mitre: any[] = alert.mitre_attack ?? [];
   const agentMeta = alert.agent_meta;
   const evidenceRefs = alert.evidence_refs ?? [];

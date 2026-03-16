@@ -358,6 +358,7 @@ export interface SearchPagination {
 export interface SearchQueryInput {
   sql: string;
   time_range: TimeRange;
+  filters?: unknown[];
   pagination?: SearchPagination;
 }
 
@@ -702,7 +703,7 @@ export async function tuneRule(ruleId: string): Promise<TuneRuleResult> {
 }
 
 export async function explainAlert(alertId: string): Promise<ExplainAlertResult> {
-  return apiRequest<ExplainAlertResult>(`/api/v1/rules/explain/alert/${alertId}`, {
+  return apiRequest<ExplainAlertResult>(`/api/v1/explain/alert/${alertId}`, {
     method: 'POST',
   });
 }
@@ -841,9 +842,15 @@ export async function getSlaBreaches(): Promise<CaseRecord[]> {
 // ── Search ─────────────────────────────────────────────────────────────────
 
 export async function runSearch(input: SearchQueryInput): Promise<SearchQueryResponse> {
+  const body = {
+    tenant_id: '_', // overridden server-side from auth
+    filters: [],
+    ...input,
+    pagination: input.pagination ?? { page: 1, page_size: 50 },
+  };
   return apiRequest<SearchQueryResponse>('/api/v1/search:query', {
     method: 'POST',
-    body: JSON.stringify(input),
+    body: JSON.stringify(body),
   });
 }
 
