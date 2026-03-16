@@ -45,9 +45,11 @@ const STATUS_LABELS: Record<string, { bg: string; color: string }> = {
 };
 
 interface ExplainResult {
-  explanation: string;
-  severity_assessment: string;
+  summary: string;
+  why_suspicious: string;
+  likely_cause: string;
   recommended_actions: string[];
+  false_positive_likelihood: string;
 }
 
 /* ── OS icons ─────────────────────────────────────── */
@@ -645,12 +647,20 @@ export function AlertQueue() {
             {explainResult && (
               <div className="stack" style={{ gap: 20 }}>
                 <div>
-                  <h4 className="aq-explain-section-title">Explanation</h4>
-                  <p className="aq-explain-text">{explainResult.explanation}</p>
+                  <h4 className="aq-explain-section-title">Summary</h4>
+                  <p className="aq-explain-text">{explainResult.summary}</p>
                 </div>
                 <div>
-                  <h4 className="aq-explain-section-title">Severity Assessment</h4>
-                  <p className="aq-explain-text">{explainResult.severity_assessment}</p>
+                  <h4 className="aq-explain-section-title">Why Suspicious</h4>
+                  <p className="aq-explain-text">{explainResult.why_suspicious}</p>
+                </div>
+                <div>
+                  <h4 className="aq-explain-section-title">Likely Cause</h4>
+                  <p className="aq-explain-text">{explainResult.likely_cause}</p>
+                </div>
+                <div>
+                  <h4 className="aq-explain-section-title">False Positive Likelihood</h4>
+                  <p className="aq-explain-text" style={{ fontWeight: 600 }}>{explainResult.false_positive_likelihood.toUpperCase()}</p>
                 </div>
                 <div>
                   <h4 className="aq-explain-section-title">Recommended Actions</h4>

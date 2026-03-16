@@ -240,9 +240,11 @@ export interface TuneRuleResult {
 }
 
 export interface ExplainAlertResult {
-  explanation: string;
-  severity_assessment: string;
+  summary: string;
+  why_suspicious: string;
+  likely_cause: string;
   recommended_actions: string[];
+  false_positive_likelihood: string;
 }
 
 // ── Interfaces: Alerts ─────────────────────────────────────────────────────

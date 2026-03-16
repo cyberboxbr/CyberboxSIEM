@@ -8,8 +8,11 @@ import {
   explainAlert,
   getAllAlerts,
   createCase,
+  getRules,
+  runSearch,
 } from '../api/client';
-import type { AlertRecord, ExplainAlertResult } from '../api/client';
+import type { AlertRecord, DetectionRule, ExplainAlertResult } from '../api/client';
+import { useAuth } from '../contexts/AuthContext';
 
 /* ── Helpers ──────────────────────────────────────── */
 
@@ -24,12 +27,6 @@ function timeAgo(iso: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-function ruleTitle(alert: AlertRecord): string {
-  const plan = (alert as any).compiled_plan;
-  if (plan && typeof plan === 'object' && typeof plan.title === 'string' && plan.title.length > 0) return plan.title;
-  return `Rule ${alert.rule_id.slice(0, 8)}`;
-}
-
 function duration(a: AlertRecord): string {
   const ms = new Date(a.last_seen).getTime() - new Date(a.first_seen).getTime();
   if (ms < 1000) return 'Instantaneous';
@@ -39,6 +36,14 @@ function duration(a: AlertRecord): string {
   if (mins < 60) return `${mins}m ${secs % 60}s`;
   const hrs = Math.floor(mins / 60);
   return `${hrs}h ${mins % 60}m`;
+}
+
+function fpLabel(likelihood: string): { text: string; cls: string } {
+  switch (likelihood) {
+    case 'high': return { text: 'HIGH', cls: 'ad-fp--high' };
+    case 'medium': return { text: 'MEDIUM', cls: 'ad-fp--medium' };
+    default: return { text: 'LOW', cls: 'ad-fp--low' };
+  }
 }
 
 type Resolution = 'true_positive' | 'false_positive';
@@ -80,6 +85,16 @@ const sparkleIcon = (
     <path d="M12 2l3 7h7l-5.5 4.5 2 7L12 16l-6.5 4.5 2-7L2 9h7z"/>
   </svg>
 );
+const codeIcon = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+  </svg>
+);
+const terminalIcon = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+  </svg>
+);
 
 /* ── Props ────────────────────────────────────────── */
 
@@ -92,6 +107,9 @@ interface AlertDetailProps {
 
 export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
   const navigate = useNavigate();
+  const { userId } = useAuth();
+  const actor = userId || 'soc-admin';
+
   const [alert, setAlert] = useState<AlertRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -111,6 +129,13 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
   const [caseModalOpen, setCaseModalOpen] = useState(false);
   const [caseName, setCaseName] = useState('');
 
+  const [rule, setRule] = useState<DetectionRule | null>(null);
+  const [ruleYamlOpen, setRuleYamlOpen] = useState(false);
+
+  const [evidenceEvents, setEvidenceEvents] = useState<Record<string, unknown>[]>([]);
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
+
   /* ── Data fetch ──────────────────────────────── */
 
   const fetchAlert = useCallback(async () => {
@@ -127,6 +152,18 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
 
   useEffect(() => { fetchAlert(); }, [fetchAlert]);
 
+  // Fetch rule details
+  useEffect(() => {
+    if (!alert) return;
+    getRules()
+      .then((rules) => {
+        const match = rules.find((r) => r.rule_id === alert.rule_id);
+        if (match) setRule(match);
+      })
+      .catch(() => {});
+  }, [alert]);
+
+  // AI explanation
   useEffect(() => {
     if (!alert) return;
     setExplainLoading(true);
@@ -136,30 +173,49 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
       .finally(() => setExplainLoading(false));
   }, [alert, alertId]);
 
+  // Fetch evidence events (first 5 evidence refs)
+  const fetchEvidence = useCallback(async () => {
+    if (!alert || alert.evidence_refs.length === 0) return;
+    setEvidenceLoading(true);
+    try {
+      const refs = alert.evidence_refs.slice(0, 5);
+      const likeClause = refs.map((r) => `raw_payload LIKE '%${r.replace(/'/g, "''")}%'`).join(' OR ');
+      const now = new Date();
+      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const result = await runSearch({
+        sql: `SELECT * FROM events WHERE (${likeClause}) LIMIT 10`,
+        time_range: { start: weekAgo.toISOString(), end: now.toISOString() },
+        pagination: { page_size: 10 },
+      });
+      setEvidenceEvents(result.rows ?? []);
+    } catch { /* ignore */ }
+    finally { setEvidenceLoading(false); }
+  }, [alert]);
+
   /* ── Actions ─────────────────────────────────── */
 
   const handleAck = async () => {
     if (!alert) return;
     setStatusText('Acknowledging...');
-    try { const u = await acknowledgeAlert(alert.alert_id, 'soc-admin'); setAlert(u); setStatusText('Acknowledged.'); }
+    try { const u = await acknowledgeAlert(alert.alert_id, actor); setAlert(u); setStatusText('Acknowledged.'); }
     catch (e) { setStatusText(`Failed: ${e}`); }
   };
 
   const handleClose = async () => {
     if (!alert) return;
-    try { const u = await closeAlert(alert.alert_id, closeResolution, 'soc-admin', closeNote || undefined); setAlert(u); setCloseModalOpen(false); setCloseNote(''); setStatusText('Closed.'); }
+    try { const u = await closeAlert(alert.alert_id, closeResolution, actor, closeNote || undefined); setAlert(u); setCloseModalOpen(false); setCloseNote(''); setStatusText('Closed.'); }
     catch (e) { setStatusText(`Failed: ${e}`); }
   };
 
   const handleAssign = async () => {
     if (!alert || !assignName.trim()) return;
-    try { const u = await assignAlert(alert.alert_id, assignName.trim(), 'soc-admin'); setAlert(u); setAssignModalOpen(false); setAssignName(''); setStatusText(`Assigned to ${assignName}.`); }
+    try { const u = await assignAlert(alert.alert_id, assignName.trim(), actor); setAlert(u); setAssignModalOpen(false); setAssignName(''); setStatusText(`Assigned to ${assignName}.`); }
     catch (e) { setStatusText(`Failed: ${e}`); }
   };
 
   const handleFP = async () => {
     if (!alert) return;
-    try { const u = await falsePositiveAlert(alert.alert_id, 'soc-admin'); setAlert(u); setStatusText('Marked false positive.'); }
+    try { const u = await falsePositiveAlert(alert.alert_id, actor); setAlert(u); setStatusText('Marked false positive.'); }
     catch (e) { setStatusText(`Failed: ${e}`); }
   };
 
@@ -167,8 +223,8 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
     if (!alert) return;
     try {
       const c = await createCase({
-        title: caseName || ruleTitle(alert),
-        severity: (alert as any).severity ?? 'medium',
+        title: caseName || alert.rule_title || `Alert ${alert.alert_id.slice(0, 8)}`,
+        severity: alert.severity ?? 'medium',
         alert_ids: [alert.alert_id],
       });
       setCaseModalOpen(false);
@@ -176,7 +232,7 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
       setStatusText(`Case ${c.case_id} created.`);
       navigate(`/cases/${c.case_id}`);
     } catch {
-      setStatusText(`Case "${caseName || ruleTitle(alert)}" creation requested.`);
+      setStatusText(`Case creation requested.`);
       setCaseModalOpen(false);
       setCaseName('');
     }
@@ -194,13 +250,15 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
 
   /* ── Derived ─────────────────────────────────── */
 
-  const sev = (alert as any).severity ?? 'low';
+  const sev = alert.severity ?? 'low';
+  const title = alert.rule_title || `Rule ${alert.rule_id.slice(0, 8)}`;
   const mitre: any[] = alert.mitre_attack ?? [];
   const agentMeta = alert.agent_meta;
   const evidenceRefs = alert.evidence_refs ?? [];
   const routingState = alert.routing_state;
   const hitCount = alert.hit_count ?? 1;
   const linkedCase = (alert as any).case_id as string | undefined;
+  const compiledPlan = (alert as any).compiled_plan as Record<string, unknown> | undefined;
 
   return (
     <div className="page ad-page">
@@ -210,31 +268,37 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
           {backIcon} Alerts
         </button>
         <span className="cd-breadcrumb-sep">/</span>
-        <span className="cd-breadcrumb-current">{alert.alert_id.toUpperCase()}</span>
+        <span className="cd-breadcrumb-current">{alert.alert_id.slice(0, 8).toUpperCase()}</span>
       </div>
 
       {/* ── Header ──────────────────────────────── */}
       <div className="ad-header">
         <div className="ad-header-left">
-          <h1 className="cd-title">{ruleTitle(alert)}</h1>
+          <h1 className="cd-title">{title}</h1>
           <div className="cd-header-badges">
-            <span className={`cd-sev-badge cd-sev-badge--${sev}`}>{sev.toUpperCase()}</span>
+            <span className={`cd-sev-badge cd-sev-badge--${sev}`}>{String(sev).toUpperCase()}</span>
             <span className={`ad-status-badge ad-status-badge--${alert.status}`}>
               {alert.status.replace('_', ' ').toUpperCase()}
             </span>
             {alert.assignee && <span className="ad-assignee-badge">{alert.assignee}</span>}
             {linkedCase && (
               <span className="ad-case-link" onClick={() => navigate(`/cases/${linkedCase}`)}>
-                Case {linkedCase}
+                Case {linkedCase.slice(0, 8)}
               </span>
             )}
           </div>
         </div>
         <div className="cd-header-actions">
-          <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={handleAck}>Acknowledge</button>
-          <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={() => setCloseModalOpen(true)}>Close</button>
+          {alert.status !== 'acknowledged' && alert.status !== 'closed' && (
+            <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={handleAck}>Acknowledge</button>
+          )}
+          {alert.status !== 'closed' && (
+            <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={() => setCloseModalOpen(true)}>Close</button>
+          )}
           <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={() => setAssignModalOpen(true)}>Assign</button>
-          <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={handleFP}>False Positive</button>
+          {alert.status !== 'closed' && (
+            <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={handleFP}>False Positive</button>
+          )}
           <button type="button" className="cd-action-btn cd-action-btn--primary" onClick={() => setCaseModalOpen(true)}>Create Case</button>
         </div>
       </div>
@@ -245,12 +309,36 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
       <div className="ad-grid">
         {/* Left Column */}
         <div className="ad-left">
-          {/* MITRE ATT&CK */}
+          {/* Summary */}
           <div className="cd-panel">
             <div className="cd-panel-header">
-              <div className="cd-panel-title">{shieldIcon} <span>MITRE ATT&CK</span> {mitre.length > 0 && <span className="cd-count-badge">{mitre.length}</span>}</div>
+              <div className="cd-panel-title">{shieldIcon} <span>ALERT SUMMARY</span></div>
             </div>
-            {mitre.length === 0 ? <p className="empty-state">No MITRE mappings.</p> : (
+            <div className="ad-field-grid">
+              <div className="ad-field"><span className="ad-field-label">Alert ID</span><span className="ad-field-value ad-field-value--mono">{alert.alert_id}</span></div>
+              <div className="ad-field"><span className="ad-field-label">Rule ID</span><span className="ad-field-value ad-field-value--mono">{alert.rule_id}</span></div>
+              <div className="ad-field"><span className="ad-field-label">First Seen</span><span className="ad-field-value">{new Date(alert.first_seen).toLocaleString()} ({timeAgo(alert.first_seen)})</span></div>
+              <div className="ad-field"><span className="ad-field-label">Last Seen</span><span className="ad-field-value">{new Date(alert.last_seen).toLocaleString()} ({timeAgo(alert.last_seen)})</span></div>
+              <div className="ad-field">
+                <span className="ad-field-label">Hit Count</span>
+                <span className={`ad-field-value ad-hit-count ${hitCount > 5 ? 'ad-hit-count--danger' : hitCount > 1 ? 'ad-hit-count--warn' : ''}`}>
+                  {hitCount}
+                  {hitCount > 1 && <span className="ad-hit-note">(repeated)</span>}
+                </span>
+              </div>
+              <div className="ad-field"><span className="ad-field-label">Duration</span><span className="ad-field-value">{duration(alert)}</span></div>
+              {alert.assignee && <div className="ad-field"><span className="ad-field-label">Assignee</span><span className="ad-field-value">{alert.assignee}</span></div>}
+              {(alert as any).resolution && <div className="ad-field"><span className="ad-field-label">Resolution</span><span className="ad-field-value">{(alert as any).resolution}</span></div>}
+              {(alert as any).close_note && <div className="ad-field ad-field--full"><span className="ad-field-label">Close Note</span><span className="ad-field-value">{(alert as any).close_note}</span></div>}
+            </div>
+          </div>
+
+          {/* MITRE ATT&CK */}
+          {mitre.length > 0 && (
+            <div className="cd-panel">
+              <div className="cd-panel-header">
+                <div className="cd-panel-title">{shieldIcon} <span>MITRE ATT&CK</span> <span className="cd-count-badge">{mitre.length}</span></div>
+              </div>
               <div className="cd-mitre-list">
                 {mitre.map((m: any, i: number) => (
                   <div key={i} className="cd-mitre-row">
@@ -260,83 +348,103 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
                   </div>
                 ))}
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
-          {/* Agent Context */}
+          {/* Agent / Network Context */}
           <div className="cd-panel">
             <div className="cd-panel-header">
-              <div className="cd-panel-title">{monitorIcon} <span>AGENT CONTEXT</span></div>
+              <div className="cd-panel-title">{monitorIcon} <span>CONTEXT</span></div>
             </div>
-            {!agentMeta ? <p className="empty-state">No agent metadata.</p> : (
-              <div className="ad-field-grid">
-                <div className="ad-field"><span className="ad-field-label">Hostname</span><span className="ad-field-value">{agentMeta.hostname}</span></div>
-                <div className="ad-field"><span className="ad-field-label">OS</span><span className="ad-field-value">{agentMeta.os}</span></div>
-                <div className="ad-field"><span className="ad-field-label">IP</span><span className="ad-field-value">{(agentMeta as any).ip ?? '--'}</span></div>
-                <div className="ad-field"><span className="ad-field-label">Group</span><span className="ad-field-value">{agentMeta.group || '--'}</span></div>
-                {(alert as any).src_ip && <div className="ad-field"><span className="ad-field-label">Source IP</span><span className="ad-field-value">{(alert as any).src_ip}</span></div>}
-                {(alert as any).dst_ip && <div className="ad-field"><span className="ad-field-label">Destination</span><span className="ad-field-value">{(alert as any).dst_ip}:{(alert as any).dst_port}</span></div>}
-                {(alert as any).process_name && <div className="ad-field"><span className="ad-field-label">Process</span><span className="ad-field-value ad-field-value--mono">{(alert as any).process_name}</span></div>}
-                {agentMeta.tags.length > 0 && (
-                  <div className="ad-field ad-field--full">
-                    <span className="ad-field-label">Tags</span>
-                    <div className="ad-tags">
-                      {agentMeta.tags.map((t: string) => <span key={t} className="cd-tag">{t}</span>)}
-                    </div>
+            <div className="ad-field-grid">
+              {agentMeta?.hostname && <div className="ad-field"><span className="ad-field-label">Hostname</span><span className="ad-field-value">{agentMeta.hostname}</span></div>}
+              {agentMeta?.os && <div className="ad-field"><span className="ad-field-label">OS</span><span className="ad-field-value">{agentMeta.os}</span></div>}
+              {(agentMeta as any)?.ip && <div className="ad-field"><span className="ad-field-label">Agent IP</span><span className="ad-field-value ad-field-value--mono">{(agentMeta as any).ip}</span></div>}
+              {(alert as any).src_ip && <div className="ad-field"><span className="ad-field-label">Source IP</span><span className="ad-field-value ad-field-value--mono">{(alert as any).src_ip}</span></div>}
+              {(alert as any).dst_ip && <div className="ad-field"><span className="ad-field-label">Destination</span><span className="ad-field-value ad-field-value--mono">{(alert as any).dst_ip}{(alert as any).dst_port ? `:${(alert as any).dst_port}` : ''}</span></div>}
+              {(alert as any).process_name && <div className="ad-field"><span className="ad-field-label">Process</span><span className="ad-field-value ad-field-value--mono">{(alert as any).process_name}</span></div>}
+              {agentMeta?.group && <div className="ad-field"><span className="ad-field-label">Group</span><span className="ad-field-value">{agentMeta.group}</span></div>}
+              {agentMeta?.tags && agentMeta.tags.length > 0 && (
+                <div className="ad-field ad-field--full">
+                  <span className="ad-field-label">Tags</span>
+                  <div className="ad-tags">
+                    {agentMeta.tags.map((t: string) => <span key={t} className="cd-tag">{t}</span>)}
                   </div>
-                )}
-              </div>
-            )}
+                </div>
+              )}
+              {/* Show compiled_plan matched fields if available */}
+              {compiledPlan?.description && (
+                <div className="ad-field ad-field--full"><span className="ad-field-label">Rule Description</span><span className="ad-field-value">{String(compiledPlan.description)}</span></div>
+              )}
+            </div>
           </div>
 
-          {/* Evidence */}
+          {/* Evidence References */}
           <div className="cd-panel">
             <div className="cd-panel-header">
               <div className="cd-panel-title">{fileIcon} <span>EVIDENCE</span> {evidenceRefs.length > 0 && <span className="cd-count-badge">{evidenceRefs.length}</span>}</div>
+              {evidenceRefs.length > 0 && !evidenceOpen && (
+                <button type="button" className="cd-action-btn cd-action-btn--small" onClick={() => { setEvidenceOpen(true); fetchEvidence(); }}>
+                  View Events
+                </button>
+              )}
             </div>
             {evidenceRefs.length === 0 ? <p className="empty-state">No evidence references.</p> : (
-              <div className="ad-evidence-list">
-                {evidenceRefs.map((ref: string, i: number) => (
-                  <div key={i} className="ad-evidence-item">
-                    <code className="ad-evidence-ref">{ref}</code>
-                    <button type="button" className="cd-action-btn cd-action-btn--small" onClick={() => navigate(`/search?event_id=${encodeURIComponent(ref)}`)}>
-                      Search
-                    </button>
+              <>
+                <div className="ad-evidence-list">
+                  {evidenceRefs.map((ref: string, i: number) => (
+                    <div key={i} className="ad-evidence-item">
+                      <code className="ad-evidence-ref">{ref}</code>
+                      <button type="button" className="cd-action-btn cd-action-btn--small" onClick={() => navigate(`/search?event_id=${encodeURIComponent(ref)}`)}>
+                        Search
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {/* Expanded raw events */}
+                {evidenceOpen && (
+                  <div className="ad-raw-events">
+                    <div className="ad-raw-events-header" onClick={() => setEvidenceOpen(false)}>
+                      {terminalIcon} <span>Raw Events</span>
+                    </div>
+                    {evidenceLoading && <p className="empty-state">Loading events...</p>}
+                    {!evidenceLoading && evidenceEvents.length === 0 && <p className="empty-state">No matching events found in the last 7 days.</p>}
+                    {evidenceEvents.map((ev, i) => (
+                      <pre key={i} className="ad-raw-event-block">{JSON.stringify(ev, null, 2)}</pre>
+                    ))}
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             )}
           </div>
 
-          {/* Timeline */}
-          <div className="cd-panel">
-            <div className="cd-panel-header">
-              <div className="cd-panel-title">{clockIcon} <span>TIMELINE</span></div>
-            </div>
-            <div className="ad-field-grid">
-              <div className="ad-field"><span className="ad-field-label">First Seen</span><span className="ad-field-value">{new Date(alert.first_seen).toLocaleString()} ({timeAgo(alert.first_seen)})</span></div>
-              <div className="ad-field"><span className="ad-field-label">Last Seen</span><span className="ad-field-value">{new Date(alert.last_seen).toLocaleString()} ({timeAgo(alert.last_seen)})</span></div>
-              <div className="ad-field">
-                <span className="ad-field-label">Hit Count</span>
-                <span className={`ad-field-value ad-hit-count ${hitCount > 5 ? 'ad-hit-count--danger' : hitCount > 1 ? 'ad-hit-count--warn' : ''}`}>
-                  {hitCount}
-                  {hitCount > 1 && <span className="ad-hit-note">(repeated attack pattern)</span>}
-                </span>
-              </div>
-              <div className="ad-field"><span className="ad-field-label">Duration</span><span className="ad-field-value">{duration(alert)}</span></div>
-            </div>
-          </div>
-
-          {/* Routing */}
-          {routingState && (
+          {/* Detection Rule */}
+          {rule && (
             <div className="cd-panel">
               <div className="cd-panel-header">
-                <div className="cd-panel-title">{routeIcon} <span>ROUTING STATE</span></div>
+                <div className="cd-panel-title">{codeIcon} <span>DETECTION RULE</span></div>
+                <button type="button" className="cd-action-btn cd-action-btn--small" onClick={() => setRuleYamlOpen(!ruleYamlOpen)}>
+                  {ruleYamlOpen ? 'Hide' : 'Show YAML'}
+                </button>
               </div>
               <div className="ad-field-grid">
-                {routingState.dedupe_key && (
-                  <div className="ad-field"><span className="ad-field-label">Dedupe Key</span><span className="ad-field-value ad-field-value--mono">{routingState.dedupe_key}</span></div>
-                )}
+                <div className="ad-field"><span className="ad-field-label">Mode</span><span className="ad-field-value">{rule.schedule_or_stream}</span></div>
+                <div className="ad-field"><span className="ad-field-label">Enabled</span><span className="ad-field-value">{rule.enabled ? 'Yes' : 'No'}</span></div>
+              </div>
+              {ruleYamlOpen && (
+                <pre className="ad-rule-yaml">{rule.sigma_source}</pre>
+              )}
+            </div>
+          )}
+
+          {/* Routing State */}
+          {routingState && routingState.dedupe_key && (
+            <div className="cd-panel">
+              <div className="cd-panel-header">
+                <div className="cd-panel-title">{routeIcon} <span>ROUTING</span></div>
+              </div>
+              <div className="ad-field-grid">
+                <div className="ad-field"><span className="ad-field-label">Dedupe Key</span><span className="ad-field-value ad-field-value--mono">{routingState.dedupe_key}</span></div>
                 {routingState.destinations?.length > 0 && (
                   <div className="ad-field ad-field--full">
                     <span className="ad-field-label">Destinations</span>
@@ -351,26 +459,13 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
               </div>
             </div>
           )}
-
-          {/* Resolution */}
-          {(alert as any).resolution && (
-            <div className="cd-panel">
-              <div className="cd-panel-header">
-                <div className="cd-panel-title">{shieldIcon} <span>RESOLUTION</span></div>
-              </div>
-              <div className="ad-field-grid">
-                <div className="ad-field"><span className="ad-field-label">Type</span><span className="ad-field-value">{(alert as any).resolution}</span></div>
-                {(alert as any).close_note && <div className="ad-field ad-field--full"><span className="ad-field-label">Note</span><span className="ad-field-value">{(alert as any).close_note}</span></div>}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* ── Right Column: AI Explain ──────────── */}
         <div className="ad-right">
           <div className="cd-panel ad-explain-panel">
             <div className="cd-panel-header">
-              <div className="cd-panel-title">{sparkleIcon} <span>AI EXPLANATION</span></div>
+              <div className="cd-panel-title">{sparkleIcon} <span>AI ANALYSIS</span></div>
             </div>
 
             {explainLoading && (
@@ -381,17 +476,27 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
               </div>
             )}
 
-            {explainError && <div className="cd-error">{explainError}</div>}
+            {explainError && <div className="cd-error" style={{ fontSize: 13 }}>{explainError}</div>}
 
             {explainResult && (
               <div className="ad-explain-content">
                 <div className="ad-explain-section">
-                  <h4 className="ad-explain-heading">Explanation</h4>
-                  <p className="ad-explain-text">{explainResult.explanation}</p>
+                  <h4 className="ad-explain-heading">Summary</h4>
+                  <p className="ad-explain-text">{explainResult.summary}</p>
                 </div>
                 <div className="ad-explain-section">
-                  <h4 className="ad-explain-heading">Severity Assessment</h4>
-                  <p className="ad-explain-text">{explainResult.severity_assessment}</p>
+                  <h4 className="ad-explain-heading">Why Suspicious</h4>
+                  <p className="ad-explain-text">{explainResult.why_suspicious}</p>
+                </div>
+                <div className="ad-explain-section">
+                  <h4 className="ad-explain-heading">Likely Cause</h4>
+                  <p className="ad-explain-text">{explainResult.likely_cause}</p>
+                </div>
+                <div className="ad-explain-section">
+                  <h4 className="ad-explain-heading">False Positive Likelihood</h4>
+                  <span className={`ad-fp-badge ${fpLabel(explainResult.false_positive_likelihood).cls}`}>
+                    {fpLabel(explainResult.false_positive_likelihood).text}
+                  </span>
                 </div>
                 <div className="ad-explain-section">
                   <h4 className="ad-explain-heading">Recommended Actions</h4>
@@ -401,6 +506,47 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Timeline (compact, right side) */}
+          <div className="cd-panel">
+            <div className="cd-panel-header">
+              <div className="cd-panel-title">{clockIcon} <span>TIMELINE</span></div>
+            </div>
+            <div className="ad-timeline">
+              <div className="ad-timeline-event">
+                <div className="ad-timeline-dot ad-timeline-dot--green" />
+                <div className="ad-timeline-content">
+                  <span className="ad-timeline-time">{new Date(alert.first_seen).toLocaleString()}</span>
+                  <span className="ad-timeline-label">First detection</span>
+                </div>
+              </div>
+              {hitCount > 1 && (
+                <div className="ad-timeline-event">
+                  <div className="ad-timeline-dot ad-timeline-dot--amber" />
+                  <div className="ad-timeline-content">
+                    <span className="ad-timeline-time">{hitCount - 1} additional hits</span>
+                    <span className="ad-timeline-label">Repeated pattern over {duration(alert)}</span>
+                  </div>
+                </div>
+              )}
+              <div className="ad-timeline-event">
+                <div className={`ad-timeline-dot ${alert.status === 'closed' ? 'ad-timeline-dot--gray' : 'ad-timeline-dot--red'}`} />
+                <div className="ad-timeline-content">
+                  <span className="ad-timeline-time">{new Date(alert.last_seen).toLocaleString()}</span>
+                  <span className="ad-timeline-label">Last seen ({timeAgo(alert.last_seen)})</span>
+                </div>
+              </div>
+              {alert.status === 'closed' && (
+                <div className="ad-timeline-event">
+                  <div className="ad-timeline-dot ad-timeline-dot--gray" />
+                  <div className="ad-timeline-content">
+                    <span className="ad-timeline-time">Closed</span>
+                    <span className="ad-timeline-label">{(alert as any).resolution ?? 'No resolution'}</span>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -453,7 +599,7 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
             <h3 className="cd-modal-title">Create Case</h3>
             <div className="cd-modal-field">
               <label className="cd-modal-label">Case Name</label>
-              <input className="cd-inline-input" value={caseName} onChange={(e) => setCaseName(e.target.value)} placeholder={`Case for ${ruleTitle(alert)}`} autoFocus />
+              <input className="cd-inline-input" value={caseName} onChange={(e) => setCaseName(e.target.value)} placeholder={`Case for ${title}`} autoFocus />
             </div>
             <p className="ad-modal-hint">This will create a new case and attach alert {alert.alert_id.slice(0, 8)} to it.</p>
             <div className="cd-modal-actions">
