@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   falsePositiveAlert,
   explainAlert,
@@ -20,11 +21,12 @@ function timeAgo(iso: string): string {
 }
 
 function ruleTitle(alert: AlertRecord): string {
+  if (alert.rule_title && alert.rule_title.length > 0) return alert.rule_title;
   const plan = (alert as any).compiled_plan;
   if (plan && typeof plan === 'object' && typeof plan.title === 'string' && plan.title.length > 0) {
     return plan.title;
   }
-  return alert.rule_id.slice(0, 8);
+  return `Rule ${alert.rule_id.slice(0, 8)}`;
 }
 
 type StatusFilter = 'open' | 'acknowledged' | 'all';
@@ -90,6 +92,7 @@ const refreshIcon = (
 /* ── component ───────────────────────────────────── */
 
 export function AlertQueue() {
+  const navigate = useNavigate();
   const { alerts, connected, error, refresh } = useAlertStream();
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
@@ -336,10 +339,10 @@ export function AlertQueue() {
               const agentMeta = (alert as any).agent_meta;
               const isSelected = selected.has(alert.alert_id);
               const isExpanded = expandedId === alert.alert_id;
-              const srcIp = (alert as any).src_ip;
-              const dstIp = (alert as any).dst_ip;
-              const dstPort = (alert as any).dst_port;
-              const processName = (alert as any).process_name;
+              const srcIp = (alert as any).src_ip || agentMeta?.ip || null;
+              const dstIp = (alert as any).dst_ip || null;
+              const dstPort = (alert as any).dst_port || null;
+              const processName = (alert as any).process_name || null;
               const caseId = (alert as any).case_id;
               const statusStyle = STATUS_LABELS[alert.status] ?? STATUS_LABELS.open;
 
@@ -457,9 +460,9 @@ export function AlertQueue() {
                     <span className="aq-col-actions" onClick={(e) => e.stopPropagation()}>
                       <button className="aq-action-btn aq-action-btn--fp" onClick={() => handleSingleFP(alert.alert_id)} title="False Positive">FP</button>
                       <button className="aq-action-btn aq-action-btn--ai" onClick={() => handleExplain(alert.alert_id)} title="AI Explain">AI</button>
-                      {caseId && (
-                        <button className="aq-action-btn aq-action-btn--detail" onClick={() => { window.location.hash = `#/cases/${caseId}`; }} title="Go to Case">Case</button>
-                      )}
+                      <button className="aq-action-btn aq-action-btn--detail" onClick={() => navigate(`/alerts/${alert.alert_id}`)} title="Full Detail">
+                        {linkIcon}
+                      </button>
                     </span>
                   </div>
 
@@ -505,7 +508,7 @@ export function AlertQueue() {
                                 <span className="aq-detail-value">
                                   <span
                                     className="aq-case-link"
-                                    onClick={() => { window.location.hash = `#/cases/${caseId}`; }}
+                                    onClick={() => { navigate(`/cases/${caseId}`); }}
                                   >
                                     {linkIcon} {caseId}
                                   </span>
@@ -591,13 +594,13 @@ export function AlertQueue() {
                         <button className="aq-action-btn aq-action-btn--fp" onClick={() => handleSingleFP(alert.alert_id)}>False Positive</button>
                         <button className="aq-action-btn aq-action-btn--ai" onClick={() => handleExplain(alert.alert_id)}>AI Explain</button>
                         {caseId && (
-                          <button className="aq-action-btn aq-action-btn--detail" onClick={() => { window.location.hash = `#/cases/${caseId}`; }}>
+                          <button className="aq-action-btn aq-action-btn--detail" onClick={() => { navigate(`/cases/${caseId}`); }}>
                             Go to Case
                           </button>
                         )}
                         <button
                           className="aq-action-btn aq-action-btn--detail"
-                          onClick={() => { window.location.hash = `#/alerts/${alert.alert_id}`; }}
+                          onClick={() => { navigate(`/alerts/${alert.alert_id}`); }}
                         >
                           Full Detail
                         </button>
