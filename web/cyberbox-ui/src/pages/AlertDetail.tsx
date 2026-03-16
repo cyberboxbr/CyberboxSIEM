@@ -398,7 +398,7 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
                       <code className="ad-evidence-ref">{ref}</code>
                       <button type="button" className="cd-action-btn cd-action-btn--small" onClick={() => {
                         const eventId = ref.replace(/^event:/, '');
-                        navigate(`/search?q=${encodeURIComponent(`raw_payload LIKE '%${eventId}%'`)}`);
+                        navigate(`/search?q=${encodeURIComponent(`SELECT * FROM cyberbox.events_hot WHERE raw_payload LIKE '%${eventId}%' LIMIT 10`)}`);
                       }}>
                         Search
                       </button>

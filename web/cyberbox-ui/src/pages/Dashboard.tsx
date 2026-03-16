@@ -20,7 +20,7 @@ import {
 } from '../api/client';
 
 interface AlertSparkPoint { day: string; value: number }
-type AssetOs = 'windows' | 'windows-server' | 'linux' | 'linux-server' | 'docker' | 'syslog' | 'firewall';
+type AssetOs = 'windows' | 'windows-server' | 'linux' | 'linux-server' | 'docker' | 'syslog' | 'firewall' | 'entra_id' | 'o365';
 interface TopAlertRow {
   severity: 'critical' | 'high' | 'medium' | 'low';
   alert_name: string;
@@ -66,6 +66,10 @@ function osFromString(os?: string, hostname?: string): AssetOs {
   if (!os) return 'linux';
   const lower = os.toLowerCase();
   const host = (hostname || '').toLowerCase();
+  if (lower === 'azure' && host.includes('entra')) return 'entra_id';
+  if (lower === 'azure') return 'o365';
+  if (host.includes('entra')) return 'entra_id';
+  if (host.includes('office 365')) return 'o365';
   if (lower === 'firewall') return 'firewall';
   if (FIREWALL_KEYWORDS.some(k => host.includes(k))) return 'firewall';
   if (lower === 'syslog' && FIREWALL_KEYWORDS.some(k => host.includes(k))) return 'firewall';
@@ -128,6 +132,12 @@ const SEVERITY_OPTIONS = ['critical', 'high', 'medium', 'low'];
 /* -- OS icons for target asset */
 
 const osIcons: Record<string, JSX.Element> = {
+  entra_id: (
+    <img src="/entra-id.webp" width="16" height="16" alt="Entra ID" style={{ verticalAlign: 'middle', borderRadius: 3 }} />
+  ),
+  o365: (
+    <img src="/office-365.jpg" width="16" height="16" alt="Office 365" style={{ verticalAlign: 'middle', borderRadius: 3 }} />
+  ),
   windows: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style={{ color: '#0078D4' }}>
       <path d="M0 3.5l9.9-1.4v9.5H0V3.5zm11.1-1.6L24 0v11.6H11.1V1.9zM0 12.6h9.9v9.5L0 20.6v-8zm11.1 0H24V24l-12.9-1.8V12.6z"/>
