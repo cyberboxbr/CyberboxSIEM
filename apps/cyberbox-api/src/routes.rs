@@ -419,11 +419,45 @@ pub async fn ingest_events(
             }
         }
     } else {
+        use cyberbox_core::normalize;
+
+        // Normalize + enrich before publishing to Kafka so ClickHouse gets GeoIP data.
+        let normalized: Vec<EventEnvelope> = raw_valid
+            .iter()
+            .filter_map(|e| {
+                let env = normalize::normalize_to_ocsf(e);
+                let env = if let Some(enricher) = &state.geoip_enricher {
+                    normalize::attach_enrichment(env, vec![], enricher.enrich_event(&e.raw_payload))
+                } else {
+                    env
+                };
+                if state.is_duplicate(&env.integrity_hash) {
+                    counter!(
+                        "cyberbox_ingest_dedup_dropped_total",
+                        "tenant" => auth.tenant_id.clone()
+                    )
+                    .increment(1);
+                    None
+                } else {
+                    Some(env)
+                }
+            })
+            .collect();
+
         for incoming in &raw_valid {
             state
                 .raw_event_publisher
                 .publish_raw_event(incoming)
                 .await?;
+        }
+
+        // Also persist enriched events to ClickHouse + broadcast to live tail.
+        let _ = state.storage.insert_events(&normalized).await;
+        for event in &normalized {
+            let _ = state.event_tx.send(event.clone());
+        }
+        if let Some(buf) = &state.clickhouse_write_buffer {
+            let _ = buf.send_events(&normalized);
         }
     }
 
