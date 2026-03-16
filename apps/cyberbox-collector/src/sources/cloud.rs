@@ -503,6 +503,43 @@ async fn run_o365(
     let poll_dur = Duration::from_secs(poll_secs);
     let mut consecutive_errors: u32 = 0;
 
+    // Register cloud sources as agents in the fleet.
+    let api_url = env_str("COLLECTOR_API_URL", "http://localhost:8080");
+    let api_key = env_str("COLLECTOR_API_KEY", "");
+    let cloud_agents: Vec<(&str, &str, &str)> = vec![
+        ("cloud-entra-id", "Microsoft Entra ID", "azure"),
+        ("cloud-office-365", "Microsoft Office 365", "azure"),
+    ];
+    for (agent_id, hostname, os) in &cloud_agents {
+        let url = format!("{api_url}/api/v1/agents/register");
+        let body = json!({
+            "agent_id": agent_id,
+            "tenant_id": tenant_id.as_str(),
+            "hostname": hostname,
+            "os": os,
+            "version": "o365-api-poller",
+        });
+        let mut req = client
+            .post(&url)
+            .header("x-tenant-id", tenant_id.as_str())
+            .header("x-user-id", "cyberbox-collector")
+            .header("x-roles", "ingestor");
+        if !api_key.is_empty() {
+            req = req.header("X-Api-Key", api_key.as_str());
+        }
+        match req.json(&body).send().await {
+            Ok(r) if r.status().is_success() => {
+                info!(agent_id, hostname, "registered cloud agent");
+            }
+            Ok(r) => {
+                warn!(agent_id, status = %r.status(), "failed to register cloud agent");
+            }
+            Err(e) => {
+                warn!(agent_id, %e, "failed to register cloud agent");
+            }
+        }
+    }
+
     // Ensure subscriptions are active before entering the poll loop.
     if let Ok(tok) = get_o365_token(&client, &aad_tenant, &client_id, &client_secret).await {
         for ct in &types {
@@ -673,6 +710,10 @@ async fn fetch_o365_content(
             .json()
             .await?;
 
+        let source_tag = match ct {
+            "Audit.AzureActiveDirectory" => "entra_id",
+            _ => "o365",
+        };
         let batch_count = events.len() as u64;
         for ev in events {
             let ts = ev
@@ -682,7 +723,7 @@ async fn fetch_o365_content(
                 .to_string();
             let wrapped = json!({
                 "tenant_id":  tenant_id,
-                "source":     "o365",
+                "source":     source_tag,
                 "event_time": ts,
                 "raw_payload": ev,
             });

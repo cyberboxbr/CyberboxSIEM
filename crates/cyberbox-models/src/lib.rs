@@ -14,6 +14,9 @@ pub enum EventSource {
     LinuxAuth,
     Firewall,
     CloudAudit,
+    EntraId,
+    O365,
+    Okta,
     Unknown,
 }
 
