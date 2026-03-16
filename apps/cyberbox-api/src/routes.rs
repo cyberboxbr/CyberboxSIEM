@@ -2722,7 +2722,7 @@ async fn auto_correlate_alert(state: AppState, alert: AlertRecord) {
         .unwrap_or_else(|| format!("Rule {}", alert.rule_id));
 
     let correlation_tag = format!("rule:{}", alert.rule_id);
-    let cutoff = Utc::now() - chrono::Duration::hours(1);
+    let cutoff = Utc::now() - chrono::Duration::hours(24);
 
     let cases: Vec<CaseRecord> = if let Some(ch) = &state.clickhouse_event_store {
         ch.list_cases(&alert.tenant_id).await.unwrap_or_default()
@@ -2745,6 +2745,12 @@ async fn auto_correlate_alert(state: AppState, alert: AlertRecord) {
         if !case.alert_ids.contains(&alert.alert_id) {
             case.alert_ids.push(alert.alert_id);
             case.updated_at = Utc::now();
+            tracing::info!(
+                case_id = %case.case_id,
+                alert_id = %alert.alert_id,
+                alert_count = case.alert_ids.len(),
+                "auto-merged alert into existing case"
+            );
             if let Some(ch) = &state.clickhouse_event_store {
                 let _ = ch.upsert_case(case.clone()).await;
             }
@@ -2768,6 +2774,13 @@ async fn auto_correlate_alert(state: AppState, alert: AlertRecord) {
             closed_at: None,
             tags: vec![correlation_tag],
         };
+        tracing::info!(
+            case_id = %case.case_id,
+            alert_id = %alert.alert_id,
+            rule = %rule_name,
+            severity = ?severity,
+            "auto-created case from alert"
+        );
         if let Some(ch) = &state.clickhouse_event_store {
             let _ = ch.upsert_case(case.clone()).await;
         }
