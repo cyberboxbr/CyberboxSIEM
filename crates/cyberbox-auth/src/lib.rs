@@ -423,6 +423,11 @@ where
         if let Some(TenantOverride(ref forced)) = parts.extensions.get::<TenantOverride>().cloned()
         {
             ctx.tenant_id = forced.clone();
+            // In single-tenant mode, grant all roles to authenticated users
+            // (role management via RBAC page, not Entra ID app roles)
+            if ctx.roles == vec![Role::Viewer] {
+                ctx.roles = vec![Role::Admin, Role::Analyst, Role::Viewer];
+            }
         }
 
         Ok(ctx)
