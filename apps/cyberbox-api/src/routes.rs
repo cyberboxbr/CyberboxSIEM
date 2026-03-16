@@ -2735,7 +2735,7 @@ async fn restore_rule_version(
 
 /// Group a fired alert into an existing open case for the same rule, or create
 /// a new case automatically.  Runs as a background task — never blocks ingest.
-async fn auto_correlate_alert(state: AppState, alert: AlertRecord) {
+pub async fn auto_correlate_alert(state: AppState, alert: AlertRecord) {
     let rule = state
         .storage
         .get_rule(&alert.tenant_id, alert.rule_id)

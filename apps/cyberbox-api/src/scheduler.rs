@@ -94,16 +94,18 @@ pub async fn run_tick(state: &AppState) -> Result<SchedulerTickResult, CyberboxE
                 event,
                 format!("event:{}", event.event_id),
             ) {
-                if let Err(err) = state.storage.suppress_or_create_alert(alert).await {
-                    tracing::warn!(
-                        tenant_id = %rule.tenant_id,
-                        rule_id = %rule.rule_id,
-                        error = %err,
-                        "scheduled rule: failed to persist alert"
-                    );
-                    error_count = error_count.saturating_add(1);
-                } else {
+                if let Ok(saved) = state.storage.suppress_or_create_alert(alert).await {
                     alerts_emitted += 1;
+                    // Broadcast to live alert stream
+                    let _ = state.alert_tx.send(saved.clone());
+                    // Auto-correlate into cases
+                    let corr_state = state.clone();
+                    let corr_alert = saved;
+                    tokio::spawn(async move {
+                        crate::routes::auto_correlate_alert(corr_state, corr_alert).await;
+                    });
+                } else {
+                    error_count = error_count.saturating_add(1);
                 }
             }
         }
