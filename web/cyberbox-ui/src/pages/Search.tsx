@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   connectEventSSE,
   naturalLanguageQuery,
@@ -236,8 +237,9 @@ function CellValue({ value, col }: { value: unknown; col: string }) {
 /* ── Component ──────────────────────────────────── */
 
 export function Search() {
+  const [searchParams] = useSearchParams();
   const [mode, setMode] = useState<'sql' | 'nlq' | 'live'>('sql');
-  const [sqlText, setSqlText] = useState('SELECT * FROM events ORDER BY _time DESC LIMIT 50');
+  const [sqlText, setSqlText] = useState(searchParams.get('q') ?? '');
   const [nlqText, setNlqText] = useState('');
   const { from: defaultFrom, to: defaultTo } = useMemo(defaultTimeRange, []);
   const [timeFrom, setTimeFrom] = useState(defaultFrom);
@@ -620,7 +622,7 @@ export function Search() {
               onChange={(e) => setSqlText(e.target.value)}
               onKeyDown={handleKeyDown}
               rows={editorExpanded ? 12 : 4}
-              placeholder="SELECT * FROM events WHERE severity = 'critical' ORDER BY _time DESC LIMIT 100"
+              placeholder="Leave empty for all events, or: raw_payload LIKE '%failed%'"
               spellCheck={false}
             />
           )}

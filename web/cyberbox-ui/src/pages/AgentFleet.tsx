@@ -78,10 +78,15 @@ function countBadge(count: number, color: string): React.CSSProperties {
 
 const FIREWALL_HINTS = ['opnsense', 'pfsense', 'fortinet', 'fortigate', 'sophos', 'paloalto', 'firewall', 'fw.', 'asa'];
 
-function resolveOsType(agent: AgentRecord): 'windows' | 'linux' | 'firewall' | 'mac' | 'unknown' {
+function resolveOsType(agent: AgentRecord): 'windows' | 'linux' | 'firewall' | 'mac' | 'entra_id' | 'o365' | 'unknown' {
   const os = (agent.os || '').toLowerCase();
   const host = (agent.hostname || '').toLowerCase();
   const id = (agent.agent_id || '').toLowerCase();
+
+  // Cloud sources
+  if (id.includes('entra') || host.includes('entra')) return 'entra_id';
+  if (id.includes('office') || id.includes('o365') || host.includes('office 365')) return 'o365';
+  if (os === 'azure') return id.includes('entra') ? 'entra_id' : 'o365';
 
   if (os === 'windows' || os === 'windows_sysmon') return 'windows';
   if (os === 'macos' || os === 'darwin') return 'mac';
@@ -100,6 +105,14 @@ function OsIcon({ agent }: { agent: AgentRecord }) {
   const type = resolveOsType(agent);
   const size = 20;
   const iconStyle: React.CSSProperties = { verticalAlign: 'middle', flexShrink: 0 };
+
+  if (type === 'entra_id') {
+    return <img src="/entra-id.webp" width={size} height={size} alt="Entra ID" style={{ ...iconStyle, borderRadius: 4 }} />;
+  }
+
+  if (type === 'o365') {
+    return <img src="/office-365.jpg" width={size} height={size} alt="Office 365" style={{ ...iconStyle, borderRadius: 4 }} />;
+  }
 
   if (type === 'windows') {
     return (

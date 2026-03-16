@@ -2342,8 +2342,12 @@ async fn explain_alert_handler(
         CyberboxError::Internal("NLQ enabled but no LLM API key configured".to_string())
     })?;
 
-    // Fetch the alert — list then find (no get_alert on trait).
-    let alerts = state.storage.list_alerts(&auth.tenant_id).await?;
+    // Fetch the alert — try ClickHouse first, then in-memory.
+    let alerts = if let Some(ch) = &state.clickhouse_event_store {
+        ch.list_alerts(&auth.tenant_id).await?
+    } else {
+        state.storage.list_alerts(&auth.tenant_id).await?
+    };
     let alert = alerts
         .into_iter()
         .find(|a| a.alert_id == id)

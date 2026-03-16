@@ -396,7 +396,10 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
                   {evidenceRefs.map((ref: string, i: number) => (
                     <div key={i} className="ad-evidence-item">
                       <code className="ad-evidence-ref">{ref}</code>
-                      <button type="button" className="cd-action-btn cd-action-btn--small" onClick={() => navigate(`/search?event_id=${encodeURIComponent(ref)}`)}>
+                      <button type="button" className="cd-action-btn cd-action-btn--small" onClick={() => {
+                        const eventId = ref.replace(/^event:/, '');
+                        navigate(`/search?q=${encodeURIComponent(`raw_payload LIKE '%${eventId}%'`)}`);
+                      }}>
                         Search
                       </button>
                     </div>

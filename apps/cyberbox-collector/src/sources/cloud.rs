@@ -548,6 +548,20 @@ async fn run_o365(
     }
 
     loop {
+        // Heartbeat at the TOP of each loop so agents stay ACTIVE during the sleep.
+        for (agent_id, _, _) in &cloud_agents {
+            let url = format!("{api_url}/api/v1/agents/{agent_id}/heartbeat");
+            let mut req = client
+                .post(&url)
+                .header("x-tenant-id", tenant_id.as_str())
+                .header("x-user-id", "cyberbox-collector")
+                .header("x-roles", "ingestor");
+            if !api_key.is_empty() {
+                req = req.header("X-Api-Key", api_key.as_str());
+            }
+            let _ = req.send().await;
+        }
+
         if sleep_or_shutdown(poll_dur, &mut shutdown).await {
             return;
         }
@@ -617,20 +631,6 @@ async fn run_o365(
             }
         } else {
             consecutive_errors = 0;
-        }
-
-        // Send heartbeats for cloud agents so they stay ACTIVE in the fleet.
-        for (agent_id, _, _) in &cloud_agents {
-            let url = format!("{api_url}/api/v1/agents/{agent_id}/heartbeat");
-            let mut req = client
-                .post(&url)
-                .header("x-tenant-id", tenant_id.as_str())
-                .header("x-user-id", "cyberbox-collector")
-                .header("x-roles", "ingestor");
-            if !api_key.is_empty() {
-                req = req.header("X-Api-Key", api_key.as_str());
-            }
-            let _ = req.send().await;
         }
     }
 }
