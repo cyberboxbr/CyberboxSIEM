@@ -5,12 +5,9 @@ import {
   lgpdBreachReport,
   lgpdExport,
   LgpdBreachReportInput,
+  LgpdBreachReportResponse,
   LgpdConfig,
 } from '../api/client';
-
-// ---------------------------------------------------------------------------
-// Dark theme tokens
-// ---------------------------------------------------------------------------
 
 const s = {
   panelBg: 'rgba(9,21,35,0.82)',
@@ -23,21 +20,6 @@ const s = {
   bad: '#f45d5d',
 } as const;
 
-// ---------------------------------------------------------------------------
-// PII field presets
-// ---------------------------------------------------------------------------
-
-const PII_FIELDS = [
-  'email',
-  'ip_address',
-  'username',
-  'hostname',
-  'phone_number',
-  'cpf',
-  'full_name',
-  'address',
-] as const;
-
 const DATA_CATEGORIES = [
   'personal_identification',
   'financial',
@@ -47,10 +29,6 @@ const DATA_CATEGORIES = [
   'communications',
   'behavioral',
 ] as const;
-
-// ---------------------------------------------------------------------------
-// Card wrapper
-// ---------------------------------------------------------------------------
 
 function ActionCard({
   title,
@@ -74,47 +52,49 @@ function ActionCard({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+function formatTimestamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString();
+}
 
 export function LgpdCompliance() {
-  // Config
   const [config, setConfig] = useState<LgpdConfig | null>(null);
   const [configError, setConfigError] = useState('');
 
-  // Export
   const [exportSubject, setExportSubject] = useState('');
   const [exportLoading, setExportLoading] = useState(false);
   const [exportResult, setExportResult] = useState<string | null>(null);
   const [exportError, setExportError] = useState('');
 
-  // Anonymize
   const [anonSubject, setAnonSubject] = useState('');
-  const [anonFields, setAnonFields] = useState<Set<string>>(new Set());
+  const [anonBefore, setAnonBefore] = useState('');
   const [anonLoading, setAnonLoading] = useState(false);
-  const [anonCount, setAnonCount] = useState<number | null>(null);
+  const [anonResult, setAnonResult] = useState<{ anonymized_events: number; tenant_id: string } | null>(null);
   const [anonError, setAnonError] = useState('');
 
-  // Breach report
   const [brDescription, setBrDescription] = useState('');
   const [brCount, setBrCount] = useState(0);
   const [brCategories, setBrCategories] = useState<Set<string>>(new Set());
+  const [brReportedToAnpd, setBrReportedToAnpd] = useState(false);
   const [brLoading, setBrLoading] = useState(false);
-  const [brResult, setBrResult] = useState<{ report_id: string; dpo_notified: boolean } | null>(null);
+  const [brResult, setBrResult] = useState<LgpdBreachReportResponse | null>(null);
   const [brError, setBrError] = useState('');
 
   const loadConfig = useCallback(async () => {
     try {
       setConfig(await getLgpdConfig());
+      setConfigError('');
     } catch (err) {
       setConfigError(String(err));
     }
   }, []);
 
-  useEffect(() => { loadConfig(); }, [loadConfig]);
-
-  // ─── Export handler ──────────────────────────────────────────────────────
+  useEffect(() => {
+    void loadConfig();
+  }, [loadConfig]);
 
   const onExport = async (e: FormEvent) => {
     e.preventDefault();
@@ -122,16 +102,17 @@ export function LgpdCompliance() {
     setExportResult(null);
     setExportError('');
     try {
-      const resp = await lgpdExport({ subject_identifier: exportSubject });
-      // Trigger download
-      const blob = new Blob([JSON.stringify(resp.events, null, 2)], { type: 'application/json' });
+      const resp = await lgpdExport({ subject_id: exportSubject.trim() });
+      const blob = new Blob([JSON.stringify(resp, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `lgpd-export-${exportSubject}.json`;
+      a.download = `lgpd-export-${resp.subject_id}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      setExportResult(`Exported ${resp.events.length} event(s). Download started.`);
+      setExportResult(
+        `Exported ${resp.total_events} event(s) at ${formatTimestamp(resp.generated_at)}. Download started.`,
+      );
     } catch (err) {
       setExportError(String(err));
     } finally {
@@ -139,13 +120,14 @@ export function LgpdCompliance() {
     }
   };
 
-  // ─── Anonymize handler ───────────────────────────────────────────────────
-
-  const toggleAnonField = (f: string) => {
-    setAnonFields((prev) => {
+  const toggleBrCategory = (category: string) => {
+    setBrCategories((prev) => {
       const next = new Set(prev);
-      if (next.has(f)) next.delete(f);
-      else next.add(f);
+      if (next.has(category)) {
+        next.delete(category);
+      } else {
+        next.add(category);
+      }
       return next;
     });
   };
@@ -153,30 +135,22 @@ export function LgpdCompliance() {
   const onAnonymize = async (e: FormEvent) => {
     e.preventDefault();
     setAnonLoading(true);
-    setAnonCount(null);
+    setAnonResult(null);
     setAnonError('');
     try {
       const resp = await lgpdAnonymize({
-        subject_identifier: anonSubject,
-        fields: Array.from(anonFields),
+        subject_id: anonSubject.trim(),
+        before: anonBefore ? new Date(anonBefore).toISOString() : undefined,
       });
-      setAnonCount(resp.anonymized_count);
+      setAnonResult({
+        anonymized_events: resp.anonymized_events,
+        tenant_id: resp.tenant_id,
+      });
     } catch (err) {
       setAnonError(String(err));
     } finally {
       setAnonLoading(false);
     }
-  };
-
-  // ─── Breach report handler ──────────────────────────────────────────────
-
-  const toggleBrCategory = (c: string) => {
-    setBrCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(c)) next.delete(c);
-      else next.add(c);
-      return next;
-    });
   };
 
   const onBreachReport = async (e: FormEvent) => {
@@ -187,8 +161,9 @@ export function LgpdCompliance() {
     try {
       const input: LgpdBreachReportInput = {
         description: brDescription,
-        affected_subjects_count: brCount,
         data_categories: Array.from(brCategories),
+        estimated_subjects_affected: brCount,
+        reported_to_anpd: brReportedToAnpd,
       };
       const resp = await lgpdBreachReport(input);
       setBrResult(resp);
@@ -198,8 +173,6 @@ export function LgpdCompliance() {
       setBrLoading(false);
     }
   };
-
-  // ─── checkbox style ──────────────────────────────────────────────────────
 
   const checkLabel = (active: boolean): React.CSSProperties => ({
     display: 'inline-flex',
@@ -211,7 +184,7 @@ export function LgpdCompliance() {
     color: active ? s.text : s.dim,
     padding: '2px 6px',
     borderRadius: 4,
-    border: `1px solid ${active ? s.accent + '55' : s.border}`,
+    border: `1px solid ${active ? `${s.accent}55` : s.border}`,
     background: active ? `${s.accent}15` : 'transparent',
   });
 
@@ -221,7 +194,6 @@ export function LgpdCompliance() {
         <h1 className="page-title">LGPD Compliance</h1>
       </div>
 
-      {/* Config display */}
       <div className="panel" style={{ display: 'flex', gap: 24, alignItems: 'center', fontSize: 13 }}>
         {config ? (
           <>
@@ -245,13 +217,11 @@ export function LgpdCompliance() {
         )}
       </div>
 
-      {/* Three action cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-        {/* Data Subject Export */}
         <ActionCard title="Data Subject Export">
           <form onSubmit={onExport} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <label>
-              Subject Identifier
+              Subject ID
               <input
                 value={exportSubject}
                 onChange={(e) => setExportSubject(e.target.value)}
@@ -259,6 +229,9 @@ export function LgpdCompliance() {
                 placeholder="user@example.com or CPF"
               />
             </label>
+            <p style={{ margin: 0, fontSize: 12, color: s.dim }}>
+              Downloads the full DSAR package, including controller metadata, export time, and matched events.
+            </p>
             <button
               type="submit"
               disabled={exportLoading}
@@ -276,11 +249,10 @@ export function LgpdCompliance() {
           </form>
         </ActionCard>
 
-        {/* Anonymize PII */}
-        <ActionCard title="Anonymize PII">
+        <ActionCard title="Anonymize Subject Data">
           <form onSubmit={onAnonymize} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <label>
-              Subject Identifier
+              Subject ID
               <input
                 value={anonSubject}
                 onChange={(e) => setAnonSubject(e.target.value)}
@@ -288,25 +260,20 @@ export function LgpdCompliance() {
                 placeholder="user@example.com"
               />
             </label>
-            <div>
-              <span style={{ fontSize: 12, color: s.dim, marginBottom: 4, display: 'block' }}>Fields to anonymize:</span>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {PII_FIELDS.map((f) => (
-                  <label key={f} style={checkLabel(anonFields.has(f))}>
-                    <input
-                      type="checkbox"
-                      checked={anonFields.has(f)}
-                      onChange={() => toggleAnonField(f)}
-                      style={{ width: 14, height: 14 }}
-                    />
-                    {f}
-                  </label>
-                ))}
-              </div>
-            </div>
+            <label>
+              Optional Cutoff
+              <input
+                type="datetime-local"
+                value={anonBefore}
+                onChange={(e) => setAnonBefore(e.target.value)}
+              />
+            </label>
+            <p style={{ margin: 0, fontSize: 12, color: s.dim }}>
+              The current backend anonymizes all matching payload values for the subject within the selected time window.
+            </p>
             <button
               type="submit"
-              disabled={anonLoading || anonFields.size === 0}
+              disabled={anonLoading || !anonSubject.trim()}
               style={{
                 padding: '8px 16px',
                 background: 'rgba(245,166,35,0.2)',
@@ -316,16 +283,15 @@ export function LgpdCompliance() {
             >
               {anonLoading ? 'Anonymizing...' : 'Anonymize'}
             </button>
-            {anonCount !== null && (
+            {anonResult && (
               <p style={{ fontSize: 12, color: s.good, margin: 0 }}>
-                Anonymized {anonCount} record(s).
+                Anonymized {anonResult.anonymized_events} event(s) in tenant {anonResult.tenant_id}.
               </p>
             )}
             {anonError && <p style={{ fontSize: 12, color: s.bad, margin: 0 }}>{anonError}</p>}
           </form>
         </ActionCard>
 
-        {/* Breach Report */}
         <ActionCard title="Breach Report">
           <form onSubmit={onBreachReport} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <label>
@@ -340,7 +306,7 @@ export function LgpdCompliance() {
               />
             </label>
             <label>
-              Affected Subjects Count
+              Estimated Subjects Affected
               <input
                 type="number"
                 min={0}
@@ -352,19 +318,27 @@ export function LgpdCompliance() {
             <div>
               <span style={{ fontSize: 12, color: s.dim, marginBottom: 4, display: 'block' }}>Data categories:</span>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {DATA_CATEGORIES.map((c) => (
-                  <label key={c} style={checkLabel(brCategories.has(c))}>
+                {DATA_CATEGORIES.map((category) => (
+                  <label key={category} style={checkLabel(brCategories.has(category))}>
                     <input
                       type="checkbox"
-                      checked={brCategories.has(c)}
-                      onChange={() => toggleBrCategory(c)}
+                      checked={brCategories.has(category)}
+                      onChange={() => toggleBrCategory(category)}
                       style={{ width: 14, height: 14 }}
                     />
-                    {c.replace(/_/g, ' ')}
+                    {category.replace(/_/g, ' ')}
                   </label>
                 ))}
               </div>
             </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: s.text }}>
+              <input
+                type="checkbox"
+                checked={brReportedToAnpd}
+                onChange={(e) => setBrReportedToAnpd(e.target.checked)}
+              />
+              Already reported to ANPD
+            </label>
             <button
               type="submit"
               disabled={brLoading}
@@ -379,9 +353,15 @@ export function LgpdCompliance() {
             </button>
             {brResult && (
               <div style={{ fontSize: 12, color: s.good, margin: 0 }}>
-                <p style={{ margin: 0 }}>Report ID: <code>{brResult.report_id}</code></p>
+                <p style={{ margin: 0 }}>
+                  Incident ID: <code>{brResult.incident_id}</code>
+                </p>
+                <p style={{ margin: '4px 0 0' }}>Reported At: {formatTimestamp(brResult.reported_at)}</p>
                 <p style={{ margin: '4px 0 0' }}>
-                  DPO Notified: <strong>{brResult.dpo_notified ? 'Yes' : 'No'}</strong>
+                  ANPD Deadline: {formatTimestamp(brResult.anpd_notification_deadline)}
+                </p>
+                <p style={{ margin: '4px 0 0' }}>
+                  Reported to ANPD: <strong>{brResult.reported_to_anpd ? 'Yes' : 'No'}</strong>
                 </p>
               </div>
             )}

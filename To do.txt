@@ -9,3 +9,14 @@ Reporting — scheduled PDF/CSV exports (incident summary, LGPD compliance, week
 Log retention policies — ClickHouse TTL for hot/warm/cold storage tiers.
 
 Alert enrichment — auto-enrich alerts with VirusTotal, AbuseIPDB, Shodan lookups.
+
+
+
+
+
+Fazer DNS interno 
+
+Limpar o opnsense de HAPROXY se tiver 
+
+Add more VPN users — just need to add [Peer] blocks to the WireGuard config for each new admin
+

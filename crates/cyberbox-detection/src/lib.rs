@@ -26,6 +26,9 @@ use std::sync::{Arc, OnceLock};
 
 use chrono::{Duration, Utc};
 use dashmap::DashMap;
+use postgres::{Client, NoTls};
+use r2d2::Pool;
+use r2d2_postgres::PostgresConnectionManager;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -1295,14 +1298,14 @@ fn tokenize_condition(input: &str) -> Vec<String> {
 /// Count/Sum/Avg are O(1); Min/Max scan the deque (uncommon aggregates).
 #[derive(Default)]
 struct AggEntry {
-    deque: VecDeque<(std::time::Instant, f64)>,
+    deque: VecDeque<(chrono::DateTime<Utc>, f64)>,
     running_sum: f64,
 }
 
 impl AggEntry {
-    fn evict_stale(&mut self, now: std::time::Instant, window: std::time::Duration) {
+    fn evict_stale(&mut self, cutoff: chrono::DateTime<Utc>) {
         while let Some((ts, _)) = self.deque.front() {
-            if now.duration_since(*ts) < window {
+            if *ts >= cutoff {
                 break;
             }
             let (_, val) = self.deque.pop_front().unwrap();
@@ -1310,7 +1313,7 @@ impl AggEntry {
         }
     }
 
-    fn push(&mut self, ts: std::time::Instant, val: f64) {
+    fn push(&mut self, ts: chrono::DateTime<Utc>, val: f64) {
         self.running_sum += val;
         self.deque.push_back((ts, val));
     }
@@ -1347,14 +1350,14 @@ impl AggEntry {
 /// `distinct_count()` is O(1); eviction is O(1) amortised.
 #[derive(Default)]
 struct DistinctEntry {
-    deque: VecDeque<(std::time::Instant, String)>,
+    deque: VecDeque<(chrono::DateTime<Utc>, String)>,
     counts: HashMap<String, usize>,
 }
 
 impl DistinctEntry {
-    fn evict_stale(&mut self, now: std::time::Instant, window: std::time::Duration) {
+    fn evict_stale(&mut self, cutoff: chrono::DateTime<Utc>) {
         while let Some((ts, _)) = self.deque.front() {
-            if now.duration_since(*ts) < window {
+            if *ts >= cutoff {
                 break;
             }
             let (_, val) = self.deque.pop_front().unwrap();
@@ -1368,7 +1371,7 @@ impl DistinctEntry {
         }
     }
 
-    fn push(&mut self, ts: std::time::Instant, val: String) {
+    fn push(&mut self, ts: chrono::DateTime<Utc>, val: String) {
         *self.counts.entry(val.clone()).or_insert(0) += 1;
         self.deque.push_back((ts, val));
     }
@@ -1378,23 +1381,544 @@ impl DistinctEntry {
     }
 }
 
+type TemporalBuffer = VecDeque<(chrono::DateTime<Utc>, String)>;
+
 // ─── RuleExecutor ─────────────────────────────────────────────────────────────
 
 /// Evaluates compiled Sigma rules against events and constructs `AlertRecord`s on match.
 /// Deduplication/suppression is handled at the storage layer via `suppress_or_create_alert`.
 #[derive(Clone)]
+struct MemoryCorrelationState {
+    agg_buffers: Arc<ShardedMap<AggEntry>>,
+    distinct_buffers: Arc<ShardedMap<DistinctEntry>>,
+    temporal_buffers: Arc<DashMap<String, TemporalBuffer>>,
+}
+
+#[derive(Clone)]
+struct PostgresCorrelationState {
+    pool: Pool<PostgresConnectionManager<NoTls>>,
+    schema: Arc<String>,
+    #[allow(dead_code)]
+    url: Arc<String>,
+}
+
+#[derive(Clone)]
+enum CorrelationStateBackend {
+    Memory(MemoryCorrelationState),
+    Postgres(PostgresCorrelationState),
+}
+
+pub struct SharedCorrelationState {
+    backend: CorrelationStateBackend,
+}
+
+impl Default for SharedCorrelationState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SharedCorrelationState {
+    pub fn new() -> Self {
+        Self {
+            backend: CorrelationStateBackend::Memory(MemoryCorrelationState {
+                agg_buffers: Arc::new(ShardedMap::new()),
+                distinct_buffers: Arc::new(ShardedMap::new()),
+                temporal_buffers: Arc::new(DashMap::new()),
+            }),
+        }
+    }
+
+    pub fn postgres(url: &str, schema: &str) -> Result<Self, CyberboxError> {
+        Ok(Self {
+            backend: CorrelationStateBackend::Postgres(PostgresCorrelationState::open(
+                url, schema,
+            )?),
+        })
+    }
+
+    pub fn from_backend(
+        backend: &str,
+        postgres_url: &str,
+        postgres_schema: &str,
+    ) -> Result<Self, CyberboxError> {
+        match backend.trim().to_ascii_lowercase().as_str() {
+            "" | "memory" => Ok(Self::new()),
+            "postgres" => Self::postgres(postgres_url, postgres_schema),
+            other => Err(CyberboxError::Internal(format!(
+                "unsupported correlation_state_backend '{}'; expected 'memory' or 'postgres'",
+                other
+            ))),
+        }
+    }
+
+    fn invalidate_rule(&self, rule_id: Uuid) {
+        match &self.backend {
+            CorrelationStateBackend::Memory(memory) => {
+                let prefix = format!("{rule_id}:");
+                memory.temporal_buffers.retain(|k, _| !k.starts_with(&prefix));
+                memory.agg_buffers.retain(|k| !k.starts_with(&prefix));
+                memory.distinct_buffers.retain(|k| !k.starts_with(&prefix));
+            }
+            CorrelationStateBackend::Postgres(pg) => {
+                if let Err(e) = pg.invalidate_rule(rule_id) {
+                    tracing::error!(rule_id = %rule_id, error = %e, "correlation state error: failed to invalidate rule");
+                }
+            }
+        }
+    }
+
+    fn invalidate_all(&self) {
+        match &self.backend {
+            CorrelationStateBackend::Memory(memory) => {
+                memory.temporal_buffers.clear();
+                memory.agg_buffers.clear();
+                memory.distinct_buffers.clear();
+            }
+            CorrelationStateBackend::Postgres(pg) => {
+                if let Err(e) = pg.invalidate_all() {
+                    tracing::error!(error = %e, "correlation state error: failed to invalidate all rules");
+                }
+            }
+        }
+    }
+
+    fn record_temporal_match(
+        &self,
+        rule_id: Uuid,
+        selection_name: &str,
+        entity: &str,
+        now: chrono::DateTime<Utc>,
+        cutoff: chrono::DateTime<Utc>,
+        matched: bool,
+    ) -> Result<(), CyberboxError> {
+        match &self.backend {
+            CorrelationStateBackend::Memory(memory) => {
+                let key = format!("{rule_id}:{selection_name}");
+                let mut entry = memory.temporal_buffers.entry(key).or_default();
+                while let Some((ts, _)) = entry.front() {
+                    if *ts < cutoff {
+                        entry.pop_front();
+                    } else {
+                        break;
+                    }
+                }
+                if matched {
+                    entry.push_back((now, entity.to_string()));
+                }
+                Ok(())
+            }
+            CorrelationStateBackend::Postgres(pg) => {
+                pg.record_temporal_match(rule_id, selection_name, entity, now, cutoff, matched)
+            }
+        }
+    }
+
+    fn temporal_selection_has_entity(
+        &self,
+        rule_id: Uuid,
+        selection_name: &str,
+        entity: &str,
+        cutoff: chrono::DateTime<Utc>,
+    ) -> Result<bool, CyberboxError> {
+        match &self.backend {
+            CorrelationStateBackend::Memory(memory) => {
+                let key = format!("{rule_id}:{selection_name}");
+                Ok(memory
+                    .temporal_buffers
+                    .get(&key)
+                    .map(|buf| buf.iter().any(|(ts, current)| *ts >= cutoff && current == entity))
+                    .unwrap_or(false))
+            }
+            CorrelationStateBackend::Postgres(pg) => {
+                pg.temporal_selection_has_entity(rule_id, selection_name, entity, cutoff)
+            }
+        }
+    }
+
+    fn apply_distinct_count(
+        &self,
+        rule_id: Uuid,
+        buffer_key: &str,
+        value: &str,
+        now: chrono::DateTime<Utc>,
+        cutoff: chrono::DateTime<Utc>,
+    ) -> Result<usize, CyberboxError> {
+        match &self.backend {
+            CorrelationStateBackend::Memory(memory) => Ok(memory
+                .distinct_buffers
+                .with_entry(buffer_key, |entry| {
+                    entry.evict_stale(cutoff);
+                    entry.push(now, value.to_string());
+                    entry.distinct_count()
+                })),
+            CorrelationStateBackend::Postgres(pg) => {
+                pg.apply_distinct_count(rule_id, buffer_key, value, now, cutoff)
+            }
+        }
+    }
+
+    fn apply_numeric_aggregate(
+        &self,
+        rule_id: Uuid,
+        buffer_key: &str,
+        contrib: f64,
+        now: chrono::DateTime<Utc>,
+        cutoff: chrono::DateTime<Utc>,
+        function: &AggregateFunction,
+    ) -> Result<f64, CyberboxError> {
+        match &self.backend {
+            CorrelationStateBackend::Memory(memory) => Ok(memory.agg_buffers.with_entry(
+                buffer_key,
+                |entry| {
+                    entry.evict_stale(cutoff);
+                    entry.push(now, contrib);
+                    match function {
+                        AggregateFunction::Count | AggregateFunction::CountDistinct => {
+                            entry.count() as f64
+                        }
+                        AggregateFunction::Sum => entry.sum(),
+                        AggregateFunction::Min => entry.min(),
+                        AggregateFunction::Max => entry.max(),
+                        AggregateFunction::Avg => entry.avg(),
+                    }
+                },
+            )),
+            CorrelationStateBackend::Postgres(pg) => {
+                pg.apply_numeric_aggregate(rule_id, buffer_key, contrib, now, cutoff, function)
+            }
+        }
+    }
+}
+
+impl PostgresCorrelationState {
+    fn open(url: &str, schema: &str) -> Result<Self, CyberboxError> {
+        if url.trim().is_empty() {
+            return Err(CyberboxError::Internal(
+                "correlation postgres url is empty".to_string(),
+            ));
+        }
+        let schema = sanitize_pg_identifier(schema)?;
+        let manager = PostgresConnectionManager::new(url.parse().map_err(|err| {
+            CyberboxError::Internal(format!("parse correlation postgres url: {err}"))
+        })?, NoTls);
+        let pool = Pool::builder()
+            .min_idle(Some(1))
+            .max_size(4)
+            .build(manager)
+            .map_err(|err| CyberboxError::Internal(format!("build correlation postgres pool: {err}")))?;
+        let mut conn = pool
+            .get()
+            .map_err(|err| CyberboxError::Internal(format!("get correlation postgres conn: {err}")))?;
+        ensure_correlation_schema(&mut conn, &schema)?;
+        Ok(Self {
+            pool,
+            schema: Arc::new(schema),
+            url: Arc::new(url.to_string()),
+        })
+    }
+
+    fn with_client<T, F>(&self, f: F) -> Result<T, CyberboxError>
+    where
+        F: FnOnce(&mut Client, &str) -> Result<T, CyberboxError>,
+    {
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|err| CyberboxError::Internal(format!("correlation postgres pool get: {err}")))?;
+        f(&mut conn, self.schema.as_str())
+    }
+
+    fn invalidate_rule(&self, rule_id: Uuid) -> Result<(), CyberboxError> {
+        self.with_client(|client, schema| {
+            client
+                .execute(
+                    &format!("DELETE FROM {schema}.correlation_temporal WHERE rule_id = $1"),
+                    &[&rule_id],
+                )
+                .map_err(pg_correlation_err("delete temporal correlation state for rule"))?;
+            client
+                .execute(
+                    &format!("DELETE FROM {schema}.correlation_numeric WHERE rule_id = $1"),
+                    &[&rule_id],
+                )
+                .map_err(pg_correlation_err("delete numeric correlation state for rule"))?;
+            client
+                .execute(
+                    &format!("DELETE FROM {schema}.correlation_distinct WHERE rule_id = $1"),
+                    &[&rule_id],
+                )
+                .map_err(pg_correlation_err("delete distinct correlation state for rule"))?;
+            Ok(())
+        })
+    }
+
+    fn invalidate_all(&self) -> Result<(), CyberboxError> {
+        self.with_client(|client, schema| {
+            client
+                .batch_execute(&format!(
+                    "TRUNCATE TABLE {schema}.correlation_temporal; \
+                     TRUNCATE TABLE {schema}.correlation_numeric; \
+                     TRUNCATE TABLE {schema}.correlation_distinct;"
+                ))
+                .map_err(pg_correlation_err("truncate correlation state"))?;
+            Ok(())
+        })
+    }
+
+    fn record_temporal_match(
+        &self,
+        rule_id: Uuid,
+        selection_name: &str,
+        entity: &str,
+        now: chrono::DateTime<Utc>,
+        cutoff: chrono::DateTime<Utc>,
+        matched: bool,
+    ) -> Result<(), CyberboxError> {
+        self.with_client(|client, schema| {
+            let mut tx = client
+                .transaction()
+                .map_err(pg_correlation_err("begin temporal correlation transaction"))?;
+            tx.execute(
+                &format!(
+                    "DELETE FROM {schema}.correlation_temporal \
+                     WHERE rule_id = $1 AND selection_name = $2 AND seen_at < $3"
+                ),
+                &[&rule_id, &selection_name, &cutoff],
+            )
+            .map_err(pg_correlation_err("evict temporal correlation state"))?;
+            if matched {
+                tx.execute(
+                    &format!(
+                        "INSERT INTO {schema}.correlation_temporal \
+                         (rule_id, selection_name, entity_key, seen_at) VALUES ($1, $2, $3, $4)"
+                    ),
+                    &[&rule_id, &selection_name, &entity, &now],
+                )
+                .map_err(pg_correlation_err("insert temporal correlation state"))?;
+            }
+            tx.commit()
+                .map_err(pg_correlation_err("commit temporal correlation transaction"))?;
+            Ok(())
+        })
+    }
+
+    fn temporal_selection_has_entity(
+        &self,
+        rule_id: Uuid,
+        selection_name: &str,
+        entity: &str,
+        cutoff: chrono::DateTime<Utc>,
+    ) -> Result<bool, CyberboxError> {
+        self.with_client(|client, schema| {
+            let row = client
+                .query_one(
+                    &format!(
+                        "SELECT EXISTS( \
+                             SELECT 1 FROM {schema}.correlation_temporal \
+                             WHERE rule_id = $1 AND selection_name = $2 AND entity_key = $3 AND seen_at >= $4 \
+                         )"
+                    ),
+                    &[&rule_id, &selection_name, &entity, &cutoff],
+                )
+                .map_err(pg_correlation_err("query temporal correlation state"))?;
+            Ok(row.get(0))
+        })
+    }
+
+    fn apply_distinct_count(
+        &self,
+        rule_id: Uuid,
+        buffer_key: &str,
+        value: &str,
+        now: chrono::DateTime<Utc>,
+        cutoff: chrono::DateTime<Utc>,
+    ) -> Result<usize, CyberboxError> {
+        self.with_client(|client, schema| {
+            let mut tx = client
+                .transaction()
+                .map_err(pg_correlation_err("begin distinct correlation transaction"))?;
+            tx.execute(
+                &format!(
+                    "DELETE FROM {schema}.correlation_distinct \
+                     WHERE buffer_key = $1 AND seen_at < $2"
+                ),
+                &[&buffer_key, &cutoff],
+            )
+            .map_err(pg_correlation_err("evict distinct correlation state"))?;
+            tx.execute(
+                &format!(
+                    "INSERT INTO {schema}.correlation_distinct \
+                     (rule_id, buffer_key, seen_at, value) VALUES ($1, $2, $3, $4)"
+                ),
+                &[&rule_id, &buffer_key, &now, &value],
+            )
+            .map_err(pg_correlation_err("insert distinct correlation state"))?;
+            let row = tx
+                .query_one(
+                    &format!(
+                        "SELECT COUNT(DISTINCT value) FROM {schema}.correlation_distinct WHERE buffer_key = $1"
+                    ),
+                    &[&buffer_key],
+                )
+                .map_err(pg_correlation_err("query distinct correlation state"))?;
+            tx.commit()
+                .map_err(pg_correlation_err("commit distinct correlation transaction"))?;
+            Ok(row.get::<_, i64>(0).max(0) as usize)
+        })
+    }
+
+    fn apply_numeric_aggregate(
+        &self,
+        rule_id: Uuid,
+        buffer_key: &str,
+        contrib: f64,
+        now: chrono::DateTime<Utc>,
+        cutoff: chrono::DateTime<Utc>,
+        function: &AggregateFunction,
+    ) -> Result<f64, CyberboxError> {
+        self.with_client(|client, schema| {
+            let mut tx = client
+                .transaction()
+                .map_err(pg_correlation_err("begin numeric correlation transaction"))?;
+            tx.execute(
+                &format!(
+                    "DELETE FROM {schema}.correlation_numeric \
+                     WHERE buffer_key = $1 AND seen_at < $2"
+                ),
+                &[&buffer_key, &cutoff],
+            )
+            .map_err(pg_correlation_err("evict numeric correlation state"))?;
+            tx.execute(
+                &format!(
+                    "INSERT INTO {schema}.correlation_numeric \
+                     (rule_id, buffer_key, seen_at, value) VALUES ($1, $2, $3, $4)"
+                ),
+                &[&rule_id, &buffer_key, &now, &contrib],
+            )
+            .map_err(pg_correlation_err("insert numeric correlation state"))?;
+            let query = match function {
+                AggregateFunction::Count | AggregateFunction::CountDistinct => {
+                    format!(
+                        "SELECT COUNT(*)::double precision FROM {schema}.correlation_numeric WHERE buffer_key = $1"
+                    )
+                }
+                AggregateFunction::Sum => {
+                    format!(
+                        "SELECT COALESCE(SUM(value), 0)::double precision FROM {schema}.correlation_numeric WHERE buffer_key = $1"
+                    )
+                }
+                AggregateFunction::Min => {
+                    format!(
+                        "SELECT COALESCE(MIN(value), 0)::double precision FROM {schema}.correlation_numeric WHERE buffer_key = $1"
+                    )
+                }
+                AggregateFunction::Max => {
+                    format!(
+                        "SELECT COALESCE(MAX(value), 0)::double precision FROM {schema}.correlation_numeric WHERE buffer_key = $1"
+                    )
+                }
+                AggregateFunction::Avg => {
+                    format!(
+                        "SELECT COALESCE(AVG(value), 0)::double precision FROM {schema}.correlation_numeric WHERE buffer_key = $1"
+                    )
+                }
+            };
+            let row = tx
+                .query_one(&query, &[&buffer_key])
+                .map_err(pg_correlation_err("query numeric correlation state"))?;
+            tx.commit()
+                .map_err(pg_correlation_err("commit numeric correlation transaction"))?;
+            Ok(row.get(0))
+        })
+    }
+}
+
+fn sanitize_pg_identifier(value: &str) -> Result<String, CyberboxError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(CyberboxError::Internal(
+            "correlation postgres schema must not be empty".to_string(),
+        ));
+    }
+    let mut chars = trimmed.chars();
+    let Some(first) = chars.next() else {
+        return Err(CyberboxError::Internal(
+            "correlation postgres schema must not be empty".to_string(),
+        ));
+    };
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return Err(CyberboxError::Internal(format!(
+            "correlation postgres schema '{}' must start with a letter or underscore",
+            trimmed
+        )));
+    }
+    if !trimmed
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+    {
+        return Err(CyberboxError::Internal(format!(
+            "correlation postgres schema '{}' contains invalid characters",
+            trimmed
+        )));
+    }
+    Ok(trimmed.to_string())
+}
+
+fn ensure_correlation_schema(client: &mut Client, schema: &str) -> Result<(), CyberboxError> {
+    let temporal_idx = format!("{schema}_corr_temporal_lookup_idx");
+    let numeric_idx = format!("{schema}_corr_numeric_lookup_idx");
+    let distinct_idx = format!("{schema}_corr_distinct_lookup_idx");
+    client
+        .batch_execute(&format!(
+            r#"
+            CREATE SCHEMA IF NOT EXISTS {schema};
+
+            CREATE TABLE IF NOT EXISTS {schema}.correlation_temporal (
+                rule_id UUID NOT NULL,
+                selection_name TEXT NOT NULL,
+                entity_key TEXT NOT NULL,
+                seen_at TIMESTAMPTZ NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS {temporal_idx}
+                ON {schema}.correlation_temporal (rule_id, selection_name, entity_key, seen_at DESC);
+
+            CREATE TABLE IF NOT EXISTS {schema}.correlation_numeric (
+                rule_id UUID NOT NULL,
+                buffer_key TEXT NOT NULL,
+                seen_at TIMESTAMPTZ NOT NULL,
+                value DOUBLE PRECISION NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS {numeric_idx}
+                ON {schema}.correlation_numeric (buffer_key, seen_at DESC);
+
+            CREATE TABLE IF NOT EXISTS {schema}.correlation_distinct (
+                rule_id UUID NOT NULL,
+                buffer_key TEXT NOT NULL,
+                seen_at TIMESTAMPTZ NOT NULL,
+                value TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS {distinct_idx}
+                ON {schema}.correlation_distinct (buffer_key, seen_at DESC);
+            "#
+        ))
+        .map_err(pg_correlation_err("ensure correlation postgres schema"))?;
+    Ok(())
+}
+
+fn chrono_window(window: std::time::Duration) -> Duration {
+    let millis = window.as_millis().min(i64::MAX as u128) as i64;
+    Duration::milliseconds(millis)
+}
+
+fn pg_correlation_err(context: &'static str) -> impl FnOnce(postgres::Error) -> CyberboxError {
+    move |err| CyberboxError::Internal(format!("{context}: {err}"))
+}
+
+#[derive(Clone)]
 pub struct RuleExecutor {
     suppression_window: Duration,
-    /// Per-(rule, group_by_value) sliding-window buffer for aggregate conditions.
-    /// Key: `"{rule_id}:{selection}:{group_by_val}"` → `AggEntry`
-    ///
-    /// Uses 64-shard `ShardedMap` (plain `Mutex<HashMap>` per shard) instead of
-    /// DashMap.  4× more shards + cheaper Mutex (vs RwLock) reduces contention
-    /// under rayon-parallel rule evaluation.
-    agg_buffers: Arc<ShardedMap<AggEntry>>,
-    /// Per-(rule, group_by_value) buffer for count_distinct.
-    /// Key: `"{rule_id}:{selection}:{group_by_val}:distinct"` → `DistinctEntry`
-    distinct_buffers: Arc<ShardedMap<DistinctEntry>>,
+    correlation_state: Arc<SharedCorrelationState>,
     /// Time window for aggregate conditions (default: 60 s).
     agg_window: std::time::Duration,
     /// Compiled plan cache keyed by rule_id.
@@ -1403,20 +1927,15 @@ pub struct RuleExecutor {
     /// call to `evaluate()`.  Entries are inserted on first miss and invalidated via
     /// `invalidate_rule()` / `invalidate_all()` when rules are mutated.
     plan_cache: Arc<DashMap<Uuid, Arc<CompiledSigmaPlan>>>,
-    /// Per-(rule, selection) sliding-window buffers for `near` temporal correlation.
-    /// Key: `"{rule_id}:{selection_name}"` → VecDeque<(Instant, entity_value)>
-    temporal_buffers: Arc<DashMap<String, VecDeque<(std::time::Instant, String)>>>,
 }
 
 impl Default for RuleExecutor {
     fn default() -> Self {
         Self {
             suppression_window: Duration::minutes(5),
-            agg_buffers: Arc::new(ShardedMap::new()),
-            distinct_buffers: Arc::new(ShardedMap::new()),
+            correlation_state: Arc::new(SharedCorrelationState::new()),
             agg_window: std::time::Duration::from_secs(60),
             plan_cache: Arc::new(DashMap::new()),
-            temporal_buffers: Arc::new(DashMap::new()),
         }
     }
 }
@@ -1425,12 +1944,18 @@ impl RuleExecutor {
     pub fn with_suppression_window(window: Duration) -> Self {
         Self {
             suppression_window: window,
-            agg_buffers: Arc::new(ShardedMap::new()),
-            distinct_buffers: Arc::new(ShardedMap::new()),
+            correlation_state: Arc::new(SharedCorrelationState::new()),
             agg_window: std::time::Duration::from_secs(60),
             plan_cache: Arc::new(DashMap::new()),
-            temporal_buffers: Arc::new(DashMap::new()),
         }
+    }
+
+    pub fn with_correlation_state(
+        mut self,
+        correlation_state: Arc<SharedCorrelationState>,
+    ) -> Self {
+        self.correlation_state = correlation_state;
+        self
     }
 
     /// Remove a specific rule's compiled plan from the cache.
@@ -1439,16 +1964,13 @@ impl RuleExecutor {
     /// the updated plan.
     pub fn invalidate_rule(&self, rule_id: Uuid) {
         self.plan_cache.remove(&rule_id);
-        let prefix = format!("{rule_id}:");
-        self.temporal_buffers.retain(|k, _| !k.starts_with(&prefix));
+        self.correlation_state.invalidate_rule(rule_id);
     }
 
     /// Flush the entire plan cache, temporal buffers, and aggregate state.
     pub fn invalidate_all(&self) {
         self.plan_cache.clear();
-        self.temporal_buffers.clear();
-        self.agg_buffers.clear();
-        self.distinct_buffers.clear();
+        self.correlation_state.invalidate_all();
     }
 
     /// Override the aggregate sliding-window duration (default: 60 s).
@@ -1780,8 +2302,8 @@ fn eval_near(
     executor: &RuleExecutor,
     matched_info: &mut Vec<String>,
 ) -> bool {
-    let window = std::time::Duration::from_secs(within_seconds);
-    let now = std::time::Instant::now();
+    let now = Utc::now();
+    let cutoff = now - chrono_window(std::time::Duration::from_secs(within_seconds));
 
     let entity_val = entity_field
         .and_then(|f| {
@@ -1792,33 +2314,40 @@ fn eval_near(
         })
         .unwrap_or_else(|| "__global__".to_string());
 
-    // Record match + evict stale entries for each selection.
-    for sel_name in [base, nearby] {
-        if let Some(group) = selections.get(sel_name) {
-            let buf_key = format!("{rule_id}:{sel_name}");
-            let mut entry = executor.temporal_buffers.entry(buf_key).or_default();
-            // Evict stale entries from the front (entries are always appended in time order).
-            while let Some((ts, _)) = entry.front() {
-                if now.duration_since(*ts) >= window {
-                    entry.pop_front();
-                } else {
-                    break;
-                }
-            }
-            if eval_selection_group(group, ctx) {
-                entry.push_back((now, entity_val.clone()));
-            }
-        }
+    let base_hit = selections
+        .get(base)
+        .map(|group| eval_selection_group(group, ctx))
+        .unwrap_or(false);
+    let nearby_hit = selections
+        .get(nearby)
+        .map(|group| eval_selection_group(group, ctx))
+        .unwrap_or(false);
+
+    if let Err(e) = executor
+        .correlation_state
+        .record_temporal_match(rule_id, base, &entity_val, now, cutoff, base_hit)
+    {
+        tracing::error!(rule_id = %rule_id, selection = base, error = %e, "correlation state error: failed to record temporal match");
+    }
+    if let Err(e) = executor
+        .correlation_state
+        .record_temporal_match(rule_id, nearby, &entity_val, now, cutoff, nearby_hit)
+    {
+        tracing::error!(rule_id = %rule_id, selection = nearby, error = %e, "correlation state error: failed to record temporal match");
     }
 
     // Fire only when BOTH selections have a non-stale record for this entity.
     let hit = [base, nearby].iter().all(|sel_name| {
-        let buf_key = format!("{rule_id}:{sel_name}");
-        executor
-            .temporal_buffers
-            .get(&buf_key)
-            .map(|buf| buf.iter().any(|(_, e)| e == &entity_val))
-            .unwrap_or(false)
+        match executor
+            .correlation_state
+            .temporal_selection_has_entity(rule_id, sel_name, &entity_val, cutoff)
+        {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!(rule_id = %rule_id, selection = %sel_name, error = %e, "correlation state error: failed to check temporal entity");
+                false
+            }
+        }
     });
 
     if hit {
@@ -1869,8 +2398,8 @@ fn eval_aggregate(
         .unwrap_or_else(|| "__all__".to_string());
 
     let buf_key = format!("{rule_id}:{selection}:{group_val}");
-    let now = std::time::Instant::now();
-    let window = agg_window;
+    let now = Utc::now();
+    let cutoff = now - chrono_window(agg_window);
 
     // count_distinct uses its own string buffer (field values, not numerics).
     if agg.function == AggregateFunction::CountDistinct {
@@ -1888,13 +2417,16 @@ fn eval_aggregate(
         let distinct_key = format!("{buf_key}:distinct");
         // ShardedMap::with_entry locks exactly one of 64 shards for the duration
         // of the closure, then releases it — no two-phase DashMap dance needed.
-        let distinct_count: usize = executor
-            .distinct_buffers
-            .with_entry(&distinct_key, |entry| {
-                entry.evict_stale(now, window);
-                entry.push(now, field_val);
-                entry.distinct_count()
-            });
+        let distinct_count = match executor
+            .correlation_state
+            .apply_distinct_count(rule_id, &distinct_key, &field_val, now, cutoff)
+        {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!(rule_id = %rule_id, error = %e, "correlation state error: failed to apply distinct count");
+                0
+            }
+        };
 
         let result = distinct_count as f64;
         let hit = match agg.operator {
@@ -1942,18 +2474,16 @@ fn eval_aggregate(
             .unwrap_or(0.0),
     };
 
-    // ShardedMap::with_entry locks exactly one of 64 shards for the closure duration.
-    let result = executor.agg_buffers.with_entry(&buf_key, |entry| {
-        entry.evict_stale(now, window);
-        entry.push(now, contrib);
-        match agg.function {
-            AggregateFunction::Count | AggregateFunction::CountDistinct => entry.count() as f64,
-            AggregateFunction::Sum => entry.sum(),
-            AggregateFunction::Min => entry.min(),
-            AggregateFunction::Max => entry.max(),
-            AggregateFunction::Avg => entry.avg(),
+    let result = match executor
+        .correlation_state
+        .apply_numeric_aggregate(rule_id, &buf_key, contrib, now, cutoff, &agg.function)
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!(rule_id = %rule_id, error = %e, "correlation state error: failed to apply numeric aggregate");
+            0.0
         }
-    });
+    };
 
     // Compare against threshold
     let hit = match agg.operator {
@@ -3892,6 +4422,26 @@ mod tests {
         assert!(!executor.evaluate(&rule, &proc_event).matched);
         // Second event, same entity, within window → fires
         assert!(executor.evaluate(&rule, &net_event).matched);
+    }
+
+    #[test]
+    fn near_state_can_be_shared_across_executors() {
+        let rule = make_rule(NEAR_RULE);
+        let shared = Arc::new(SharedCorrelationState::new());
+        let executor_a = RuleExecutor::default().with_correlation_state(shared.clone());
+        let executor_b = RuleExecutor::default().with_correlation_state(shared);
+
+        let proc_event = make_event(json!({
+            "Image": "powershell.exe",
+            "ComputerName": "ws01"
+        }));
+        let net_event = make_event(json!({
+            "DestinationPort": "443",
+            "ComputerName": "ws01"
+        }));
+
+        assert!(!executor_a.evaluate(&rule, &proc_event).matched);
+        assert!(executor_b.evaluate(&rule, &net_event).matched);
     }
 
     #[test]

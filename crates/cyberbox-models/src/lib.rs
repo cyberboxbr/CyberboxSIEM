@@ -305,6 +305,70 @@ pub struct AuditLogsResponse {
     pub has_more: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DlqMessage {
+    pub stage: String,
+    pub reason: String,
+    pub source_topic: String,
+    pub source_partition: i32,
+    pub source_offset: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    pub payload: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub captured_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplayRequest {
+    pub target_topic: String,
+    pub payload: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    pub requested_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateReplayRequest {
+    pub target_topic: String,
+    pub payload: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplayFromDlqRequest {
+    pub dlq_message: DlqMessage,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_topic: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplayRequestResponse {
+    pub status: String,
+    pub target_topic: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    pub requested_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+}
+
 // ─── Detection Engineering Endpoints ─────────────────────────────────────────
 
 /// Request body for `POST /api/v1/rules/dry-run`.
@@ -526,11 +590,37 @@ pub struct AgentRecord {
     /// Pending TOML config to deliver on the next heartbeat. Cleared after delivery.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_config: Option<String>,
+    /// When the machine completed the enrollment workflow and was issued a credential.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enrolled_at: Option<DateTime<Utc>>,
+    /// Monotonic credential generation. Incremented on every enrollment/rotation.
+    #[serde(default)]
+    pub credential_version: u64,
+    /// SHA-256 hash of the current machine secret.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_hash: Option<String>,
+    /// When the current credential was last issued.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_rotated_at: Option<DateTime<Utc>>,
+    /// Current signed device certificate serial tracked for revocation/rotation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_certificate_serial: Option<String>,
+    /// Expiry of the currently active signed device certificate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_certificate_expires_at: Option<DateTime<Utc>>,
+    /// Revoked agents are denied registration and heartbeat until re-enrolled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revoked_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revoked_reason: Option<String>,
 }
 
 impl AgentRecord {
     /// Computed status based on time since last heartbeat.
     pub fn status(&self) -> &'static str {
+        if self.revoked_at.is_some() {
+            return "revoked";
+        }
         let secs = (Utc::now() - self.last_seen).num_seconds();
         if secs < 90 {
             "active"
@@ -540,6 +630,89 @@ impl AgentRecord {
             "offline"
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateAgentEnrollmentTokenRequest {
+    /// Token lifetime in seconds. Defaults to 1 hour and is capped server-side.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ttl_seconds: Option<u64>,
+    /// Optional fixed agent ID this token is allowed to enroll.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_agent_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentEnrollmentTokenRecord {
+    pub token_id: Uuid,
+    pub tenant_id: String,
+    pub issued_by: String,
+    pub issued_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub used_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revoked_at: Option<DateTime<Utc>>,
+    pub token_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentEnrollmentTokenResponse {
+    pub token_id: Uuid,
+    pub tenant_id: String,
+    pub enrollment_token: String,
+    pub expires_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_agent_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentEnrollRequest {
+    pub enrollment_token: String,
+    pub agent_id: String,
+    pub tenant_id: String,
+    pub hostname: String,
+    pub os: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentEnrollResponse {
+    pub agent_id: String,
+    pub tenant_id: String,
+    pub status: String,
+    pub agent_secret: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_certificate: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_certificate_serial: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_certificate_expires_at: Option<DateTime<Utc>>,
+    pub credential_version: u64,
+    pub enrolled_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RotateAgentCredentialResponse {
+    pub agent_id: String,
+    pub tenant_id: String,
+    pub agent_secret: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_certificate: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_certificate_serial: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_certificate_expires_at: Option<DateTime<Utc>>,
+    pub credential_version: u64,
+    pub rotated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RevokeAgentRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 // ─── Rule versioning ──────────────────────────────────────────────────────────

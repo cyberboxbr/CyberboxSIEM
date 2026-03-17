@@ -62,6 +62,17 @@ Service account name
 {{- end }}
 
 {{/*
+Secret name
+*/}}
+{{- define "cyberbox.secretName" -}}
+{{- if .Values.secrets.existingSecret }}
+{{- .Values.secrets.existingSecret -}}
+{{- else -}}
+{{- printf "%s-secrets" (include "cyberbox.fullname" .) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Image reference for a component.
 Usage: {{ include "cyberbox.image" (dict "root" . "component" "api" "overrideRepo" .Values.api.image.repository) }}
 */}}

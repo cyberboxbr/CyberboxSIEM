@@ -200,8 +200,17 @@ pub struct AgentApiConfig {
     /// Heartbeat interval in seconds (default: 30)
     #[serde(default = "default_heartbeat_secs")]
     pub heartbeat_secs: u64,
-    /// Optional bearer token for API authentication
+    /// Deprecated bearer token field kept for backward compatibility.
     pub token: Option<String>,
+    /// One-time enrollment token issued by the API.
+    pub enrollment_token: Option<String>,
+    /// Rotating machine credential used for register / heartbeat / rotate-secret.
+    pub agent_secret: Option<String>,
+    /// Signed device certificate paired with the rotating machine credential.
+    pub device_certificate: Option<String>,
+    /// Self-rotate the machine credential every N seconds. 0 disables rotation.
+    #[serde(default)]
+    pub credential_rotation_secs: u64,
 }
 
 fn default_heartbeat_secs() -> u64 {

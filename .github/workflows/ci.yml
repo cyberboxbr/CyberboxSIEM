@@ -4,16 +4,15 @@ on:
   push:
     branches: [master, main, develop]
   pull_request:
-  workflow_call:  # allows deploy.yml to call this as a reusable workflow
+  workflow_call:
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # ── Rust: lint + test ──────────────────────────────────────────────────────
   rust-check:
-    name: Rust · clippy + test
+    name: Rust | clippy + test
     runs-on: ubuntu-latest
     env:
       CARGO_TARGET_DIR: /tmp/cyberbox-target
@@ -32,9 +31,8 @@ jobs:
       - name: Run tests
         run: cargo test --workspace
 
-  # ── Web: lint + build ──────────────────────────────────────────────────────
   web-build:
-    name: Web · build
+    name: Web | build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -49,11 +47,41 @@ jobs:
       - run: npm ci --legacy-peer-deps
       - run: npm run build
 
-  # ── Docker: build images (no push, just validate) ─────────────────────────
-  docker-build:
-    name: Docker · ${{ matrix.component }}
+  dashboard-build:
+    name: Dashboard | lint + build
     runs-on: ubuntu-latest
-    needs: [rust-check, web-build]
+    defaults:
+      run:
+        working-directory: apps/cyberbox-dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/cyberbox-dashboard/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  detection-content:
+    name: Detection Content | bundled rules
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_DIR: /tmp/cyberbox-target
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: Verify bundled rule pack
+        run: cargo test -p cyberbox-api bundled_rules_e2e_import_ingest_alert -- --exact
+
+  docker-build:
+    name: Docker | ${{ matrix.component }}
+    runs-on: ubuntu-latest
+    needs: [rust-check, web-build, dashboard-build, detection-content]
     if: github.event_name == 'pull_request'
     strategy:
       fail-fast: false

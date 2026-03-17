@@ -17,6 +17,7 @@ futures = { workspace = true, optional = true }
 metrics.workspace = true
 metrics-exporter-prometheus.workspace = true
 rdkafka = { workspace = true, optional = true }
+serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true

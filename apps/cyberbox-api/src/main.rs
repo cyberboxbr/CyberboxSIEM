@@ -47,6 +47,63 @@ async fn main() -> anyhow::Result<()> {
     persist::load_feeds(&state.threat_intel_feeds, &state.state_dir);
     persist::load_rbac(&state.rbac_store, &state.state_dir);
 
+    // Reload workflow state from the dedicated workflow store.
+    match state.workflow_store.list_agents_all().await {
+        Ok(agents) => {
+            let count = agents.len();
+            for agent in agents {
+                state.agents.insert(agent.agent_id.clone(), agent);
+            }
+            if count > 0 {
+                tracing::info!(count, "loaded agents from workflow store");
+            }
+        }
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                "failed to load agents from workflow store - agent cache will start empty"
+            );
+        }
+    }
+
+    match state.workflow_store.list_alerts_all().await {
+        Ok(alerts) => {
+            let count = alerts.len();
+            for alert in alerts {
+                use cyberbox_storage::AlertStore as _;
+                let _ = state.storage.upsert_alert(alert).await;
+            }
+            if count > 0 {
+                tracing::info!(count, "loaded alerts from workflow store");
+            }
+        }
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                "failed to load alerts from workflow store - alert cache will start empty"
+            );
+        }
+    }
+
+    match state.workflow_store.list_cases_all().await {
+        Ok(cases) => {
+            let count = cases.len();
+            for case in cases {
+                use cyberbox_storage::CaseStore as _;
+                let _ = state.storage.upsert_case(case).await;
+            }
+            if count > 0 {
+                tracing::info!(count, "loaded cases from workflow store");
+            }
+        }
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                "failed to load cases from workflow store - case cache will start empty"
+            );
+        }
+    }
+
     if let Some(clickhouse_store) = &state.clickhouse_event_store {
         match clickhouse_store.ensure_schema().await {
             Ok(()) => tracing::info!("ClickHouse schema ensured"),
@@ -55,65 +112,6 @@ async fn main() -> anyhow::Result<()> {
                     error = %err,
                     "ClickHouse schema init failed — will retry on first query; \
                      this is expected during infra bring-up"
-                );
-            }
-        }
-
-        // Reload persisted agent registrations into the in-memory DashMap
-        match clickhouse_store.list_agents_all().await {
-            Ok(agents) => {
-                let count = agents.len();
-                for agent in agents {
-                    state.agents.insert(agent.agent_id.clone(), agent);
-                }
-                if count > 0 {
-                    tracing::info!(count, "loaded agent registrations from ClickHouse");
-                }
-            }
-            Err(err) => {
-                tracing::warn!(
-                    error = %err,
-                    "failed to load agents from ClickHouse — agent list will start empty"
-                );
-            }
-        }
-
-        // Reload persisted alerts into the in-memory DashMap
-        match clickhouse_store.list_alerts_all().await {
-            Ok(alerts) => {
-                let count = alerts.len();
-                for alert in alerts {
-                    use cyberbox_storage::AlertStore as _;
-                    let _ = state.storage.upsert_alert(alert).await;
-                }
-                if count > 0 {
-                    tracing::info!(count, "loaded alerts from ClickHouse");
-                }
-            }
-            Err(err) => {
-                tracing::warn!(
-                    error = %err,
-                    "failed to load alerts from ClickHouse — alert list will start empty"
-                );
-            }
-        }
-
-        // Reload persisted cases into the in-memory DashMap
-        match clickhouse_store.list_cases_all().await {
-            Ok(cases) => {
-                let count = cases.len();
-                for case in cases {
-                    use cyberbox_storage::CaseStore as _;
-                    let _ = state.storage.upsert_case(case).await;
-                }
-                if count > 0 {
-                    tracing::info!(count, "loaded cases from ClickHouse");
-                }
-            }
-            Err(err) => {
-                tracing::warn!(
-                    error = %err,
-                    "failed to load cases from ClickHouse — case list will start empty"
                 );
             }
         }

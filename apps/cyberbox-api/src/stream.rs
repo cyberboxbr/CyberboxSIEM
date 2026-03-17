@@ -1,5 +1,5 @@
 use cyberbox_core::{AppConfig, CyberboxError};
-use cyberbox_models::IncomingEvent;
+use cyberbox_models::{IncomingEvent, ReplayRequest};
 #[cfg(feature = "kafka-native")]
 use futures::{future::BoxFuture, stream::FuturesUnordered, StreamExt};
 #[cfg(feature = "kafka-native")]
@@ -185,6 +185,42 @@ pub enum RawEventPublisher {
     Kafka(KafkaRawEventPublisher),
 }
 
+#[derive(Clone, Default)]
+pub enum ReplayRequestPublisher {
+    #[default]
+    Noop,
+    #[cfg(feature = "kafka-native")]
+    Kafka(KafkaReplayRequestPublisher),
+}
+
+impl ReplayRequestPublisher {
+    pub fn from_config(config: &AppConfig) -> Result<Self, CyberboxError> {
+        #[cfg(feature = "kafka-native")]
+        {
+            return Ok(Self::Kafka(KafkaReplayRequestPublisher::new(config)?));
+        }
+
+        #[cfg(not(feature = "kafka-native"))]
+        {
+            let _ = config;
+            Ok(Self::Noop)
+        }
+    }
+
+    pub async fn publish(&self, request: &ReplayRequest) -> Result<(), CyberboxError> {
+        #[cfg(not(feature = "kafka-native"))]
+        let _ = request;
+        match self {
+            Self::Noop => Err(CyberboxError::Internal(
+                "replay publisher is unavailable; rebuild cyberbox-api with kafka-native"
+                    .to_string(),
+            )),
+            #[cfg(feature = "kafka-native")]
+            Self::Kafka(publisher) => publisher.publish(request).await,
+        }
+    }
+}
+
 impl RawEventPublisher {
     pub fn from_config(config: &AppConfig) -> Result<Self, CyberboxError> {
         if !config.kafka_publish_raw_enabled {
@@ -221,6 +257,17 @@ impl RawEventPublisher {
 #[cfg(feature = "kafka-native")]
 #[derive(Clone)]
 pub struct KafkaRawEventPublisher {
+    producer: FutureProducer,
+    topic: String,
+    queue_full_max_retries: u32,
+    queue_full_backoff_ms: u64,
+    overload_retry_after_seconds: u64,
+    delivery_reporter: DeliveryReporter,
+}
+
+#[cfg(feature = "kafka-native")]
+#[derive(Clone)]
+pub struct KafkaReplayRequestPublisher {
     producer: FutureProducer,
     topic: String,
     queue_full_max_retries: u32,
@@ -395,6 +442,137 @@ impl KafkaRawEventPublisher {
 
                     return Err(CyberboxError::Internal(format!(
                         "kafka raw event publish failed after {attempt} attempt(s): {err}"
+                    )));
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "kafka-native")]
+impl KafkaReplayRequestPublisher {
+    const METRIC_PUBLISHER_LABEL: &'static str = "api_replay";
+
+    fn new(config: &AppConfig) -> Result<Self, CyberboxError> {
+        let producer: FutureProducer = ClientConfig::new()
+            .set("bootstrap.servers", &config.redpanda_brokers)
+            .set(
+                "message.timeout.ms",
+                config
+                    .kafka_producer_message_timeout_ms
+                    .max(1000)
+                    .to_string(),
+            )
+            .set("acks", &config.kafka_producer_acks)
+            .set(
+                "enable.idempotence",
+                if config.kafka_producer_enable_idempotence {
+                    "true"
+                } else {
+                    "false"
+                },
+            )
+            .set(
+                "max.in.flight.requests.per.connection",
+                config
+                    .kafka_producer_max_in_flight_requests_per_connection
+                    .max(1)
+                    .to_string(),
+            )
+            .set("retries", i32::MAX.to_string())
+            .set("linger.ms", "10")
+            .set("batch.num.messages", "10000")
+            .set(
+                "queue.buffering.max.messages",
+                config
+                    .kafka_producer_queue_buffering_max_messages
+                    .max(1)
+                    .to_string(),
+            )
+            .set(
+                "queue.buffering.max.kbytes",
+                config
+                    .kafka_producer_queue_buffering_max_kbytes
+                    .max(1)
+                    .to_string(),
+            )
+            .set("compression.type", "lz4")
+            .create()
+            .map_err(|err| {
+                CyberboxError::Internal(format!("failed to create kafka replay producer: {err}"))
+            })?;
+
+        Ok(Self {
+            producer,
+            topic: config.kafka_replay_topic.clone(),
+            queue_full_max_retries: config.kafka_producer_queue_full_max_retries,
+            queue_full_backoff_ms: config.kafka_producer_queue_full_backoff_ms.max(1),
+            overload_retry_after_seconds: config.kafka_producer_overload_retry_after_seconds.max(1),
+            delivery_reporter: DeliveryReporter::spawn(
+                Self::METRIC_PUBLISHER_LABEL,
+                config.kafka_producer_delivery_tracker_queue_size,
+            ),
+        })
+    }
+
+    async fn publish(&self, request: &ReplayRequest) -> Result<(), CyberboxError> {
+        let payload = serde_json::to_vec(request).map_err(|err| {
+            CyberboxError::Internal(format!("replay request serialization failed: {err}"))
+        })?;
+        let started = Instant::now();
+        metrics::counter!(
+            "kafka_producer_enqueue_attempt_total",
+            "publisher" => Self::METRIC_PUBLISHER_LABEL
+        )
+        .increment(1);
+
+        let mut attempt = 0u32;
+        let message_key = request.key.as_deref().or(request.tenant_id.as_deref());
+        loop {
+            attempt += 1;
+            let enqueue_result: Result<DeliveryFuture, KafkaError> = match message_key {
+                Some(key) => self
+                    .producer
+                    .send_result(FutureRecord::to(&self.topic).payload(&payload).key(key))
+                    .map_err(|(err, _)| err),
+                None => self
+                    .producer
+                    .send_result(FutureRecord::<(), _>::to(&self.topic).payload(&payload))
+                    .map_err(|(err, _)| err),
+            };
+            match enqueue_result {
+                Ok(delivery_future) => {
+                    self.delivery_reporter.track(delivery_future);
+                    metrics::counter!(
+                        "kafka_producer_enqueue_success_total",
+                        "publisher" => Self::METRIC_PUBLISHER_LABEL
+                    )
+                    .increment(1);
+                    metrics::histogram!(
+                        "kafka_producer_enqueue_duration_seconds",
+                        "publisher" => Self::METRIC_PUBLISHER_LABEL
+                    )
+                    .record(started.elapsed().as_secs_f64());
+                    return Ok(());
+                }
+                Err(err) if is_queue_full_error(&err) && attempt <= self.queue_full_max_retries =>
+                {
+                    metrics::counter!(
+                        "kafka_producer_queue_full_retry_total",
+                        "publisher" => Self::METRIC_PUBLISHER_LABEL
+                    )
+                    .increment(1);
+                    tokio::time::sleep(Duration::from_millis(self.queue_full_backoff_ms)).await;
+                }
+                Err(err) if is_queue_full_error(&err) => {
+                    return Err(CyberboxError::TooManyRequests {
+                        message: "kafka replay producer queue is full".to_string(),
+                        retry_after_seconds: self.overload_retry_after_seconds,
+                    });
+                }
+                Err(err) => {
+                    return Err(CyberboxError::Internal(format!(
+                        "failed to enqueue replay request: {err}"
                     )));
                 }
             }

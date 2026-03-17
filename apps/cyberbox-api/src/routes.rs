@@ -10,7 +10,7 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         ConnectInfo, Path, Query, State,
     },
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{
         sse::{Event, KeepAlive, Sse},
         IntoResponse,
@@ -33,16 +33,22 @@ use cyberbox_core::{
     CyberboxError,
 };
 use cyberbox_models::{
-    AckAlertRequest, AgentRecord, AlertRecord, AlertsPage, AssignAlertRequest, AuditLogRecord,
-    AuditLogsResponse, BacktestRequest, BacktestResponse, CaseAlertIdsRequest, CaseRecord,
-    CaseStatus, CloseAlertRequest, CoverageReport, CoveredTechnique, CreateCaseRequest,
-    DetectionMode, DetectionRule, DryRunRequest, DryRunResponse, EventEnvelope, EventIngestRequest,
-    EventIngestResponse, ListAlertsQuery, Pagination, RuleScheduleConfig, RuleTestRequest,
+    AckAlertRequest, AgentEnrollRequest, AgentEnrollResponse, AgentEnrollmentTokenResponse,
+    AgentRecord, AlertRecord, AlertsPage, AssignAlertRequest, AuditLogRecord, AuditLogsResponse,
+    BacktestRequest, BacktestResponse, CaseAlertIdsRequest, CaseRecord, CaseStatus,
+    CloseAlertRequest, CoverageReport, CoveredTechnique, CreateAgentEnrollmentTokenRequest,
+    CreateCaseRequest, CreateReplayRequest, DetectionMode, DetectionRule, DryRunRequest,
+    DryRunResponse, EventEnvelope, EventIngestRequest, EventIngestResponse,
+    ListAlertsQuery, Pagination, ReplayFromDlqRequest, ReplayRequest, ReplayRequestResponse,
+    RevokeAgentRequest, RotateAgentCredentialResponse, RuleScheduleConfig, RuleTestRequest,
     RuleTestResult, RuleVersion, SearchQueryRequest, Severity, SourceInfo, TimeRange,
     UpdateCaseRequest,
 };
 use cyberbox_storage::{sla_due_at, AlertStore, CaseStore, EventStore, RuleStore};
 
+use crate::agent_identity::{
+    issue_agent_device_certificate, verify_agent_device_certificate,
+};
 use crate::extractors::SimdJson;
 use crate::persist;
 use crate::state::AppState;
@@ -61,6 +67,8 @@ pub fn api_router() -> Router<AppState> {
         .route("/api/v1/rules/:id/backtest", post(backtest_rule))
         .route("/api/v1/coverage", get(mitre_coverage))
         .route("/api/v1/audit-logs", get(list_audit_logs))
+        .route("/api/v1/replay/requests", post(create_replay_request))
+        .route("/api/v1/replay/dlq/redrive", post(redrive_dlq_message))
         .route("/api/v1/search:query", post(search_query))
         .route("/api/v1/alerts", get(list_alerts))
         .route("/api/v1/alerts/*operation", post(alert_operation))
@@ -69,6 +77,7 @@ pub fn api_router() -> Router<AppState> {
         .route("/api/v1/lgpd/export", get(lgpd_export))
         .route("/api/v1/lgpd/anonymize", post(lgpd_anonymize))
         .route("/api/v1/lgpd/breach", post(lgpd_report_breach))
+        .route("/api/v1/lgpd/config", get(lgpd_config))
         // Lookup table management
         .route(
             "/api/v1/lookups",
@@ -133,7 +142,17 @@ pub fn api_router() -> Router<AppState> {
         .route("/api/v1/sources", get(list_sources))
         // Agent registry
         .route("/api/v1/agents", get(list_agents))
+        .route(
+            "/api/v1/agents/enrollment-tokens",
+            post(create_agent_enrollment_token),
+        )
+        .route("/api/v1/agents/enroll", post(enroll_agent))
         .route("/api/v1/agents/register", post(register_agent))
+        .route("/api/v1/agents/:id/revoke", post(revoke_agent))
+        .route(
+            "/api/v1/agents/:id/rotate-secret",
+            post(rotate_agent_secret),
+        )
         .route(
             "/api/v1/agents/:id",
             patch(patch_agent).delete(delete_agent),
@@ -404,17 +423,8 @@ pub async fn ingest_events(
                             }
                         }
                     }
-                    if let Ok(saved) = state.storage.suppress_or_create_alert(alert).await {
-                        // Persist alert to ClickHouse (best-effort, non-blocking).
-                        if let Some(ch) = &state.clickhouse_event_store {
-                            let ch = ch.clone();
-                            let ch_alert = saved.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = ch.upsert_alert(ch_alert).await {
-                                    tracing::warn!(error = %e, "failed to persist alert to ClickHouse");
-                                }
-                            });
-                        }
+                    if let Ok(saved) = suppress_or_create_alert_authoritatively(&state, alert).await
+                    {
                         counter!("cyberbox_alerts_fired_total", "tenant" => saved.tenant_id.clone())
                             .increment(1);
                         // Auto-correlate: group into an existing or new case (background).
@@ -614,17 +624,15 @@ async fn append_audit_log(
         after,
     };
 
-    if let Some(clickhouse_store) = &state.clickhouse_event_store {
-        if let Err(err) = clickhouse_store.append_audit_log(&audit).await {
-            tracing::warn!(
-                tenant_id = %tenant_id,
-                action,
-                entity_type,
-                entity_id,
-                error = %err,
-                "failed to write clickhouse audit log"
-            );
-        }
+    if let Err(err) = state.workflow_store.append_audit_log(audit.clone()).await {
+        tracing::warn!(
+            tenant_id = %tenant_id,
+            action,
+            entity_type,
+            entity_id,
+            error = %err,
+            "failed to write workflow audit log"
+        );
     }
     if let Err(err) = state.storage.append_audit_log(audit).await {
         tracing::warn!(
@@ -633,7 +641,7 @@ async fn append_audit_log(
             entity_type,
             entity_id,
             error = %err,
-            "failed to write in-memory audit log"
+            "failed to refresh in-memory audit cache"
         );
     }
 }
@@ -643,13 +651,94 @@ async fn find_alert_snapshot(
     tenant_id: &str,
     alert_id: Uuid,
 ) -> Result<Option<AlertRecord>, CyberboxError> {
-    if let Some(clickhouse_store) = &state.clickhouse_event_store {
-        let alerts = clickhouse_store.list_alerts(tenant_id).await?;
-        return Ok(alerts.into_iter().find(|alert| alert.alert_id == alert_id));
-    }
-
-    let alerts = state.storage.list_alerts(tenant_id).await?;
+    let alerts = state.workflow_store.list_alerts(tenant_id).await?;
     Ok(alerts.into_iter().find(|alert| alert.alert_id == alert_id))
+}
+
+async fn suppress_or_create_alert_authoritatively(
+    state: &AppState,
+    alert: AlertRecord,
+) -> Result<AlertRecord, CyberboxError> {
+    let saved = state.workflow_store.suppress_or_create_alert(alert).await?;
+    if let Err(err) = state.storage.upsert_alert(saved.clone()).await {
+        tracing::warn!(
+            tenant_id = %saved.tenant_id,
+            alert_id = %saved.alert_id,
+            error = %err,
+            "failed to refresh in-memory alert cache after workflow write"
+        );
+    }
+    Ok(saved)
+}
+
+async fn list_case_snapshots(
+    state: &AppState,
+    tenant_id: &str,
+) -> Result<Vec<CaseRecord>, CyberboxError> {
+    state.workflow_store.list_cases(tenant_id).await
+}
+
+async fn get_case_snapshot(
+    state: &AppState,
+    tenant_id: &str,
+    case_id: Uuid,
+) -> Result<CaseRecord, CyberboxError> {
+    state.workflow_store.get_case(tenant_id, case_id).await
+}
+
+async fn upsert_case_authoritatively(
+    state: &AppState,
+    case: CaseRecord,
+) -> Result<CaseRecord, CyberboxError> {
+    let saved = state.workflow_store.upsert_case(case).await?;
+    if let Err(err) = state.storage.upsert_case(saved.clone()).await {
+        tracing::warn!(
+            tenant_id = %saved.tenant_id,
+            case_id = %saved.case_id,
+            error = %err,
+            "failed to refresh in-memory case cache after workflow write"
+        );
+    }
+    Ok(saved)
+}
+
+async fn update_case_authoritatively(
+    state: &AppState,
+    tenant_id: &str,
+    case_id: Uuid,
+    patch: &UpdateCaseRequest,
+    now: DateTime<Utc>,
+) -> Result<CaseRecord, CyberboxError> {
+    let updated = state
+        .workflow_store
+        .update_case(tenant_id, case_id, patch, now)
+        .await?;
+    if let Err(err) = state.storage.upsert_case(updated.clone()).await {
+        tracing::warn!(
+            tenant_id,
+            case_id = %updated.case_id,
+            error = %err,
+            "failed to refresh in-memory case cache after workflow update"
+        );
+    }
+    Ok(updated)
+}
+
+async fn delete_case_authoritatively(
+    state: &AppState,
+    tenant_id: &str,
+    case_id: Uuid,
+) -> Result<(), CyberboxError> {
+    state.workflow_store.delete_case(tenant_id, case_id).await?;
+    if let Err(err) = state.storage.delete_case(tenant_id, case_id).await {
+        tracing::warn!(
+            tenant_id,
+            case_id = %case_id,
+            error = %err,
+            "failed to refresh in-memory case cache after workflow delete"
+        );
+    }
+    Ok(())
 }
 
 pub async fn create_rule(
@@ -869,34 +958,19 @@ pub async fn list_audit_logs(
         .as_deref()
         .map(parse_audit_cursor)
         .transpose()?;
-    let logs = if let Some(clickhouse_store) = &state.clickhouse_event_store {
-        clickhouse_store
-            .list_audit_logs(
-                &auth.tenant_id,
-                query.action.as_deref(),
-                query.entity_type.as_deref(),
-                query.actor.as_deref(),
-                query.from,
-                query.to,
-                cursor,
-                fetch_limit as u64,
-            )
-            .await?
-    } else {
-        state
-            .storage
-            .list_audit_logs(
-                &auth.tenant_id,
-                query.action.as_deref(),
-                query.entity_type.as_deref(),
-                query.actor.as_deref(),
-                query.from,
-                query.to,
-                cursor,
-                fetch_limit,
-            )
-            .await?
-    };
+    let logs = state
+        .workflow_store
+        .list_audit_logs(
+            &auth.tenant_id,
+            query.action.as_deref(),
+            query.entity_type.as_deref(),
+            query.actor.as_deref(),
+            query.from,
+            query.to,
+            cursor,
+            fetch_limit,
+        )
+        .await?;
     let mut entries = logs;
     let has_more = entries.len() > limit;
     if has_more {
@@ -912,6 +986,142 @@ pub async fn list_audit_logs(
         next_cursor,
         has_more,
     }))
+}
+
+pub async fn create_replay_request(
+    auth: AuthContext,
+    State(state): State<AppState>,
+    Json(body): Json<CreateReplayRequest>,
+) -> Result<(StatusCode, Json<ReplayRequestResponse>), CyberboxError> {
+    auth.require_any(&[Role::Admin, Role::Analyst])?;
+    let target_topic = body.target_topic.trim().to_string();
+    if target_topic.is_empty() {
+        return Err(CyberboxError::BadRequest(
+            "target_topic must not be empty".to_string(),
+        ));
+    }
+    if body
+        .tenant_id
+        .as_deref()
+        .is_some_and(|tenant_id| tenant_id != auth.tenant_id)
+    {
+        return Err(CyberboxError::Forbidden);
+    }
+
+    let requested_at = Utc::now();
+    let request = ReplayRequest {
+        target_topic: target_topic.clone(),
+        payload: body.payload,
+        key: body.key.clone(),
+        requested_at,
+        tenant_id: body.tenant_id.or_else(|| Some(auth.tenant_id.clone())),
+        requested_by: Some(auth.user_id.clone()),
+        reason: body.reason.clone(),
+    };
+    state.replay_request_publisher.publish(&request).await?;
+    append_audit_log(
+        &state,
+        &auth.tenant_id,
+        &auth.user_id,
+        "replay.request.create",
+        "replay_request",
+        &requested_at.timestamp_millis().to_string(),
+        Value::Null,
+        json!({
+            "target_topic": request.target_topic,
+            "key": request.key,
+            "tenant_id": request.tenant_id,
+            "reason": request.reason,
+        }),
+    )
+    .await;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(ReplayRequestResponse {
+            status: "queued".to_string(),
+            target_topic,
+            key: request.key,
+            requested_at,
+            tenant_id: request.tenant_id,
+        }),
+    ))
+}
+
+pub async fn redrive_dlq_message(
+    auth: AuthContext,
+    State(state): State<AppState>,
+    Json(body): Json<ReplayFromDlqRequest>,
+) -> Result<(StatusCode, Json<ReplayRequestResponse>), CyberboxError> {
+    auth.require_any(&[Role::Admin, Role::Analyst])?;
+    if body
+        .dlq_message
+        .tenant_id
+        .as_deref()
+        .is_some_and(|tenant_id| tenant_id != auth.tenant_id)
+    {
+        return Err(CyberboxError::Forbidden);
+    }
+
+    let target_topic = body
+        .target_topic
+        .unwrap_or_else(|| body.dlq_message.source_topic.clone())
+        .trim()
+        .to_string();
+    if target_topic.is_empty() {
+        return Err(CyberboxError::BadRequest(
+            "target_topic must not be empty".to_string(),
+        ));
+    }
+
+    let requested_at = Utc::now();
+    let request = ReplayRequest {
+        target_topic: target_topic.clone(),
+        payload: body.dlq_message.payload.clone(),
+        key: body.dlq_message.key.clone(),
+        requested_at,
+        tenant_id: body
+            .dlq_message
+            .tenant_id
+            .clone()
+            .or_else(|| Some(auth.tenant_id.clone())),
+        requested_by: Some(auth.user_id.clone()),
+        reason: body.reason.clone().or_else(|| {
+            Some(format!(
+                "redrive:{}:{}",
+                body.dlq_message.stage, body.dlq_message.reason
+            ))
+        }),
+    };
+    state.replay_request_publisher.publish(&request).await?;
+    append_audit_log(
+        &state,
+        &auth.tenant_id,
+        &auth.user_id,
+        "replay.dlq.redrive",
+        "dlq_message",
+        &format!(
+            "{}:{}:{}",
+            body.dlq_message.source_topic, body.dlq_message.source_partition, body.dlq_message.source_offset
+        ),
+        serde_json::to_value(&body.dlq_message).unwrap_or(Value::Null),
+        json!({
+            "target_topic": request.target_topic,
+            "tenant_id": request.tenant_id,
+            "key": request.key,
+            "reason": request.reason,
+        }),
+    )
+    .await;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(ReplayRequestResponse {
+            status: "queued".to_string(),
+            target_topic,
+            key: request.key,
+            requested_at,
+            tenant_id: request.tenant_id,
+        }),
+    ))
 }
 
 fn parse_audit_cursor(cursor: &str) -> Result<(DateTime<Utc>, Uuid), CyberboxError> {
@@ -986,12 +1196,7 @@ pub async fn list_alerts(
 ) -> Result<Json<AlertsPage>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst, Role::Viewer])?;
 
-    let mut alerts: Vec<AlertRecord> = if let Some(clickhouse_store) = &state.clickhouse_event_store
-    {
-        clickhouse_store.list_alerts(&auth.tenant_id).await?
-    } else {
-        state.storage.list_alerts(&auth.tenant_id).await?
-    };
+    let mut alerts: Vec<AlertRecord> = state.workflow_store.list_alerts(&auth.tenant_id).await?;
 
     // Filter by status / severity query params.
     if let Some(status) = &q.status {
@@ -1000,7 +1205,7 @@ pub async fn list_alerts(
     }
     if let Some(severity) = &q.severity {
         let s = severity.to_ascii_lowercase();
-        alerts.retain(|a| format!("{:?}", a.status).to_ascii_lowercase() == s);
+        alerts.retain(|a| format!("{:?}", a.severity).to_ascii_lowercase() == s);
     }
 
     // Sort deterministically: newest last_seen first, then by alert_id for stability.
@@ -1084,18 +1289,11 @@ pub async fn alert_operation(
                 return Err(CyberboxError::Forbidden);
             }
             let before = find_alert_snapshot(&state, &auth.tenant_id, alert_id).await?;
-            let updated = if let Some(clickhouse_store) = &state.clickhouse_event_store {
-                let alert = clickhouse_store
-                    .acknowledge(&auth.tenant_id, alert_id, &request.actor)
-                    .await?;
-                let _ = state.storage.upsert_alert(alert.clone()).await;
-                alert
-            } else {
-                state
-                    .storage
-                    .acknowledge(&auth.tenant_id, alert_id, &request.actor)
-                    .await?
-            };
+            let updated = state
+                .workflow_store
+                .acknowledge(&auth.tenant_id, alert_id, &request.actor)
+                .await?;
+            let _ = state.storage.upsert_alert(updated.clone()).await;
 
             append_audit_log(
                 &state,
@@ -1123,18 +1321,11 @@ pub async fn alert_operation(
                 return Err(CyberboxError::Forbidden);
             }
             let before = find_alert_snapshot(&state, &auth.tenant_id, alert_id).await?;
-            let updated = if let Some(clickhouse_store) = &state.clickhouse_event_store {
-                let alert = clickhouse_store
-                    .assign(&auth.tenant_id, alert_id, &request)
-                    .await?;
-                let _ = state.storage.upsert_alert(alert.clone()).await;
-                alert
-            } else {
-                state
-                    .storage
-                    .assign(&auth.tenant_id, alert_id, &request)
-                    .await?
-            };
+            let updated = state
+                .workflow_store
+                .assign(&auth.tenant_id, alert_id, &request)
+                .await?;
+            let _ = state.storage.upsert_alert(updated.clone()).await;
 
             append_audit_log(
                 &state,
@@ -1162,18 +1353,11 @@ pub async fn alert_operation(
                 return Err(CyberboxError::Forbidden);
             }
             let before = find_alert_snapshot(&state, &auth.tenant_id, alert_id).await?;
-            let updated = if let Some(clickhouse_store) = &state.clickhouse_event_store {
-                let alert = clickhouse_store
-                    .close(&auth.tenant_id, alert_id, &request)
-                    .await?;
-                let _ = state.storage.upsert_alert(alert.clone()).await;
-                alert
-            } else {
-                state
-                    .storage
-                    .close(&auth.tenant_id, alert_id, &request)
-                    .await?
-            };
+            let updated = state
+                .workflow_store
+                .close(&auth.tenant_id, alert_id, &request)
+                .await?;
+            let _ = state.storage.upsert_alert(updated.clone()).await;
 
             append_audit_log(
                 &state,
@@ -1549,6 +1733,7 @@ pub async fn purge_tenant_events(
 pub struct LgpdExportQuery {
     /// Identifier to search for: username, e-mail, IP address, or any free-text
     /// value that may appear in events belonging to a data subject.
+    #[serde(alias = "subject_identifier")]
     pub subject_id: String,
 }
 
@@ -1563,6 +1748,13 @@ pub struct LgpdExportResponse {
     /// Events that reference the subject identifier.
     pub events: Vec<serde_json::Value>,
     pub total_events: usize,
+}
+
+#[derive(Serialize)]
+pub struct LgpdConfigResponse {
+    pub dpo_email: String,
+    pub legal_basis: String,
+    pub controller_name: String,
 }
 
 /// LGPD Art. 18, I — Right of access (Direito de Acesso).
@@ -1646,9 +1838,22 @@ pub async fn lgpd_export(
     }))
 }
 
+pub async fn lgpd_config(
+    auth: AuthContext,
+    State(state): State<AppState>,
+) -> Result<Json<LgpdConfigResponse>, CyberboxError> {
+    auth.require_any(&[Role::Admin, Role::Analyst, Role::Viewer])?;
+    Ok(Json(LgpdConfigResponse {
+        dpo_email: state.lgpd_dpo_email.clone(),
+        legal_basis: state.lgpd_legal_basis.clone(),
+        controller_name: state.lgpd_controller_name.clone(),
+    }))
+}
+
 #[derive(Deserialize)]
 pub struct LgpdAnonymizeRequest {
     /// Identifier to anonymize (username, IP, e-mail, etc.).
+    #[serde(alias = "subject_identifier")]
     pub subject_id: String,
     /// Optional: only anonymize events before this timestamp.
     pub before: Option<chrono::DateTime<Utc>>,
@@ -1773,8 +1978,10 @@ pub struct LgpdBreachRequest {
     /// Categories of personal data affected (e.g. "IP addresses", "usernames").
     pub data_categories: Vec<String>,
     /// Estimated number of data subjects affected.
+    #[serde(default, alias = "affected_subjects_count")]
     pub estimated_subjects_affected: u64,
     /// Whether the incident has already been reported to ANPD.
+    #[serde(default)]
     pub reported_to_anpd: bool,
 }
 
@@ -2020,17 +2227,7 @@ async fn create_case(
         closed_at: None,
         tags: payload.tags,
     };
-    let saved = state.storage.upsert_case(case).await?;
-    // Persist case to ClickHouse (best-effort, non-blocking).
-    if let Some(ch) = &state.clickhouse_event_store {
-        let ch = ch.clone();
-        let ch_case = saved.clone();
-        tokio::spawn(async move {
-            if let Err(e) = ch.upsert_case(ch_case).await {
-                tracing::warn!(error = %e, "failed to persist case to ClickHouse");
-            }
-        });
-    }
+    let saved = upsert_case_authoritatively(&state, case).await?;
     tracing::info!(actor = %auth.user_id, case_id = %saved.case_id, "case created");
     Ok(Json(saved))
 }
@@ -2049,7 +2246,7 @@ async fn list_cases(
     Query(q): Query<ListCasesQuery>,
 ) -> Result<Json<Value>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst, Role::Viewer])?;
-    let mut cases = state.storage.list_cases(&auth.tenant_id).await?;
+    let mut cases = list_case_snapshots(&state, &auth.tenant_id).await?;
     if let Some(status) = &q.status {
         cases.retain(|c| format!("{:?}", c.status).eq_ignore_ascii_case(status));
     }
@@ -2069,7 +2266,15 @@ async fn list_sla_breaches(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst, Role::Viewer])?;
-    let breaches = state.storage.list_sla_breaches(&auth.tenant_id).await?;
+    let now = Utc::now();
+    let breaches: Vec<CaseRecord> = list_case_snapshots(&state, &auth.tenant_id)
+        .await?
+        .into_iter()
+        .filter(|case| {
+            matches!(case.status, CaseStatus::Open | CaseStatus::InProgress)
+                && case.sla_due_at.is_some_and(|deadline| deadline < now)
+        })
+        .collect();
     counter!("cyberbox_case_sla_breaches_total", "tenant" => auth.tenant_id.clone())
         .absolute(breaches.len() as u64);
     Ok(Json(
@@ -2084,7 +2289,7 @@ async fn get_case(
     Path(id): Path<Uuid>,
 ) -> Result<Json<CaseRecord>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst])?;
-    let case = state.storage.get_case(&auth.tenant_id, id).await?;
+    let case = get_case_snapshot(&state, &auth.tenant_id, id).await?;
     Ok(Json(case))
 }
 
@@ -2097,20 +2302,7 @@ async fn update_case(
 ) -> Result<Json<CaseRecord>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst])?;
     let now = Utc::now();
-    let updated = state
-        .storage
-        .update_case(&auth.tenant_id, id, &patch, now)
-        .await?;
-    // Persist updated case to ClickHouse (best-effort, non-blocking).
-    if let Some(ch) = &state.clickhouse_event_store {
-        let ch = ch.clone();
-        let ch_case = updated.clone();
-        tokio::spawn(async move {
-            if let Err(e) = ch.upsert_case(ch_case).await {
-                tracing::warn!(error = %e, "failed to persist case update to ClickHouse");
-            }
-        });
-    }
+    let updated = update_case_authoritatively(&state, &auth.tenant_id, id, &patch, now).await?;
     tracing::info!(actor = %auth.user_id, case_id = %id, "case updated");
     Ok(Json(updated))
 }
@@ -2122,17 +2314,7 @@ async fn delete_case(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, CyberboxError> {
     auth.require_any(&[Role::Admin])?;
-    state.storage.delete_case(&auth.tenant_id, id).await?;
-    // Persist case deletion to ClickHouse (best-effort, non-blocking).
-    if let Some(ch) = &state.clickhouse_event_store {
-        let ch = ch.clone();
-        let tid = auth.tenant_id.clone();
-        tokio::spawn(async move {
-            if let Err(e) = ch.delete_case(&tid, id).await {
-                tracing::warn!(error = %e, "failed to persist case deletion to ClickHouse");
-            }
-        });
-    }
+    delete_case_authoritatively(&state, &auth.tenant_id, id).await?;
     tracing::info!(actor = %auth.user_id, case_id = %id, "case deleted");
     Ok(Json(json!({ "deleted": true, "case_id": id })))
 }
@@ -2146,23 +2328,14 @@ async fn attach_alerts_to_case(
 ) -> Result<Json<CaseRecord>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst])?;
     let now = Utc::now();
-    let mut case = state.storage.get_case(&auth.tenant_id, id).await?;
+    let mut case = get_case_snapshot(&state, &auth.tenant_id, id).await?;
     for aid in payload.alert_ids {
         if !case.alert_ids.contains(&aid) {
             case.alert_ids.push(aid);
         }
     }
     case.updated_at = now;
-    let saved = state.storage.upsert_case(case).await?;
-    if let Some(ch) = &state.clickhouse_event_store {
-        let ch = ch.clone();
-        let ch_case = saved.clone();
-        tokio::spawn(async move {
-            if let Err(e) = ch.upsert_case(ch_case).await {
-                tracing::warn!(error = %e, "failed to persist case attach to ClickHouse");
-            }
-        });
-    }
+    let saved = upsert_case_authoritatively(&state, case).await?;
     Ok(Json(saved))
 }
 
@@ -2175,20 +2348,11 @@ async fn detach_alerts_from_case(
 ) -> Result<Json<CaseRecord>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst])?;
     let now = Utc::now();
-    let mut case = state.storage.get_case(&auth.tenant_id, id).await?;
+    let mut case = get_case_snapshot(&state, &auth.tenant_id, id).await?;
     case.alert_ids
         .retain(|aid| !payload.alert_ids.contains(aid));
     case.updated_at = now;
-    let saved = state.storage.upsert_case(case).await?;
-    if let Some(ch) = &state.clickhouse_event_store {
-        let ch = ch.clone();
-        let ch_case = saved.clone();
-        tokio::spawn(async move {
-            if let Err(e) = ch.upsert_case(ch_case).await {
-                tracing::warn!(error = %e, "failed to persist case detach to ClickHouse");
-            }
-        });
-    }
+    let saved = upsert_case_authoritatively(&state, case).await?;
     Ok(Json(saved))
 }
 
@@ -2435,12 +2599,7 @@ async fn explain_alert_handler(
         CyberboxError::Internal("NLQ enabled but no LLM API key configured".to_string())
     })?;
 
-    // Fetch the alert — try ClickHouse first, then in-memory.
-    let alerts = if let Some(ch) = &state.clickhouse_event_store {
-        ch.list_alerts(&auth.tenant_id).await?
-    } else {
-        state.storage.list_alerts(&auth.tenant_id).await?
-    };
+    let alerts = state.workflow_store.list_alerts(&auth.tenant_id).await?;
     let alert = alerts
         .into_iter()
         .find(|a| a.alert_id == id)
@@ -2838,15 +2997,9 @@ pub async fn auto_correlate_alert(state: AppState, alert: AlertRecord) {
     let correlation_tag = format!("rule:{}", alert.rule_id);
     let cutoff = Utc::now() - chrono::Duration::hours(24);
 
-    let cases: Vec<CaseRecord> = if let Some(ch) = &state.clickhouse_event_store {
-        ch.list_cases(&alert.tenant_id).await.unwrap_or_default()
-    } else {
-        state
-            .storage
-            .list_cases(&alert.tenant_id)
-            .await
-            .unwrap_or_default()
-    };
+    let cases: Vec<CaseRecord> = list_case_snapshots(&state, &alert.tenant_id)
+        .await
+        .unwrap_or_default();
 
     // Find an open/in-progress case with the same rule tag created within 24 h.
     let existing = cases.into_iter().find(|c| {
@@ -2865,10 +3018,7 @@ pub async fn auto_correlate_alert(state: AppState, alert: AlertRecord) {
                 alert_count = case.alert_ids.len(),
                 "auto-merged alert into existing case"
             );
-            if let Some(ch) = &state.clickhouse_event_store {
-                let _ = ch.upsert_case(case.clone()).await;
-            }
-            let _ = state.storage.upsert_case(case).await;
+            let _ = upsert_case_authoritatively(&state, case).await;
         }
     } else {
         let now = Utc::now();
@@ -2895,10 +3045,7 @@ pub async fn auto_correlate_alert(state: AppState, alert: AlertRecord) {
             severity = ?severity,
             "auto-created case from alert"
         );
-        if let Some(ch) = &state.clickhouse_event_store {
-            let _ = ch.upsert_case(case.clone()).await;
-        }
-        let _ = state.storage.upsert_case(case).await;
+        let _ = upsert_case_authoritatively(&state, case).await;
     }
 }
 
@@ -2932,7 +3079,7 @@ async fn tune_rule_handler(
         .ok_or(CyberboxError::NotFound)?;
 
     // Summarise recent alert history for this rule.
-    let alerts = state.storage.list_alerts(&auth.tenant_id).await?;
+    let alerts = state.workflow_store.list_alerts(&auth.tenant_id).await?;
     let recent: Vec<serde_json::Value> = alerts
         .into_iter()
         .filter(|a| a.rule_id == id)
@@ -3237,79 +3384,210 @@ pub struct RegisterAgentRequest {
     pub version: String,
 }
 
+fn required_header(headers: &HeaderMap, name: &str) -> Result<String, CyberboxError> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .ok_or(CyberboxError::Unauthorized)
+}
+
+async fn issue_and_persist_agent_device_certificate(
+    state: &AppState,
+    mut agent: AgentRecord,
+) -> Result<(AgentRecord, crate::agent_identity::IssuedAgentDeviceCertificate), CyberboxError> {
+    let issued = issue_agent_device_certificate(
+        &state.agent_device_certificate_signing_secret,
+        state.agent_device_certificate_ttl_secs,
+        &agent,
+    )?;
+    agent.device_certificate_serial = Some(issued.serial.clone());
+    agent.device_certificate_expires_at = Some(issued.expires_at);
+    let saved = state.workflow_store.upsert_agent(agent).await?;
+    state.agents.insert(saved.agent_id.clone(), saved.clone());
+    Ok((saved, issued))
+}
+
+async fn authenticate_agent_request(
+    state: &AppState,
+    headers: &HeaderMap,
+    expected_agent_id: Option<&str>,
+) -> Result<AgentRecord, CyberboxError> {
+    let header_agent_id = required_header(headers, "x-agent-id")?;
+    if expected_agent_id.is_some_and(|expected| expected != header_agent_id) {
+        return Err(CyberboxError::Forbidden);
+    }
+    let tenant_id = required_header(headers, "x-tenant-id")?;
+    let agent_secret = required_header(headers, "x-agent-secret")?;
+    let agent_certificate = required_header(headers, "x-agent-cert")?;
+    let agent = state
+        .workflow_store
+        .authenticate_agent(&tenant_id, &header_agent_id, &agent_secret)
+        .await?;
+    let verified = verify_agent_device_certificate(
+        &state.agent_device_certificate_signing_secret,
+        &agent_certificate,
+        &tenant_id,
+        &header_agent_id,
+    )?;
+    if verified.tenant_id != agent.tenant_id || verified.agent_id != agent.agent_id {
+        return Err(CyberboxError::Forbidden);
+    }
+    if verified.credential_version != agent.credential_version {
+        return Err(CyberboxError::Unauthorized);
+    }
+    if agent
+        .device_certificate_serial
+        .as_deref()
+        .is_none_or(|serial| serial != verified.serial)
+    {
+        return Err(CyberboxError::Unauthorized);
+    }
+    if agent
+        .device_certificate_expires_at
+        .is_none_or(|expires_at| expires_at.timestamp() != verified.expires_at.timestamp())
+    {
+        return Err(CyberboxError::Unauthorized);
+    }
+    Ok(agent)
+}
+
+fn agent_json(agent: &AgentRecord) -> Value {
+    json!({
+        "agent_id": agent.agent_id,
+        "tenant_id": agent.tenant_id,
+        "hostname": agent.hostname,
+        "os": agent.os,
+        "version": agent.version,
+        "ip": agent.ip,
+        "group": agent.group,
+        "tags": agent.tags,
+        "registered_at": agent.registered_at,
+        "last_seen": agent.last_seen,
+        "status": agent.status(),
+        "credential_version": agent.credential_version,
+        "credential_rotated_at": agent.credential_rotated_at,
+        "device_certificate_serial": agent.device_certificate_serial,
+        "device_certificate_expires_at": agent.device_certificate_expires_at,
+        "revoked_at": agent.revoked_at,
+        "revoked_reason": agent.revoked_reason,
+    })
+}
+
+pub async fn create_agent_enrollment_token(
+    auth: AuthContext,
+    State(state): State<AppState>,
+    Json(body): Json<CreateAgentEnrollmentTokenRequest>,
+) -> Result<Json<AgentEnrollmentTokenResponse>, CyberboxError> {
+    auth.require_any(&[Role::Admin])?;
+    let token = state
+        .workflow_store
+        .issue_enrollment_token(&auth.tenant_id, &auth.user_id, &body)
+        .await?;
+    append_audit_log(
+        &state,
+        &auth.tenant_id,
+        &auth.user_id,
+        "agent.enrollment_token.create",
+        "agent_enrollment_token",
+        &token.token_id.to_string(),
+        Value::Null,
+        json!({
+            "expires_at": token.expires_at,
+            "allowed_agent_id": token.allowed_agent_id,
+        }),
+    )
+    .await;
+    Ok(Json(token))
+}
+
+pub async fn enroll_agent(
+    State(state): State<AppState>,
+    Json(body): Json<AgentEnrollRequest>,
+) -> Result<Json<AgentEnrollResponse>, CyberboxError> {
+    let mut enrolled = state.workflow_store.enroll_agent(&body).await?;
+    let record = state
+        .workflow_store
+        .get_agent(&enrolled.tenant_id, &enrolled.agent_id)
+        .await?;
+    let (_saved, device_certificate) =
+        issue_and_persist_agent_device_certificate(&state, record).await?;
+    enrolled.device_certificate = Some(device_certificate.token);
+    enrolled.device_certificate_serial = Some(device_certificate.serial.clone());
+    enrolled.device_certificate_expires_at = Some(device_certificate.expires_at);
+    append_audit_log(
+        &state,
+        &enrolled.tenant_id,
+        &enrolled.agent_id,
+        "agent.enroll",
+        "agent",
+        &enrolled.agent_id,
+        Value::Null,
+        json!({
+            "credential_version": enrolled.credential_version,
+            "device_certificate_serial": enrolled.device_certificate_serial,
+            "device_certificate_expires_at": enrolled.device_certificate_expires_at,
+        }),
+    )
+    .await;
+    Ok(Json(enrolled))
+}
+
 /// `POST /api/v1/agents/register` — called by cyberbox-agent on startup.
 pub async fn register_agent(
     State(state): State<AppState>,
+    headers: HeaderMap,
     addr: Option<ConnectInfo<std::net::SocketAddr>>,
     Json(body): Json<RegisterAgentRequest>,
-) -> Json<Value> {
-    let now = Utc::now();
-    // Preserve existing group/tags/pending_config if agent re-registers
-    let (group, tags, pending_config) = state
-        .agents
-        .get(&body.agent_id)
-        .map(|e| (e.group.clone(), e.tags.clone(), e.pending_config.clone()))
-        .unwrap_or_default();
-    let record = AgentRecord {
-        agent_id: body.agent_id.clone(),
-        tenant_id: body.tenant_id,
-        hostname: body.hostname,
-        os: body.os,
-        version: body.version,
-        ip: addr.map(|ConnectInfo(a)| a.ip().to_string()),
-        registered_at: now,
-        last_seen: now,
-        group,
-        tags,
-        pending_config,
-    };
-    state.agents.insert(body.agent_id.clone(), record);
-
-    // Persist to ClickHouse (best-effort, non-blocking)
-    if let Some(ch) = &state.clickhouse_event_store {
-        let ch = ch.clone();
-        if let Some(agent) = state.agents.get(&body.agent_id).map(|e| e.value().clone()) {
-            tokio::spawn(async move {
-                if let Err(e) = ch.upsert_agent(&agent).await {
-                    tracing::warn!(error = %e, "failed to persist agent registration to ClickHouse");
-                }
-            });
-        }
+) -> Result<Json<Value>, CyberboxError> {
+    let authenticated = authenticate_agent_request(&state, &headers, Some(&body.agent_id)).await?;
+    if body.tenant_id != authenticated.tenant_id || body.agent_id != authenticated.agent_id {
+        return Err(CyberboxError::Forbidden);
     }
 
-    Json(json!({ "agent_id": body.agent_id, "status": "registered" }))
+    let now = Utc::now();
+    let mut record = authenticated;
+    record.hostname = body.hostname;
+    record.os = body.os;
+    record.version = body.version;
+    record.ip = addr.map(|ConnectInfo(a)| a.ip().to_string());
+    record.registered_at = now;
+    record.last_seen = now;
+
+    let saved = state.workflow_store.upsert_agent(record).await?;
+    state.agents.insert(saved.agent_id.clone(), saved.clone());
+
+    Ok(Json(json!({
+        "agent_id": saved.agent_id,
+        "status": "registered",
+        "credential_version": saved.credential_version,
+    })))
 }
 
 /// `POST /api/v1/agents/:id/heartbeat` — updates `last_seen`; returns any
 /// queued config in `{"pending_config": "..."}` and clears it after delivery.
 pub async fn agent_heartbeat(
     State(state): State<AppState>,
+    headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<String>,
-) -> impl IntoResponse {
-    if let Some(mut entry) = state.agents.get_mut(&id) {
-        entry.last_seen = Utc::now();
-        let cfg = entry.pending_config.take(); // deliver once, then clear
+) -> Result<Json<Value>, CyberboxError> {
+    let mut agent = authenticate_agent_request(&state, &headers, Some(&id)).await?;
+    agent.last_seen = Utc::now();
+    let pending_config = agent.pending_config.take();
+    let saved = state.workflow_store.upsert_agent(agent).await?;
+    state.agents.insert(saved.agent_id.clone(), saved.clone());
 
-        // Persist cleared state to ClickHouse (best-effort)
-        if let Some(ch) = &state.clickhouse_event_store {
-            let ch = ch.clone();
-            let snapshot = entry.clone();
-            tokio::spawn(async move {
-                if let Err(e) = ch.upsert_agent(&snapshot).await {
-                    tracing::warn!(error = %e, "failed to persist agent heartbeat to ClickHouse");
-                }
-            });
-        }
-
-        let body = if let Some(toml) = cfg {
-            json!({ "pending_config": toml })
-        } else {
-            json!({})
-        };
-        (StatusCode::OK, Json(body)).into_response()
+    let body = if let Some(config_toml) = pending_config {
+        json!({
+            "pending_config": config_toml,
+            "credential_version": saved.credential_version,
+        })
     } else {
-        StatusCode::NOT_FOUND.into_response()
-    }
+        json!({ "credential_version": saved.credential_version })
+    };
+    Ok(Json(body))
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -3324,41 +3602,22 @@ pub async fn patch_agent(
     State(state): State<AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
     Json(body): Json<PatchAgentRequest>,
-) -> impl IntoResponse {
-    if let Some(mut entry) = state.agents.get_mut(&id) {
-        if entry.tenant_id != auth.tenant_id {
-            return StatusCode::FORBIDDEN.into_response();
-        }
-        if let Some(g) = body.group {
-            entry.group = Some(g);
-        }
-        if let Some(t) = body.tags {
-            entry.tags = t;
-        }
-
-        // Persist to ClickHouse (best-effort)
-        if let Some(ch) = &state.clickhouse_event_store {
-            let ch = ch.clone();
-            let snapshot = entry.clone();
-            tokio::spawn(async move {
-                if let Err(e) = ch.upsert_agent(&snapshot).await {
-                    tracing::warn!(error = %e, "failed to persist agent patch to ClickHouse");
-                }
-            });
-        }
-
-        (
-            StatusCode::OK,
-            Json(json!({
-                "agent_id": entry.agent_id,
-                "group":    entry.group,
-                "tags":     entry.tags,
-            })),
-        )
-            .into_response()
-    } else {
-        StatusCode::NOT_FOUND.into_response()
+) -> Result<Json<Value>, CyberboxError> {
+    auth.require_any(&[Role::Admin, Role::Analyst])?;
+    let mut agent = state.workflow_store.get_agent(&auth.tenant_id, &id).await?;
+    if let Some(group) = body.group {
+        agent.group = Some(group);
     }
+    if let Some(tags) = body.tags {
+        agent.tags = tags;
+    }
+    let saved = state.workflow_store.upsert_agent(agent).await?;
+    state.agents.insert(saved.agent_id.clone(), saved.clone());
+    Ok(Json(json!({
+        "agent_id": saved.agent_id,
+        "group": saved.group,
+        "tags": saved.tags,
+    })))
 }
 
 /// `DELETE /api/v1/agents/:id` — remove an agent from the fleet.
@@ -3366,29 +3625,27 @@ pub async fn delete_agent(
     auth: AuthContext,
     State(state): State<AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
-) -> impl IntoResponse {
-    if let Some((_, agent)) = state.agents.remove(&id) {
-        if agent.tenant_id != auth.tenant_id {
-            // Put it back — not this tenant's agent.
-            state.agents.insert(id, agent);
-            return StatusCode::FORBIDDEN.into_response();
-        }
-        // Best-effort delete from ClickHouse
-        if let Some(ch) = &state.clickhouse_event_store {
-            let ch = ch.clone();
-            let tid = auth.tenant_id.clone();
-            let aid = agent.agent_id.clone();
-            tokio::spawn(async move {
-                if let Err(e) = ch.delete_agent(&tid, &aid).await {
-                    tracing::warn!(error = %e, "failed to delete agent from ClickHouse");
-                }
-            });
-        }
-        tracing::info!(actor = %auth.user_id, agent_id = %agent.agent_id, "agent deleted");
-        Json(json!({ "deleted": true, "agent_id": agent.agent_id })).into_response()
-    } else {
-        StatusCode::NOT_FOUND.into_response()
-    }
+) -> Result<Json<Value>, CyberboxError> {
+    auth.require_any(&[Role::Admin])?;
+    let before = state.workflow_store.get_agent(&auth.tenant_id, &id).await?;
+    state
+        .workflow_store
+        .delete_agent(&auth.tenant_id, &id)
+        .await?;
+    state.agents.remove(&id);
+    tracing::info!(actor = %auth.user_id, agent_id = %id, "agent deleted");
+    append_audit_log(
+        &state,
+        &auth.tenant_id,
+        &auth.user_id,
+        "agent.delete",
+        "agent",
+        &id,
+        audit_json(&before),
+        Value::Null,
+    )
+    .await;
+    Ok(Json(json!({ "deleted": true, "agent_id": id })))
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -3404,36 +3661,94 @@ pub async fn push_agent_config(
     State(state): State<AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
     Json(body): Json<PushAgentConfigRequest>,
-) -> impl IntoResponse {
-    if let Some(mut entry) = state.agents.get_mut(&id) {
-        if entry.tenant_id != auth.tenant_id {
-            return StatusCode::FORBIDDEN.into_response();
-        }
-        entry.pending_config = Some(body.config_toml);
+) -> Result<impl IntoResponse, CyberboxError> {
+    auth.require_any(&[Role::Admin, Role::Analyst])?;
+    let mut agent = state.workflow_store.get_agent(&auth.tenant_id, &id).await?;
+    agent.pending_config = Some(body.config_toml);
+    let saved = state.workflow_store.upsert_agent(agent).await?;
+    state.agents.insert(saved.agent_id.clone(), saved);
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({
+            "agent_id": id,
+            "status": "config_queued",
+            "note": "Config will be delivered on the agent's next heartbeat",
+        })),
+    ))
+}
 
-        // Persist to ClickHouse (best-effort)
-        if let Some(ch) = &state.clickhouse_event_store {
-            let ch = ch.clone();
-            let snapshot = entry.clone();
-            tokio::spawn(async move {
-                if let Err(e) = ch.upsert_agent(&snapshot).await {
-                    tracing::warn!(error = %e, "failed to persist agent config push to ClickHouse");
-                }
-            });
-        }
+pub async fn rotate_agent_secret(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<RotateAgentCredentialResponse>, CyberboxError> {
+    let authenticated = authenticate_agent_request(&state, &headers, Some(&id)).await?;
+    let mut rotated = state
+        .workflow_store
+        .rotate_agent_secret(&authenticated.tenant_id, &authenticated.agent_id)
+        .await?;
+    let record = state
+        .workflow_store
+        .get_agent(&rotated.tenant_id, &rotated.agent_id)
+        .await?;
+    let (_saved, device_certificate) =
+        issue_and_persist_agent_device_certificate(&state, record).await?;
+    rotated.device_certificate = Some(device_certificate.token);
+    rotated.device_certificate_serial = Some(device_certificate.serial.clone());
+    rotated.device_certificate_expires_at = Some(device_certificate.expires_at);
+    append_audit_log(
+        &state,
+        &rotated.tenant_id,
+        &rotated.agent_id,
+        "agent.secret.rotate",
+        "agent",
+        &rotated.agent_id,
+        Value::Null,
+        json!({
+            "credential_version": rotated.credential_version,
+            "device_certificate_serial": rotated.device_certificate_serial,
+            "device_certificate_expires_at": rotated.device_certificate_expires_at,
+        }),
+    )
+    .await;
+    Ok(Json(rotated))
+}
 
-        (
-            StatusCode::ACCEPTED,
-            Json(json!({
-                "agent_id": id,
-                "status": "config_queued",
-                "note": "Config will be delivered on the agent's next heartbeat",
-            })),
-        )
-            .into_response()
-    } else {
-        StatusCode::NOT_FOUND.into_response()
-    }
+pub async fn revoke_agent(
+    auth: AuthContext,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<RevokeAgentRequest>,
+) -> Result<Json<Value>, CyberboxError> {
+    auth.require_any(&[Role::Admin])?;
+    let before = state.workflow_store.get_agent(&auth.tenant_id, &id).await?;
+    let mut revoked = state
+        .workflow_store
+        .revoke_agent(&auth.tenant_id, &id, body.reason.clone())
+        .await?;
+    revoked.device_certificate_serial = None;
+    revoked.device_certificate_expires_at = None;
+    let revoked = state.workflow_store.upsert_agent(revoked).await?;
+    state
+        .agents
+        .insert(revoked.agent_id.clone(), revoked.clone());
+    append_audit_log(
+        &state,
+        &auth.tenant_id,
+        &auth.user_id,
+        "agent.revoke",
+        "agent",
+        &id,
+        audit_json(&before),
+        audit_json(&revoked),
+    )
+    .await;
+    Ok(Json(json!({
+        "agent_id": revoked.agent_id,
+        "status": revoked.status(),
+        "revoked_at": revoked.revoked_at,
+        "reason": revoked.revoked_reason,
+    })))
 }
 
 #[derive(Debug, serde::Deserialize, Default)]
@@ -3446,40 +3761,26 @@ pub async fn list_agents(
     auth: AuthContext,
     State(state): State<AppState>,
     Query(q): Query<ListAgentsQuery>,
-) -> Json<Vec<Value>> {
+) -> Result<Json<Vec<Value>>, CyberboxError> {
+    auth.require_any(&[Role::Admin, Role::Analyst, Role::Viewer])?;
     let mut agents: Vec<Value> = state
-        .agents
-        .iter()
-        .filter(|e| {
-            let a = e.value();
-            a.tenant_id == auth.tenant_id
-                && q.group
-                    .as_deref()
-                    .is_none_or(|g| a.group.as_deref() == Some(g))
+        .workflow_store
+        .list_agents(&auth.tenant_id)
+        .await?
+        .into_iter()
+        .filter(|agent| {
+            q.group
+                .as_deref()
+                .is_none_or(|group| agent.group.as_deref() == Some(group))
         })
-        .map(|e| {
-            let a = e.value();
-            json!({
-                "agent_id":      a.agent_id,
-                "tenant_id":     a.tenant_id,
-                "hostname":      a.hostname,
-                "os":            a.os,
-                "version":       a.version,
-                "ip":            a.ip,
-                "group":         a.group,
-                "tags":          a.tags,
-                "registered_at": a.registered_at,
-                "last_seen":     a.last_seen,
-                "status":        a.status(),
-            })
-        })
+        .map(|agent| agent_json(&agent))
         .collect();
     agents.sort_by(|a, b| {
         let la = a["last_seen"].as_str().unwrap_or("");
         let lb = b["last_seen"].as_str().unwrap_or("");
         lb.cmp(la)
     });
-    Json(agents)
+    Ok(Json(agents))
 }
 
 // =============================================================================

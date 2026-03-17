@@ -1,26 +1,71 @@
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use axum::http::{Request, StatusCode};
 use cyberbox_api::{build_router, install_metrics_exporter, state::AppState};
+use cyberbox_storage::WorkflowStore;
 use serde_json::{json, Value};
 use tower::ServiceExt;
+use uuid::Uuid;
 
 static METRICS: OnceLock<metrics_exporter_prometheus::PrometheusHandle> = OnceLock::new();
 
-fn test_router() -> axum::Router {
+fn test_state() -> AppState {
     let handle = METRICS
         .get_or_init(|| install_metrics_exporter().expect("metrics exporter must initialize"))
         .clone();
 
-    build_router(AppState::new(handle))
+    let mut state = AppState::new(handle);
+    let state_dir = std::env::temp_dir()
+        .join("cyberbox-api-tests")
+        .join(Uuid::new_v4().to_string());
+    std::fs::create_dir_all(&state_dir).expect("test state dir should be created");
+    state.state_dir = state_dir.to_string_lossy().into_owned();
+    state.workflow_store = Arc::new(
+        WorkflowStore::open_file_blocking(&state.state_dir)
+            .expect("workflow store should initialize"),
+    );
+    state
+}
+
+fn test_router() -> axum::Router {
+    build_router(test_state())
 }
 
 fn auth_request(builder: http::request::Builder) -> http::request::Builder {
+    auth_request_for(
+        builder,
+        "tenant-a",
+        "soc-admin",
+        "admin,analyst,viewer,ingestor",
+    )
+}
+
+fn auth_request_for(
+    builder: http::request::Builder,
+    tenant_id: &str,
+    user_id: &str,
+    roles: &str,
+) -> http::request::Builder {
     builder
         .header("content-type", "application/json")
-        .header("x-tenant-id", "tenant-a")
-        .header("x-user-id", "soc-admin")
-        .header("x-roles", "admin,analyst,viewer,ingestor")
+        .header("x-tenant-id", tenant_id)
+        .header("x-user-id", user_id)
+        .header("x-roles", roles)
+}
+
+fn agent_request(
+    builder: http::request::Builder,
+    tenant_id: &str,
+    agent_id: &str,
+    agent_secret: &str,
+    device_certificate: &str,
+) -> http::request::Builder {
+    builder
+        .header("content-type", "application/json")
+        .header("x-tenant-id", tenant_id)
+        .header("x-agent-id", agent_id)
+        .header("x-agent-secret", agent_secret)
+        .header("x-agent-cert", device_certificate)
 }
 
 #[tokio::test]
@@ -1152,145 +1197,239 @@ async fn scheduled_rule_fires_after_tick() {
 
 // ── Agent fleet-management tests ──────────────────────────────────────────────
 
-/// Helper: POST /api/v1/agents/register, return parsed JSON body.
-async fn register_test_agent(app: axum::Router, agent_id: &str) -> Value {
-    let req = auth_request(Request::builder())
-        .uri("/api/v1/agents/register")
+#[derive(Debug, Clone)]
+struct TestAgentIdentity {
+    tenant_id: String,
+    agent_id: String,
+    agent_secret: String,
+    device_certificate: String,
+}
+
+async fn issue_enrollment_token(
+    app: &axum::Router,
+    tenant_id: &str,
+    allowed_agent_id: &str,
+) -> String {
+    let req = auth_request_for(Request::builder(), tenant_id, "soc-admin", "admin")
+        .uri("/api/v1/agents/enrollment-tokens")
         .method("POST")
         .body(axum::body::Body::from(
-            serde_json::to_string(&json!({
-                "agent_id":  agent_id,
-                "tenant_id": "tenant-a",
-                "hostname":  format!("host-{agent_id}"),
-                "os":        "linux",
-                "version":   "0.2.0",
-            }))
-            .unwrap(),
+            json!({
+                "ttl_seconds": 600,
+                "allowed_agent_id": allowed_agent_id,
+            })
+            .to_string(),
         ))
-        .unwrap();
-    let resp = app.oneshot(req).await.unwrap();
+        .expect("enrollment token request should build");
+    let resp = app.clone().oneshot(req).await.expect("response");
     assert_eq!(resp.status(), StatusCode::OK);
-    let bytes = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
-    serde_json::from_slice(&bytes).unwrap()
+    let bytes = axum::body::to_bytes(resp.into_body(), 4096)
+        .await
+        .expect("body");
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    body["enrollment_token"]
+        .as_str()
+        .expect("enrollment_token should be present")
+        .to_string()
+}
+
+async fn enroll_test_agent(
+    app: &axum::Router,
+    tenant_id: &str,
+    agent_id: &str,
+) -> TestAgentIdentity {
+    let enrollment_token = issue_enrollment_token(app, tenant_id, agent_id).await;
+    let req = Request::builder()
+        .uri("/api/v1/agents/enroll")
+        .method("POST")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            json!({
+                "enrollment_token": enrollment_token,
+                "agent_id": agent_id,
+                "tenant_id": tenant_id,
+                "hostname": format!("host-{agent_id}"),
+                "os": "linux",
+                "version": "0.2.0",
+            })
+            .to_string(),
+        ))
+        .expect("enroll request should build");
+    let resp = app.clone().oneshot(req).await.expect("response");
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), 4096)
+        .await
+        .expect("body");
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    assert_eq!(body["agent_id"].as_str(), Some(agent_id));
+    assert_eq!(body["tenant_id"].as_str(), Some(tenant_id));
+    assert_eq!(body["status"].as_str(), Some("enrolled"));
+    TestAgentIdentity {
+        tenant_id: tenant_id.to_string(),
+        agent_id: agent_id.to_string(),
+        agent_secret: body["agent_secret"]
+            .as_str()
+            .expect("agent_secret should be present")
+            .to_string(),
+        device_certificate: body["device_certificate"]
+            .as_str()
+            .expect("device_certificate should be present")
+            .to_string(),
+    }
+}
+
+async fn register_test_agent(
+    app: &axum::Router,
+    tenant_id: &str,
+    agent_id: &str,
+) -> (Value, TestAgentIdentity) {
+    let identity = enroll_test_agent(app, tenant_id, agent_id).await;
+    let req = agent_request(
+        Request::builder(),
+        &identity.tenant_id,
+        &identity.agent_id,
+        &identity.agent_secret,
+        &identity.device_certificate,
+    )
+    .uri("/api/v1/agents/register")
+    .method("POST")
+    .body(axum::body::Body::from(
+        json!({
+            "agent_id": identity.agent_id,
+            "tenant_id": identity.tenant_id,
+            "hostname": format!("host-{agent_id}"),
+            "os": "linux",
+            "version": "0.2.0",
+        })
+        .to_string(),
+    ))
+    .expect("register request should build");
+    let resp = app.clone().oneshot(req).await.expect("response");
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), 4096)
+        .await
+        .expect("body");
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    (body, identity)
 }
 
 #[tokio::test]
 async fn agent_register_returns_id() {
     let app = test_router();
-    let body = register_test_agent(app, "agent-001").await;
+    let (body, identity) = register_test_agent(&app, "tenant-a", "agent-001").await;
     assert_eq!(body["agent_id"].as_str(), Some("agent-001"));
     assert_eq!(body["status"].as_str(), Some("registered"));
+    assert_eq!(body["credential_version"].as_u64(), Some(1));
+    assert_eq!(identity.agent_id, "agent-001");
 }
 
 #[tokio::test]
 async fn agent_heartbeat_returns_ok_and_empty_body() {
-    let _app = test_router();
+    let app = test_router();
+    let (_, identity) = register_test_agent(&app, "tenant-a", "hb-agent").await;
 
-    // Register first
-    let req = auth_request(Request::builder())
-        .uri("/api/v1/agents/register")
-        .method("POST")
-        .body(axum::body::Body::from(
-            serde_json::to_string(&json!({
-                "agent_id": "hb-agent", "tenant_id": "tenant-a",
-                "hostname": "hb-host", "os": "linux", "version": "0.2.0",
-            }))
-            .unwrap(),
-        ))
-        .unwrap();
-    test_router().oneshot(req).await.unwrap();
+    let hb = agent_request(
+        Request::builder(),
+        &identity.tenant_id,
+        &identity.agent_id,
+        &identity.agent_secret,
+        &identity.device_certificate,
+    )
+    .uri("/api/v1/agents/hb-agent/heartbeat")
+    .method("POST")
+    .body(axum::body::Body::empty())
+    .expect("heartbeat request should build");
+    let resp = app.clone().oneshot(hb).await.expect("response");
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), 4096)
+        .await
+        .expect("body");
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    assert!(body.get("pending_config").is_none());
+    assert_eq!(body["credential_version"].as_u64(), Some(1));
+}
 
-    // Fresh router shares no state with the one above; re-register on the same instance
-    let _app = test_router();
-    let reg = auth_request(Request::builder())
-        .uri("/api/v1/agents/register")
-        .method("POST")
-        .body(axum::body::Body::from(
-            serde_json::to_string(&json!({
-                "agent_id": "hb-agent-2", "tenant_id": "tenant-a",
-                "hostname": "hb-host-2", "os": "linux", "version": "0.2.0",
-            }))
-            .unwrap(),
-        ))
-        .unwrap();
-    let app = {
-        // Use a shared AppState across requests within this test
-        let handle = METRICS
-            .get_or_init(|| install_metrics_exporter().expect("metrics"))
-            .clone();
-        let state = AppState::new(handle);
-        let app = build_router(state.clone());
+#[tokio::test]
+async fn agent_register_rejects_tenant_mismatch() {
+    let app = test_router();
+    let identity = enroll_test_agent(&app, "tenant-b", "mismatch-agent").await;
 
-        let resp = app.clone().oneshot(reg).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::OK);
+    let req = agent_request(
+        Request::builder(),
+        &identity.tenant_id,
+        &identity.agent_id,
+        &identity.agent_secret,
+        &identity.device_certificate,
+    )
+    .uri("/api/v1/agents/register")
+    .method("POST")
+    .body(axum::body::Body::from(
+        json!({
+            "agent_id": "mismatch-agent",
+            "tenant_id": "tenant-a",
+            "hostname": "mismatch-host",
+            "os": "linux",
+            "version": "0.2.0",
+        })
+        .to_string(),
+    ))
+    .expect("register request should build");
 
-        // Heartbeat
-        let hb = auth_request(Request::builder())
-            .uri("/api/v1/agents/hb-agent-2/heartbeat")
-            .method("POST")
-            .body(axum::body::Body::empty())
-            .unwrap();
-        let resp = app.clone().oneshot(hb).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::OK);
-        let bytes = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
-        let body: Value = serde_json::from_slice(&bytes).unwrap();
-        // No pending config → body is empty object
-        assert!(body.get("pending_config").is_none());
-        app
-    };
-    let _ = app; // silence unused
+    let response = app.oneshot(req).await.expect("response");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn agent_heartbeat_rejects_cross_tenant_access() {
+    let app = test_router();
+    let (_, identity) = register_test_agent(&app, "tenant-a", "cross-tenant-agent").await;
+
+    let heartbeat = agent_request(
+        Request::builder(),
+        "tenant-b",
+        &identity.agent_id,
+        &identity.agent_secret,
+        &identity.device_certificate,
+    )
+    .uri("/api/v1/agents/cross-tenant-agent/heartbeat")
+    .method("POST")
+    .body(axum::body::Body::empty())
+    .expect("heartbeat request should build");
+    let response = app.oneshot(heartbeat).await.expect("response");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
 async fn agent_list_and_tenant_isolation() {
-    let handle = METRICS
-        .get_or_init(|| install_metrics_exporter().expect("metrics"))
-        .clone();
-    let state = AppState::new(handle);
-    let app = build_router(state.clone());
+    let app = test_router();
+    register_test_agent(&app, "tenant-a", "iso-agent").await;
 
-    // Register agent under tenant-a
-    let reg = auth_request(Request::builder())
-        .uri("/api/v1/agents/register")
-        .method("POST")
-        .body(axum::body::Body::from(
-            serde_json::to_string(&json!({
-                "agent_id": "iso-agent", "tenant_id": "tenant-a",
-                "hostname": "iso-host", "os": "linux", "version": "0.2.0",
-            }))
-            .unwrap(),
-        ))
-        .unwrap();
-    app.clone().oneshot(reg).await.unwrap();
-
-    // List as tenant-a — should see the agent
     let list_a = auth_request(Request::builder())
         .uri("/api/v1/agents")
         .method("GET")
         .body(axum::body::Body::empty())
-        .unwrap();
-    let resp = app.clone().oneshot(list_a).await.unwrap();
+        .expect("list request should build");
+    let resp = app.clone().oneshot(list_a).await.expect("response");
     assert_eq!(resp.status(), StatusCode::OK);
-    let bytes = axum::body::to_bytes(resp.into_body(), 16384).await.unwrap();
-    let agents: Vec<Value> = serde_json::from_slice(&bytes).unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), 16384)
+        .await
+        .expect("body");
+    let agents: Vec<Value> = serde_json::from_slice(&bytes).expect("json");
     assert!(
         agents.iter().any(|a| a["agent_id"] == "iso-agent"),
         "tenant-a should see its own agent"
     );
 
-    // List as tenant-b — should NOT see tenant-a's agent
-    let list_b = Request::builder()
+    let list_b = auth_request_for(Request::builder(), "tenant-b", "soc-admin", "admin")
         .uri("/api/v1/agents")
         .method("GET")
-        .header("content-type", "application/json")
-        .header("x-tenant-id", "tenant-b")
-        .header("x-user-id", "soc-admin")
-        .header("x-roles", "admin")
         .body(axum::body::Body::empty())
-        .unwrap();
-    let resp = app.clone().oneshot(list_b).await.unwrap();
-    let bytes = axum::body::to_bytes(resp.into_body(), 16384).await.unwrap();
-    let agents_b: Vec<Value> = serde_json::from_slice(&bytes).unwrap();
+        .expect("list request should build");
+    let resp = app.clone().oneshot(list_b).await.expect("response");
+    let bytes = axum::body::to_bytes(resp.into_body(), 16384)
+        .await
+        .expect("body");
+    let agents_b: Vec<Value> = serde_json::from_slice(&bytes).expect("json");
     assert!(
         agents_b.iter().all(|a| a["agent_id"] != "iso-agent"),
         "tenant-b should NOT see tenant-a's agent"
@@ -1299,154 +1438,119 @@ async fn agent_list_and_tenant_isolation() {
 
 #[tokio::test]
 async fn agent_patch_group_and_tags() {
-    let handle = METRICS
-        .get_or_init(|| install_metrics_exporter().expect("metrics"))
-        .clone();
-    let state = AppState::new(handle);
-    let app = build_router(state.clone());
+    let app = test_router();
+    register_test_agent(&app, "tenant-a", "patch-agent").await;
 
-    // Register
-    let reg = auth_request(Request::builder())
-        .uri("/api/v1/agents/register")
-        .method("POST")
-        .body(axum::body::Body::from(
-            serde_json::to_string(&json!({
-                "agent_id": "patch-agent", "tenant_id": "tenant-a",
-                "hostname": "patch-host", "os": "linux", "version": "0.2.0",
-            }))
-            .unwrap(),
-        ))
-        .unwrap();
-    app.clone().oneshot(reg).await.unwrap();
-
-    // PATCH group + tags
     let patch = auth_request(Request::builder())
         .uri("/api/v1/agents/patch-agent")
         .method("PATCH")
         .body(axum::body::Body::from(
-            serde_json::to_string(&json!({
+            json!({
                 "group": "prod-web",
-                "tags":  ["linux", "critical"],
-            }))
-            .unwrap(),
+                "tags": ["linux", "critical"],
+            })
+            .to_string(),
         ))
-        .unwrap();
-    let resp = app.clone().oneshot(patch).await.unwrap();
+        .expect("patch request should build");
+    let resp = app.clone().oneshot(patch).await.expect("response");
     assert_eq!(resp.status(), StatusCode::OK);
-    let bytes = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
-    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), 4096)
+        .await
+        .expect("body");
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
     assert_eq!(body["group"].as_str(), Some("prod-web"));
     assert_eq!(body["tags"], json!(["linux", "critical"]));
 }
 
 #[tokio::test]
 async fn agent_config_push_delivered_via_heartbeat() {
-    let handle = METRICS
-        .get_or_init(|| install_metrics_exporter().expect("metrics"))
-        .clone();
-    let state = AppState::new(handle);
-    let app = build_router(state.clone());
+    let app = test_router();
+    let (_, identity) = register_test_agent(&app, "tenant-a", "cfg-agent").await;
 
-    // Register
-    let reg = auth_request(Request::builder())
-        .uri("/api/v1/agents/register")
-        .method("POST")
-        .body(axum::body::Body::from(
-            serde_json::to_string(&json!({
-                "agent_id": "cfg-agent", "tenant_id": "tenant-a",
-                "hostname": "cfg-host", "os": "linux", "version": "0.2.0",
-            }))
-            .unwrap(),
-        ))
-        .unwrap();
-    app.clone().oneshot(reg).await.unwrap();
-
-    // Push config
     let push = auth_request(Request::builder())
         .uri("/api/v1/agents/cfg-agent/config")
         .method("POST")
         .body(axum::body::Body::from(
-            serde_json::to_string(
-                &json!({ "config_toml": "[collector]\nhost = \"new.example.com\"\n" }),
-            )
-            .unwrap(),
+            json!({ "config_toml": "[collector]\nhost = \"new.example.com\"\n" }).to_string(),
         ))
-        .unwrap();
-    let resp = app.clone().oneshot(push).await.unwrap();
+        .expect("config push request should build");
+    let resp = app.clone().oneshot(push).await.expect("response");
     assert_eq!(resp.status(), StatusCode::ACCEPTED);
 
-    // Heartbeat — should deliver the pending config
-    let hb = auth_request(Request::builder())
-        .uri("/api/v1/agents/cfg-agent/heartbeat")
-        .method("POST")
-        .body(axum::body::Body::empty())
-        .unwrap();
-    let resp = app.clone().oneshot(hb).await.unwrap();
-    let bytes = axum::body::to_bytes(resp.into_body(), 16384).await.unwrap();
-    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    let hb = agent_request(
+        Request::builder(),
+        &identity.tenant_id,
+        &identity.agent_id,
+        &identity.agent_secret,
+        &identity.device_certificate,
+    )
+    .uri("/api/v1/agents/cfg-agent/heartbeat")
+    .method("POST")
+    .body(axum::body::Body::empty())
+    .expect("heartbeat request should build");
+    let resp = app.clone().oneshot(hb).await.expect("response");
+    let bytes = axum::body::to_bytes(resp.into_body(), 16384)
+        .await
+        .expect("body");
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
     assert!(
         body["pending_config"].as_str().is_some(),
         "heartbeat should carry the pending config"
     );
+    assert_eq!(body["credential_version"].as_u64(), Some(1));
 
-    // Second heartbeat — config should be cleared (delivered only once)
-    let hb2 = auth_request(Request::builder())
-        .uri("/api/v1/agents/cfg-agent/heartbeat")
-        .method("POST")
-        .body(axum::body::Body::empty())
-        .unwrap();
-    let resp2 = app.clone().oneshot(hb2).await.unwrap();
-    let bytes2 = axum::body::to_bytes(resp2.into_body(), 4096).await.unwrap();
-    let body2: Value = serde_json::from_slice(&bytes2).unwrap();
+    let hb2 = agent_request(
+        Request::builder(),
+        &identity.tenant_id,
+        &identity.agent_id,
+        &identity.agent_secret,
+        &identity.device_certificate,
+    )
+    .uri("/api/v1/agents/cfg-agent/heartbeat")
+    .method("POST")
+    .body(axum::body::Body::empty())
+    .expect("heartbeat request should build");
+    let resp2 = app.clone().oneshot(hb2).await.expect("response");
+    let bytes2 = axum::body::to_bytes(resp2.into_body(), 4096)
+        .await
+        .expect("body");
+    let body2: Value = serde_json::from_slice(&bytes2).expect("json");
     assert!(
         body2.get("pending_config").is_none() || body2["pending_config"].is_null(),
         "config should be cleared after first delivery"
     );
+    assert_eq!(body2["credential_version"].as_u64(), Some(1));
 }
 
 #[tokio::test]
 async fn agent_list_filter_by_group() {
-    let handle = METRICS
-        .get_or_init(|| install_metrics_exporter().expect("metrics"))
-        .clone();
-    let state = AppState::new(handle);
-    let app = build_router(state.clone());
+    let app = test_router();
 
-    // Register two agents in different groups
     for (id, group) in [("grp-agent-1", "prod-web"), ("grp-agent-2", "prod-db")] {
-        let reg = auth_request(Request::builder())
-            .uri("/api/v1/agents/register")
-            .method("POST")
-            .body(axum::body::Body::from(
-                serde_json::to_string(&json!({
-                    "agent_id": id, "tenant_id": "tenant-a",
-                    "hostname": id, "os": "linux", "version": "0.2.0",
-                }))
-                .unwrap(),
-            ))
-            .unwrap();
-        app.clone().oneshot(reg).await.unwrap();
+        register_test_agent(&app, "tenant-a", id).await;
 
         let patch = auth_request(Request::builder())
             .uri(format!("/api/v1/agents/{id}"))
             .method("PATCH")
             .body(axum::body::Body::from(
-                serde_json::to_string(&json!({ "group": group })).unwrap(),
+                json!({ "group": group }).to_string(),
             ))
-            .unwrap();
-        app.clone().oneshot(patch).await.unwrap();
+            .expect("patch request should build");
+        let response = app.clone().oneshot(patch).await.expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
-    // Filter by group=prod-web
     let list = auth_request(Request::builder())
         .uri("/api/v1/agents?group=prod-web")
         .method("GET")
         .body(axum::body::Body::empty())
-        .unwrap();
-    let resp = app.clone().oneshot(list).await.unwrap();
+        .expect("list request should build");
+    let resp = app.clone().oneshot(list).await.expect("response");
     assert_eq!(resp.status(), StatusCode::OK);
-    let bytes = axum::body::to_bytes(resp.into_body(), 16384).await.unwrap();
-    let agents: Vec<Value> = serde_json::from_slice(&bytes).unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), 16384)
+        .await
+        .expect("body");
+    let agents: Vec<Value> = serde_json::from_slice(&bytes).expect("json");
     assert_eq!(
         agents.len(),
         1,
@@ -1454,6 +1558,126 @@ async fn agent_list_filter_by_group() {
     );
     assert_eq!(agents[0]["agent_id"].as_str(), Some("grp-agent-1"));
     assert_eq!(agents[0]["group"].as_str(), Some("prod-web"));
+}
+
+#[tokio::test]
+async fn agent_secret_rotation_invalidates_old_secret() {
+    let app = test_router();
+    let (_, identity) = register_test_agent(&app, "tenant-a", "rotate-agent").await;
+
+    let rotate = agent_request(
+        Request::builder(),
+        &identity.tenant_id,
+        &identity.agent_id,
+        &identity.agent_secret,
+        &identity.device_certificate,
+    )
+    .uri("/api/v1/agents/rotate-agent/rotate-secret")
+    .method("POST")
+    .body(axum::body::Body::empty())
+    .expect("rotate request should build");
+    let resp = app.clone().oneshot(rotate).await.expect("response");
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), 4096)
+        .await
+        .expect("body");
+    let rotated: Value = serde_json::from_slice(&bytes).expect("json");
+    let new_secret = rotated["agent_secret"]
+        .as_str()
+        .expect("agent_secret should be present")
+        .to_string();
+    let new_certificate = rotated["device_certificate"]
+        .as_str()
+        .expect("device_certificate should be present")
+        .to_string();
+    assert_eq!(rotated["credential_version"].as_u64(), Some(2));
+
+    let old_hb = agent_request(
+        Request::builder(),
+        &identity.tenant_id,
+        &identity.agent_id,
+        &identity.agent_secret,
+        &identity.device_certificate,
+    )
+    .uri("/api/v1/agents/rotate-agent/heartbeat")
+    .method("POST")
+    .body(axum::body::Body::empty())
+    .expect("heartbeat request should build");
+    let old_resp = app.clone().oneshot(old_hb).await.expect("response");
+    assert_eq!(old_resp.status(), StatusCode::UNAUTHORIZED);
+
+    let new_hb = agent_request(
+        Request::builder(),
+        &identity.tenant_id,
+        &identity.agent_id,
+        &new_secret,
+        &new_certificate,
+    )
+    .uri("/api/v1/agents/rotate-agent/heartbeat")
+    .method("POST")
+    .body(axum::body::Body::empty())
+    .expect("heartbeat request should build");
+    let new_resp = app.clone().oneshot(new_hb).await.expect("response");
+    assert_eq!(new_resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn revoked_agent_is_blocked_from_machine_endpoints() {
+    let app = test_router();
+    let (_, identity) = register_test_agent(&app, "tenant-a", "revoked-agent").await;
+
+    let revoke = auth_request(Request::builder())
+        .uri("/api/v1/agents/revoked-agent/revoke")
+        .method("POST")
+        .body(axum::body::Body::from(
+            json!({ "reason": "decommissioned" }).to_string(),
+        ))
+        .expect("revoke request should build");
+    let resp = app.clone().oneshot(revoke).await.expect("response");
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), 4096)
+        .await
+        .expect("body");
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    assert_eq!(body["status"].as_str(), Some("revoked"));
+    assert_eq!(body["reason"].as_str(), Some("decommissioned"));
+
+    let heartbeat = agent_request(
+        Request::builder(),
+        &identity.tenant_id,
+        &identity.agent_id,
+        &identity.agent_secret,
+        &identity.device_certificate,
+    )
+    .uri("/api/v1/agents/revoked-agent/heartbeat")
+    .method("POST")
+    .body(axum::body::Body::empty())
+    .expect("heartbeat request should build");
+    let heartbeat_resp = app.clone().oneshot(heartbeat).await.expect("response");
+    assert_eq!(heartbeat_resp.status(), StatusCode::FORBIDDEN);
+
+    let register = agent_request(
+        Request::builder(),
+        &identity.tenant_id,
+        &identity.agent_id,
+        &identity.agent_secret,
+        &identity.device_certificate,
+    )
+    .uri("/api/v1/agents/register")
+    .method("POST")
+    .body(axum::body::Body::from(
+        json!({
+            "agent_id": "revoked-agent",
+            "tenant_id": "tenant-a",
+            "hostname": "revoked-agent",
+            "os": "linux",
+            "version": "0.2.0",
+        })
+        .to_string(),
+    ))
+    .expect("register request should build");
+    let register_resp = app.oneshot(register).await.expect("response");
+    assert_eq!(register_resp.status(), StatusCode::FORBIDDEN);
 }
 
 // ── Bundled Rules End-to-End ─────────────────────────────────────────────────
@@ -1467,10 +1691,7 @@ async fn agent_list_filter_by_group() {
 /// 4. Ingest a benign event and assert it does NOT generate an alert.
 #[tokio::test]
 async fn bundled_rules_e2e_import_ingest_alert() {
-    let handle = METRICS
-        .get_or_init(|| install_metrics_exporter().expect("metrics"))
-        .clone();
-    let state = AppState::new(handle);
+    let state = test_state();
     let app = build_router(state.clone());
 
     // ── 1. Import bundled rules ──────────────────────────────────────────────

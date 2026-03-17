@@ -1227,6 +1227,28 @@ impl ClickHouseEventStore {
         to: DateTime<Utc>,
         limit: u64,
     ) -> Result<Vec<EventEnvelope>, CyberboxError> {
+        self.list_events_in_range_after_cursor(tenant_id, from, to, None, limit)
+            .await
+    }
+
+    pub async fn list_events_in_range_after_cursor(
+        &self,
+        tenant_id: &str,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+        after: Option<(DateTime<Utc>, Uuid)>,
+        limit: u64,
+    ) -> Result<Vec<EventEnvelope>, CyberboxError> {
+        let after_clause = after
+            .map(|(after_time, after_event_id)| {
+                let after_time = format_clickhouse_datetime(after_time);
+                format!(
+                    " AND (event_time > toDateTime64('{after_time}', 3, 'UTC') \
+                      OR (event_time = toDateTime64('{after_time}', 3, 'UTC') \
+                      AND event_id > toUUID('{after_event_id}')))"
+                )
+            })
+            .unwrap_or_default();
         let query = format!(
             "SELECT event_id, tenant_id, source, event_time, ingest_time, \
                     raw_payload, ocsf_record, enrichment, integrity_hash \
@@ -1234,7 +1256,8 @@ impl ClickHouseEventStore {
              WHERE tenant_id = '{}' \
                AND event_time >= toDateTime64('{}', 3, 'UTC') \
                AND event_time <  toDateTime64('{}', 3, 'UTC') \
-             ORDER BY event_time ASC \
+             {} \
+             ORDER BY event_time ASC, event_id ASC \
              LIMIT {} \
              FORMAT JSON",
             self.database,
@@ -1242,6 +1265,7 @@ impl ClickHouseEventStore {
             escape_sql_literal(tenant_id),
             format_clickhouse_datetime(from),
             format_clickhouse_datetime(to),
+            after_clause,
             limit.max(1)
         );
         let response = self.execute_sql_json(&query).await?;
@@ -1736,6 +1760,14 @@ fn parse_agent_row(row: &Value) -> Result<AgentRecord, CyberboxError> {
         group,
         tags,
         pending_config,
+        enrolled_at: None,
+        credential_version: 0,
+        credential_hash: None,
+        credential_rotated_at: None,
+        device_certificate_serial: None,
+        device_certificate_expires_at: None,
+        revoked_at: None,
+        revoked_reason: None,
     })
 }
 

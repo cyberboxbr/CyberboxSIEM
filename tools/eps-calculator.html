@@ -246,6 +246,13 @@
     </div>
   </header>
 
+  <!-- ── Page Tabs ── -->
+  <div class="page-tabs" style="display:flex;gap:0;margin-bottom:20px;border-bottom:2px solid var(--border)">
+    <button class="page-tab active" onclick="switchPage('pricing',this)" style="padding:10px 24px;background:none;border:none;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--text);font-size:14px;font-weight:600;cursor:pointer">Calculadora de Precos</button>
+    <button class="page-tab" onclick="switchPage('sizing',this)" style="padding:10px 24px;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--muted);font-size:14px;font-weight:600;cursor:pointer">Dimensionamento do Cliente</button>
+  </div>
+
+  <div id="page-pricing">
   <!-- ── FX Bar ── -->
   <div class="fx-bar">
     <div>
@@ -319,14 +326,13 @@
           <div class="form-row">
             <label>Preço / host / mês (USD)</label>
             <div class="right">
-              <input type="number" id="ht-price" value="10" min="1" max="9999" step="0.5" style="width:100px"
+              <input type="number" id="ht-price" value="18" min="1" max="9999" step="0.5" style="width:100px"
                 oninput="calc()"/>
             </div>
           </div>
           <div class="hint">
-            <strong>Referência mercado (MDR 24×7):</strong> UnderDefense $13 · Rapid7 $20 · Arctic Wolf $30 · CrowdStrike $22 /host/mês<br>
-            <strong>SIEM plataforma:</strong> Splunk ~$12,50 · Sentinel ~$16 · Elastic ~$12/host/mês (sem MDR/SOC)<br>
-            Sugestão Cyberbox: Shared $10–13 · Full $20–25 · Premium $30–50 /host/mês
+            <strong>Referência mercado (MDR 24×7):</strong> CrowdStrike $15–25 · Rapid7 $17 · Arctic Wolf $37 · Red Canary $120 /host/mês<br>
+            <strong>Sugestão Cyberbox MDR:</strong> Shared $15–18 · Full $25–35 · Premium $40–60 /host/mês
           </div>
         </div>
 
@@ -341,9 +347,9 @@
             </div>
           </div>
           <div class="hint">
-            <strong>Preço por EPS definido pelo plano de serviço:</strong> Shared $50 · Full $80 · Premium $130 / 1k EPS/mês (MDR/SOC incluído)<br>
-            <strong>Referência mercado:</strong> IBM QRadar ~$200/1k EPS · Exabeam ~$20 · LogRhythm ~$15/1k EPS (só plataforma, sem MDR)<br>
-            Managed SIEM médio de mercado: $5.000–10.000/mês · MSSP: $5.000–20.000/mês
+            <strong>Preço por EPS definido pelo plano de serviço:</strong> Shared $130 · Full $170 · Premium $280 / 1k EPS/mês (MDR/SOC incluído)<br>
+            <strong>Referência mercado MDR:</strong> IBM QRadar ~$200/1k EPS · MSSP médio $5.000–20.000/mês<br>
+            Huntress SIEM $4/source · CrowdStrike ~$200–300/1k EPS equivalent
           </div>
         </div>
 
@@ -361,13 +367,13 @@
           <div class="form-row">
             <label>Preço / GB / dia (USD)</label>
             <div class="right">
-              <input type="number" id="gt-price" value="8" min="0.01" max="9999" step="0.5" style="width:100px"
+              <input type="number" id="gt-price" value="15" min="0.01" max="9999" step="0.5" style="width:100px"
                 oninput="calc()"/>
             </div>
           </div>
           <div class="hint">
-            <strong>Referência mercado:</strong> Splunk ~$120/GB/dia (enterprise) · Sentinel ~$156/GB/dia (PAYG) · Graylog ~$50/GB/dia<br>
-            Sugestão Cyberbox: Shared $5–8 · Full $12–20 · Premium $25–40 /GB/dia
+            <strong>Referência mercado:</strong> Splunk ~$120/GB/dia · Sentinel ~$156/GB/dia (PAYG) · Graylog ~$50/GB/dia<br>
+            <strong>Sugestão Cyberbox MDR:</strong> Shared $12–18 · Full $25–40 · Premium $50–80 /GB/dia
           </div>
         </div>
       </div>
@@ -377,17 +383,19 @@
         <div class="card-title">Plano de Serviço Cyberbox MDR / SOC 24×7</div>
         <div class="svc-grid">
 
-          <!-- Shared -->
+          <!-- Shared MDR -->
           <input type="radio" name="svc" id="svc-shared" value="2"
-            data-eps-price="50" data-min-fee="300" onchange="calc()" checked>
+            data-eps-price="130" data-min-fee="800" onchange="calc()" checked>
           <label for="svc-shared" class="svc-card">
-            <div class="svc-name">Shared</div>
+            <div class="svc-name">Shared MDR</div>
             <div class="svc-tag">Multi-tenant · Hardware compartilhado · Dados isolados · até 1.500 EPS</div>
             <ul class="svc-features">
-              <li>Monitoramento SOC 24×7</li>
-              <li>AI Agents incluídos</li>
+              <li>SIEM + Monitoramento SOC 24×7</li>
+              <li>AI Agents (NLQ, Explicação, Tuning)</li>
+              <li>Detecção em tempo real (Sigma)</li>
+              <li>Alertas, triagem e criação de casos</li>
               <li>Relatórios mensais de segurança</li>
-              <li>Alertas e triagem de incidentes</li>
+              <li>GeoIP + Threat Intel incluídos</li>
             </ul>
             <div class="svc-sla-grid">
               <div class="svc-sla crit">Crítico 15 min</div>
@@ -396,56 +404,60 @@
               <div class="svc-sla low">Baixo 6 h</div>
             </div>
             <div class="svc-footer">
-              <span class="svc-mult-label">mín. $300/mês · host/GB: 2×</span>
-              <span class="svc-mult">$50<small style="font-size:10px;font-weight:400">/1k EPS</small></span>
+              <span class="svc-mult-label">mín. $800/mês · host/GB: 2×</span>
+              <span class="svc-mult">$130<small style="font-size:10px;font-weight:400">/1k EPS</small></span>
             </div>
           </label>
 
-          <!-- Full -->
+          <!-- Full MDR -->
           <input type="radio" name="svc" id="svc-full" value="5"
-            data-eps-price="80" data-min-fee="800" onchange="calc()">
+            data-eps-price="170" data-min-fee="1500" onchange="calc()">
           <label for="svc-full" class="svc-card">
-            <div class="svc-name">Full</div>
+            <div class="svc-name">Full MDR</div>
             <div class="svc-tag">Hardware dedicado · Ambiente exclusivo do cliente</div>
             <ul class="svc-features">
-              <li>Tudo do plano Shared</li>
-              <li>Infraestrutura dedicada</li>
-              <li>Threat Hunting diário</li>
+              <li>Tudo do plano Shared MDR</li>
+              <li>Infraestrutura dedicada (single-tenant)</li>
+              <li>Threat Hunting diário proativo</li>
               <li>Resposta ativa a incidentes</li>
+              <li>Regras customizadas p/ ambiente</li>
+              <li>Retenção estendida (90 dias)</li>
             </ul>
             <div class="svc-sla-grid">
               <div class="svc-sla crit">Crítico 15 min</div>
-              <div class="svc-sla high">Alto 45 min</div>
-              <div class="svc-sla med">Médio 2 h</div>
-              <div class="svc-sla low">Baixo 6 h</div>
+              <div class="svc-sla high">Alto 30 min</div>
+              <div class="svc-sla med">Médio 1 h</div>
+              <div class="svc-sla low">Baixo 4 h</div>
             </div>
             <div class="svc-footer">
-              <span class="svc-mult-label">mín. $800/mês · host/GB: 5×</span>
-              <span class="svc-mult">$80<small style="font-size:10px;font-weight:400">/1k EPS</small></span>
+              <span class="svc-mult-label">mín. $1.500/mês · host/GB: 5×</span>
+              <span class="svc-mult">$170<small style="font-size:10px;font-weight:400">/1k EPS</small></span>
             </div>
           </label>
 
-          <!-- Premium -->
+          <!-- Premium MDR -->
           <input type="radio" name="svc" id="svc-premium" value="10"
-            data-eps-price="130" data-min-fee="1500" onchange="calc()">
+            data-eps-price="280" data-min-fee="3000" onchange="calc()">
           <label for="svc-premium" class="svc-card">
-            <div class="svc-name">Premium</div>
+            <div class="svc-name">Premium MDR</div>
             <div class="svc-tag">Inteligência avançada · Plataforma SENNA inclusa</div>
             <ul class="svc-features">
-              <li>Tudo do plano Full</li>
+              <li>Tudo do plano Full MDR</li>
               <li>Threat Intelligence premium</li>
               <li>Acesso gratuito ao SENNA</li>
               <li>CISO virtual + compliance BR</li>
+              <li>Pen-test trimestral incluído</li>
+              <li>Retenção 365 dias</li>
             </ul>
             <div class="svc-sla-grid">
-              <div class="svc-sla crit">Crítico 15 min</div>
-              <div class="svc-sla high">Alto 45 min</div>
-              <div class="svc-sla med">Médio 2 h</div>
-              <div class="svc-sla low">Baixo 6 h</div>
+              <div class="svc-sla crit">Crítico 10 min</div>
+              <div class="svc-sla high">Alto 15 min</div>
+              <div class="svc-sla med">Médio 30 min</div>
+              <div class="svc-sla low">Baixo 2 h</div>
             </div>
             <div class="svc-footer">
-              <span class="svc-badge">SENNA incluso · mín. $1.500/mês · host/GB: 10×</span>
-              <span class="svc-mult">$130<small style="font-size:10px;font-weight:400">/1k EPS</small></span>
+              <span class="svc-badge">SENNA incluso · mín. $3.000/mês · host/GB: 10×</span>
+              <span class="svc-mult">$280<small style="font-size:10px;font-weight:400">/1k EPS</small></span>
             </div>
           </label>
 
@@ -672,7 +684,382 @@
       </div>
     </div>
   </div>
-</div>
+  </div><!-- end page-pricing -->
+
+  <!-- ════════════════════════════════════════════════════════════════════════ -->
+  <!-- CLIENT SIZING CALCULATOR -->
+  <!-- ════════════════════════════════════════════════════════════════════════ -->
+  <div id="page-sizing" style="display:none">
+
+    <!-- Summary Bar -->
+    <div class="total-bar">
+      <div class="total-bar-cell tb-main">
+        <div class="tb-label">EPS Estimado</div>
+        <div class="tb-value" style="color:var(--accent2)" id="sz-total-eps">0</div>
+      </div>
+      <div class="total-bar-cell tb-usd">
+        <div class="tb-label">Ingestao Diaria</div>
+        <div class="tb-value" id="sz-daily-gb">0 GB</div>
+      </div>
+      <div class="total-bar-cell tb-ann">
+        <div class="tb-label">Armazenamento Necessario</div>
+        <div class="tb-value" id="sz-total-storage">0 GB</div>
+      </div>
+      <div class="total-bar-cell tb-3yr">
+        <div class="tb-label">Custo Infra (AWS)</div>
+        <div class="tb-value" style="color:var(--accent2)" id="sz-infra-cost">$0/mo</div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <!-- ════ LEFT: Inputs ════ -->
+      <div>
+
+        <!-- Endpoints -->
+        <div class="card">
+          <div class="card-title">Endpoints &amp; Estacoes de Trabalho</div>
+          <div class="form-row">
+            <label>Desktops/Notebooks Windows</label>
+            <div class="right">
+              <input type="range" id="sz-endpoints-r" min="0" max="1000" step="5" value="20"
+                oninput="document.getElementById('sz-endpoints').value=this.value;calcSizing()"/>
+              <input type="number" id="sz-endpoints" value="20" min="0" max="50000"
+                oninput="document.getElementById('sz-endpoints-r').value=this.value;calcSizing()"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Estacoes Linux</label>
+            <div class="right">
+              <input type="range" id="sz-linux-ws-r" min="0" max="100" step="1" value="0"
+                oninput="document.getElementById('sz-linux-ws').value=this.value;calcSizing()"/>
+              <input type="number" id="sz-linux-ws" value="0" min="0" max="5000"
+                oninput="document.getElementById('sz-linux-ws-r').value=this.value;calcSizing()"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>macOS Endpoints</label>
+            <div class="right">
+              <input type="range" id="sz-macos-r" min="0" max="100" step="1" value="0"
+                oninput="document.getElementById('sz-macos').value=this.value;calcSizing()"/>
+              <input type="number" id="sz-macos" value="0" min="0" max="5000"
+                oninput="document.getElementById('sz-macos-r').value=this.value;calcSizing()"/>
+            </div>
+          </div>
+        </div>
+
+        <!-- Servers -->
+        <div class="card">
+          <div class="card-title">Servidores &amp; Infraestrutura</div>
+          <div class="form-row">
+            <label>Servidores Windows</label>
+            <div class="right">
+              <input type="range" id="sz-win-srv-r" min="0" max="50" step="1" value="3"
+                oninput="document.getElementById('sz-win-srv').value=this.value;calcSizing()"/>
+              <input type="number" id="sz-win-srv" value="3" min="0" max="500"
+                oninput="document.getElementById('sz-win-srv-r').value=this.value;calcSizing()"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Servidores Linux</label>
+            <div class="right">
+              <input type="range" id="sz-servers-r" min="0" max="100" step="1" value="5"
+                oninput="document.getElementById('sz-servers').value=this.value;calcSizing()"/>
+              <input type="number" id="sz-servers" value="5" min="0" max="1000"
+                oninput="document.getElementById('sz-servers-r').value=this.value;calcSizing()"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Active Directory DCs</label>
+            <div class="right">
+              <input type="range" id="sz-dc-r" min="0" max="10" step="1" value="1"
+                oninput="document.getElementById('sz-dc').value=this.value;calcSizing()"/>
+              <input type="number" id="sz-dc" value="1" min="0" max="50"
+                oninput="document.getElementById('sz-dc-r').value=this.value;calcSizing()"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>DNS / DHCP Servers</label>
+            <div class="right">
+              <input type="range" id="sz-dns-r" min="0" max="10" step="1" value="1"
+                oninput="document.getElementById('sz-dns').value=this.value;calcSizing()"/>
+              <input type="number" id="sz-dns" value="1" min="0" max="50"
+                oninput="document.getElementById('sz-dns-r').value=this.value;calcSizing()"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Servidores Web / App</label>
+            <div class="right">
+              <input type="range" id="sz-web-r" min="0" max="50" step="1" value="0"
+                oninput="document.getElementById('sz-web').value=this.value;calcSizing()"/>
+              <input type="number" id="sz-web" value="0" min="0" max="500"
+                oninput="document.getElementById('sz-web-r').value=this.value;calcSizing()"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Servidores de Banco de Dados</label>
+            <div class="right">
+              <input type="range" id="sz-db-r" min="0" max="20" step="1" value="0"
+                oninput="document.getElementById('sz-db').value=this.value;calcSizing()"/>
+              <input type="number" id="sz-db" value="0" min="0" max="200"
+                oninput="document.getElementById('sz-db-r').value=this.value;calcSizing()"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Nodes Docker / K8s</label>
+            <div class="right">
+              <input type="range" id="sz-containers-r" min="0" max="50" step="1" value="0"
+                oninput="document.getElementById('sz-containers').value=this.value;calcSizing()"/>
+              <input type="number" id="sz-containers" value="0" min="0" max="500"
+                oninput="document.getElementById('sz-containers-r').value=this.value;calcSizing()"/>
+            </div>
+          </div>
+        </div>
+
+        <!-- Firewalls -->
+        <div class="card">
+          <div class="card-title">Firewalls &amp; UTM</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Adicione cada firewall com sua marca — EPS varia por fabricante e funcionalidades</div>
+          <div id="sz-fw-list"></div>
+          <button class="btn-primary" style="margin-top:8px;width:100%" onclick="addFirewall();calcSizing()">+ Adicionar Firewall</button>
+          <input type="hidden" id="sz-firewalls" value="2"/>
+        </div>
+
+        <!-- Other Network -->
+        <div class="card">
+          <div class="card-title">Outros Dispositivos de Rede</div>
+          <div class="form-row">
+            <label>Switches / Routers</label>
+            <div class="right">
+              <input type="range" id="sz-switches-r" min="0" max="50" step="1" value="0"
+                oninput="document.getElementById('sz-switches').value=this.value;calcSizing()"/>
+              <input type="number" id="sz-switches" value="0" min="0" max="500"
+                oninput="document.getElementById('sz-switches-r').value=this.value;calcSizing()"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>WAF / IDS / IPS</label>
+            <div class="right">
+              <input type="range" id="sz-ids-r" min="0" max="10" step="1" value="0"
+                oninput="document.getElementById('sz-ids').value=this.value;calcSizing()"/>
+              <input type="number" id="sz-ids" value="0" min="0" max="50"
+                oninput="document.getElementById('sz-ids-r').value=this.value;calcSizing()"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Concentradores VPN</label>
+            <div class="right">
+              <input type="range" id="sz-vpn-r" min="0" max="10" step="1" value="0"
+                oninput="document.getElementById('sz-vpn').value=this.value;calcSizing()"/>
+              <input type="number" id="sz-vpn" value="0" min="0" max="50"
+                oninput="document.getElementById('sz-vpn-r').value=this.value;calcSizing()"/>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Controladores Wi-Fi / APs</label>
+            <div class="right">
+              <input type="range" id="sz-wifi-r" min="0" max="100" step="1" value="0"
+                oninput="document.getElementById('sz-wifi').value=this.value;calcSizing()"/>
+              <input type="number" id="sz-wifi" value="0" min="0" max="1000"
+                oninput="document.getElementById('sz-wifi-r').value=this.value;calcSizing()"/>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cloud Providers -->
+        <div class="card">
+          <div class="card-title">Infraestrutura em Nuvem</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Selecione quais provedores de nuvem o cliente utiliza e qual % da infraestrutura esta em cada um</div>
+
+          <div class="toggle-row">
+            <label style="font-size:13px;color:#0078D4;font-weight:600">Microsoft Azure</label>
+            <label class="toggle"><input type="checkbox" id="sz-azure" checked onchange="calcSizing()"/><span class="slider-sw"></span></label>
+          </div>
+          <div id="sz-azure-detail" style="margin-left:16px;margin-bottom:8px">
+            <div class="form-row"><label style="font-size:12px">% da infra no Azure</label><div class="right"><input type="range" id="sz-azure-pct-r" min="0" max="100" value="60" oninput="document.getElementById('sz-azure-pct').value=this.value;calcSizing()"/><span class="val-badge" id="sz-azure-pct-lbl">60%</span><input type="hidden" id="sz-azure-pct" value="60"/></div></div>
+            <div class="toggle-row"><label style="font-size:12px;color:var(--muted)">Entra ID (Azure AD) sign-in/audit logs</label><label class="toggle"><input type="checkbox" id="sz-entra" checked onchange="calcSizing()"/><span class="slider-sw"></span></label></div>
+            <div class="toggle-row"><label style="font-size:12px;color:var(--muted)">Microsoft 365 (Exchange, SharePoint, Teams)</label><label class="toggle"><input type="checkbox" id="sz-o365" checked onchange="calcSizing()"/><span class="slider-sw"></span></label></div>
+            <div class="toggle-row"><label style="font-size:12px;color:var(--muted)">Azure Activity Log / Defender</label><label class="toggle"><input type="checkbox" id="sz-azure-activity" onchange="calcSizing()"/><span class="slider-sw"></span></label></div>
+          </div>
+
+          <div class="toggle-row">
+            <label style="font-size:13px;color:#FF9900;font-weight:600">Amazon Web Services (AWS)</label>
+            <label class="toggle"><input type="checkbox" id="sz-aws" onchange="calcSizing()"/><span class="slider-sw"></span></label>
+          </div>
+          <div id="sz-aws-detail" style="margin-left:16px;margin-bottom:8px;display:none">
+            <div class="form-row"><label style="font-size:12px">% da infra na AWS</label><div class="right"><input type="range" id="sz-aws-pct-r" min="0" max="100" value="30" oninput="document.getElementById('sz-aws-pct').value=this.value;calcSizing()"/><span class="val-badge" id="sz-aws-pct-lbl">30%</span><input type="hidden" id="sz-aws-pct" value="30"/></div></div>
+            <div class="toggle-row"><label style="font-size:12px;color:var(--muted)">CloudTrail (API audit)</label><label class="toggle"><input type="checkbox" id="sz-cloudtrail" checked onchange="calcSizing()"/><span class="slider-sw"></span></label></div>
+            <div class="toggle-row"><label style="font-size:12px;color:var(--muted)">GuardDuty findings</label><label class="toggle"><input type="checkbox" id="sz-guardduty" onchange="calcSizing()"/><span class="slider-sw"></span></label></div>
+            <div class="toggle-row"><label style="font-size:12px;color:var(--muted)">VPC Flow Logs</label><label class="toggle"><input type="checkbox" id="sz-vpcflow" onchange="calcSizing()"/><span class="slider-sw"></span></label></div>
+          </div>
+
+          <div class="toggle-row">
+            <label style="font-size:13px;color:#4285F4;font-weight:600">Google Cloud (GCP)</label>
+            <label class="toggle"><input type="checkbox" id="sz-gcp" onchange="calcSizing()"/><span class="slider-sw"></span></label>
+          </div>
+          <div id="sz-gcp-detail" style="margin-left:16px;margin-bottom:8px;display:none">
+            <div class="form-row"><label style="font-size:12px">% da infra no GCP</label><div class="right"><input type="range" id="sz-gcp-pct-r" min="0" max="100" value="10" oninput="document.getElementById('sz-gcp-pct').value=this.value;calcSizing()"/><span class="val-badge" id="sz-gcp-pct-lbl">10%</span><input type="hidden" id="sz-gcp-pct" value="10"/></div></div>
+            <div class="toggle-row"><label style="font-size:12px;color:var(--muted)">Cloud Audit Logs</label><label class="toggle"><input type="checkbox" id="sz-gcp-audit" checked onchange="calcSizing()"/><span class="slider-sw"></span></label></div>
+            <div class="toggle-row"><label style="font-size:12px;color:var(--muted)">Google Workspace</label><label class="toggle"><input type="checkbox" id="sz-gws" onchange="calcSizing()"/><span class="slider-sw"></span></label></div>
+          </div>
+
+          <div class="toggle-row">
+            <label style="font-size:13px;color:var(--muted);font-weight:600">Somente On-Premises</label>
+            <label class="toggle"><input type="checkbox" id="sz-onprem" onchange="calcSizing()"/><span class="slider-sw"></span></label>
+          </div>
+          <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:6px">MIX DE NUVEM</div>
+            <div id="sz-cloud-mix-bar" style="height:24px;border-radius:4px;overflow:hidden;display:flex"></div>
+            <div id="sz-cloud-mix-legend" style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap"></div>
+          </div>
+          <input type="hidden" id="sz-cloud" value="0"/>
+        </div>
+
+        <!-- Identity / SaaS -->
+        <div class="card">
+          <div class="card-title">Identidade &amp; SaaS</div>
+          <div class="toggle-row">
+            <label style="font-size:13px;color:var(--muted)">Okta</label>
+            <label class="toggle"><input type="checkbox" id="sz-okta" onchange="calcSizing()"/><span class="slider-sw"></span></label>
+          </div>
+          <div class="toggle-row">
+            <label style="font-size:13px;color:var(--muted)">Duo Security / MFA</label>
+            <label class="toggle"><input type="checkbox" id="sz-duo" onchange="calcSizing()"/><span class="slider-sw"></span></label>
+          </div>
+          <div class="toggle-row">
+            <label style="font-size:13px;color:var(--muted)">Salesforce</label>
+            <label class="toggle"><input type="checkbox" id="sz-salesforce" onchange="calcSizing()"/><span class="slider-sw"></span></label>
+          </div>
+          <div class="toggle-row">
+            <label style="font-size:13px;color:var(--muted)">GitHub / GitLab</label>
+            <label class="toggle"><input type="checkbox" id="sz-git" onchange="calcSizing()"/><span class="slider-sw"></span></label>
+          </div>
+          <div class="form-row">
+            <label>Outras Fontes SaaS</label>
+            <div class="right">
+              <input type="number" id="sz-other-saas" value="0" min="0" max="20" style="width:60px"
+                oninput="calcSizing()"/>
+            </div>
+          </div>
+        </div>
+
+        <!-- Options -->
+        <div class="card">
+          <div class="card-title">Opcoes &amp; Retencao</div>
+          <div class="form-row">
+            <label>Retencao Hot (dias)</label>
+            <div class="right">
+              <input type="range" id="sz-retention-r" min="7" max="365" step="1" value="30"
+                oninput="document.getElementById('sz-retention').value=this.value;calcSizing()"/>
+              <input type="number" id="sz-retention" value="30" min="7" max="730"
+                oninput="document.getElementById('sz-retention-r').value=this.value;calcSizing()"/>
+            </div>
+          </div>
+          <div class="toggle-row">
+            <label style="font-size:13px;color:var(--muted)">Enriquecimento GeoIP</label>
+            <label class="toggle"><input type="checkbox" id="sz-geoip" checked onchange="calcSizing()"/><span class="slider-sw"></span></label>
+          </div>
+          <div class="toggle-row">
+            <label style="font-size:13px;color:var(--muted)">Analise IA (NLQ, Explicacao, Tuning)</label>
+            <label class="toggle"><input type="checkbox" id="sz-ai" checked onchange="calcSizing()"/><span class="slider-sw"></span></label>
+          </div>
+          <div class="toggle-row">
+            <label style="font-size:13px;color:var(--muted)">Alta Disponibilidade (dual-node)</label>
+            <label class="toggle"><input type="checkbox" id="sz-ha" onchange="calcSizing()"/><span class="slider-sw"></span></label>
+          </div>
+          <div class="toggle-row">
+            <label style="font-size:13px;color:var(--muted)">Modulo de Conformidade LGPD</label>
+            <label class="toggle"><input type="checkbox" id="sz-lgpd" checked onchange="calcSizing()"/><span class="slider-sw"></span></label>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════ RIGHT: Results ════ -->
+      <div>
+
+        <!-- Infrastructure -->
+        <div class="card">
+          <div class="card-title">Infraestrutura Recomendada</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+            <div>
+              <div style="font-size:11px;color:var(--muted);text-transform:uppercase">Tier</div>
+              <div style="font-size:20px;font-weight:700;color:var(--accent2)" id="sz-tier">—</div>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--muted);text-transform:uppercase">AWS Instance</div>
+              <div style="font-size:20px;font-weight:700;color:var(--cyan)" id="sz-instance">—</div>
+            </div>
+            <div><div style="font-size:11px;color:var(--muted)">CPU</div><div style="font-size:16px;font-weight:600" id="sz-cpu">—</div></div>
+            <div><div style="font-size:11px;color:var(--muted)">RAM</div><div style="font-size:16px;font-weight:600" id="sz-ram">—</div></div>
+            <div><div style="font-size:11px;color:var(--muted)">ClickHouse Disk</div><div style="font-size:16px;font-weight:600" id="sz-disk-ch">—</div></div>
+            <div><div style="font-size:11px;color:var(--muted)">Redpanda Disk</div><div style="font-size:16px;font-weight:600" id="sz-disk-rp">—</div></div>
+          </div>
+        </div>
+
+        <!-- Cost Breakdown -->
+        <div class="card">
+          <div class="card-title">Detalhamento de Custo Mensal (AWS)</div>
+          <div id="sz-cost-breakdown"></div>
+          <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);display:flex;justify-content:space-between">
+            <span style="font-size:14px;font-weight:700;color:var(--text)">Total Infraestrutura</span>
+            <span style="font-size:14px;font-weight:700;color:var(--accent2)" id="sz-infra-total-detail">—</span>
+          </div>
+        </div>
+
+        <!-- EPS Breakdown -->
+        <div class="card">
+          <div class="card-title">EPS por Fonte de Log</div>
+          <div id="sz-eps-bars"></div>
+        </div>
+
+        <!-- Detection Coverage -->
+        <div class="card">
+          <div class="card-title">Deteccao &amp; Cobertura</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+            <div><div style="font-size:11px;color:var(--muted)">Regras de Deteccao</div><div style="font-size:18px;font-weight:700;color:var(--accent2)" id="sz-rules">—</div></div>
+            <div><div style="font-size:11px;color:var(--muted)">Tecnicas MITRE</div><div style="font-size:18px;font-weight:700;color:var(--cyan)" id="sz-mitre">—</div></div>
+            <div><div style="font-size:11px;color:var(--muted)">Agentes a Instalar</div><div style="font-size:18px;font-weight:700" id="sz-agents">—</div></div>
+          </div>
+          <div style="margin-top:12px" id="sz-rule-categories"></div>
+        </div>
+
+        <!-- Network Bandwidth -->
+        <div class="card">
+          <div class="card-title">Estimativa de Banda de Rede</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div><div style="font-size:11px;color:var(--muted)">Banda Media (agente → SIEM)</div><div style="font-size:16px;font-weight:600" id="sz-bandwidth">—</div></div>
+            <div><div style="font-size:11px;color:var(--muted)">Banda de Pico (2x burst)</div><div style="font-size:16px;font-weight:600" id="sz-bandwidth-peak">—</div></div>
+          </div>
+        </div>
+
+        <!-- Deployment Timeline -->
+        <div class="card">
+          <div class="card-title">Cronograma Estimado de Implantacao</div>
+          <div id="sz-timeline"></div>
+        </div>
+
+        <!-- Collector Config -->
+        <div class="card">
+          <div class="card-title">Configuracao do Coletor</div>
+          <pre style="font-size:12px;color:var(--accent2);background:var(--bg);padding:12px;border-radius:6px;white-space:pre-wrap;max-height:200px;overflow-y:auto" id="sz-collector-config"></pre>
+        </div>
+
+        <!-- Onboarding Checklist -->
+        <div class="card">
+          <div class="card-title">Checklist de Onboarding do Cliente</div>
+          <pre style="font-size:12px;color:var(--text);white-space:pre-wrap;line-height:1.8;max-height:300px;overflow-y:auto" id="sz-checklist"></pre>
+        </div>
+
+        <!-- Compliance -->
+        <div class="card">
+          <div class="card-title">Cobertura de Conformidade</div>
+          <div id="sz-compliance"></div>
+        </div>
+
+      </div>
+    </div>
+  </div><!-- end page-sizing -->
+
+</div><!-- end wrapper -->
 
 <script>
 'use strict';
@@ -915,7 +1302,7 @@ function calc() {
 
   if (MODEL === 'host') {
     hosts   = Math.max(1, Math.round(num('host-n')));
-    const htPrice = Math.max(0.01, parseFloat(document.getElementById('ht-price').value) || 10);
+    const htPrice = Math.max(0.01, parseFloat(document.getElementById('ht-price').value) || 18);
     techBase = hosts * htPrice;
     eps     = hosts * 2;
     gbDay   = hosts * 0.1;
@@ -929,7 +1316,7 @@ function calc() {
     gbDay   = eps * 0.0864 * 0.1;
   } else {
     gbDay   = Math.max(1, Math.round(num('gb-n')));
-    const gtPrice = Math.max(0.01, parseFloat(document.getElementById('gt-price').value) || 8);
+    const gtPrice = Math.max(0.01, parseFloat(document.getElementById('gt-price').value) || 15);
     techBase = gbDay * gtPrice;
     eps     = Math.round(gbDay / 0.0864 / 0.1);
     hosts   = Math.round(eps / 2);
@@ -1185,7 +1572,7 @@ function calc() {
 function modelLabel(hosts, eps, gbDay) {
   if (MODEL === 'host') {
     const h = Math.round(num('host-n'));
-    const hp = Math.max(0.01, parseFloat(document.getElementById('ht-price').value) || 10);
+    const hp = Math.max(0.01, parseFloat(document.getElementById('ht-price').value) || 18);
     return `Base tecnologia: ${h.toLocaleString('pt-BR')} hosts × ${usd(hp)}/host/mês`;
   }
   if (MODEL === 'eps') {
@@ -1194,8 +1581,393 @@ function modelLabel(hosts, eps, gbDay) {
     return `Base tecnologia: ${eps.toLocaleString('pt-BR')} EPS × ${usd(tp)}/1k EPS/mês (MDR/SOC incluído)`;
   }
   const g = Math.round(num('gb-n'));
-  const gp = Math.max(0.01, parseFloat(document.getElementById('gt-price').value) || 8);
+  const gp = Math.max(0.01, parseFloat(document.getElementById('gt-price').value) || 15);
   return `Base tecnologia: ${g} GB/dia × ${usd(gp)}/GB/dia`;
+}
+
+// ── Page Tab Switching ───────────────────────────────────────────────────────
+function switchPage(page, btn) {
+  document.getElementById('page-pricing').style.display = page === 'pricing' ? 'block' : 'none';
+  document.getElementById('page-sizing').style.display = page === 'sizing' ? 'block' : 'none';
+  document.querySelectorAll('.page-tab').forEach(t => {
+    t.style.borderBottomColor = 'transparent';
+    t.style.color = 'var(--muted)';
+  });
+  btn.style.borderBottomColor = 'var(--accent)';
+  btn.style.color = 'var(--text)';
+}
+
+// ── Firewall List ────────────────────────────────────────────────────────────
+const FW_BRANDS = [
+  { value: 'opnsense',    label: 'OPNsense',              eps: 50,  syslog: 'RFC 3164', protocols: 'Syslog UDP/TCP' },
+  { value: 'pfsense',     label: 'pfSense',               eps: 50,  syslog: 'RFC 3164', protocols: 'Syslog UDP/TCP' },
+  { value: 'fortigate',   label: 'Fortinet FortiGate',    eps: 80,  syslog: 'RFC 5424 + CEF', protocols: 'Syslog UDP/TCP, FortiAnalyzer' },
+  { value: 'paloalto',    label: 'Palo Alto Networks',    eps: 100, syslog: 'CEF/LEEF', protocols: 'Syslog TCP/TLS, Cortex Data Lake' },
+  { value: 'cisco_asa',   label: 'Cisco ASA / Firepower', eps: 70,  syslog: 'RFC 3164', protocols: 'Syslog UDP/TCP' },
+  { value: 'cisco_meraki',label: 'Cisco Meraki',          eps: 30,  syslog: 'RFC 3164', protocols: 'Syslog UDP, API' },
+  { value: 'sophos',      label: 'Sophos XGS / XG',      eps: 60,  syslog: 'RFC 3164', protocols: 'Syslog UDP/TCP' },
+  { value: 'checkpoint',  label: 'Check Point',           eps: 90,  syslog: 'OPSEC LEA / CEF', protocols: 'Syslog TCP, Log Exporter' },
+  { value: 'sonicwall',   label: 'SonicWall',             eps: 40,  syslog: 'RFC 3164', protocols: 'Syslog UDP/TCP' },
+  { value: 'watchguard',  label: 'WatchGuard',            eps: 35,  syslog: 'RFC 3164', protocols: 'Syslog UDP/TCP' },
+  { value: 'mikrotik',    label: 'MikroTik RouterOS',     eps: 20,  syslog: 'RFC 3164', protocols: 'Syslog UDP' },
+  { value: 'ubiquiti',    label: 'Ubiquiti UniFi / EdgeRouter', eps: 15, syslog: 'RFC 3164', protocols: 'Syslog UDP' },
+  { value: 'juniper',     label: 'Juniper SRX',           eps: 80,  syslog: 'RFC 5424', protocols: 'Syslog UDP/TCP/TLS' },
+  { value: 'huawei',      label: 'Huawei USG',            eps: 60,  syslog: 'RFC 3164', protocols: 'Syslog UDP/TCP' },
+  { value: 'zscaler',     label: 'Zscaler ZIA / ZPA',     eps: 50,  syslog: 'NSS Feed', protocols: 'Syslog TCP/TLS, API' },
+  { value: 'barracuda',   label: 'Barracuda CloudGen',    eps: 40,  syslog: 'RFC 3164', protocols: 'Syslog UDP/TCP' },
+  { value: 'other',       label: 'Other / Generic',       eps: 50,  syslog: 'Varies', protocols: 'Syslog UDP/TCP' },
+];
+
+let firewallEntries = [
+  { brand: 'opnsense', count: 1, model: '' },
+  { brand: 'fortigate', count: 1, model: '' },
+];
+
+function renderFirewalls() {
+  const el = document.getElementById('sz-fw-list');
+  el.innerHTML = firewallEntries.map((fw, i) => {
+    const brand = FW_BRANDS.find(b => b.value === fw.brand) || FW_BRANDS[FW_BRANDS.length-1];
+    return `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;padding:8px;background:var(--bg);border-radius:6px;border:1px solid var(--border)">
+      <select style="flex:1;min-width:0" onchange="firewallEntries[${i}].brand=this.value;calcSizing()">
+        ${FW_BRANDS.map(b => `<option value="${b.value}" ${b.value===fw.brand?'selected':''}>${b.label}</option>`).join('')}
+      </select>
+      <input type="number" value="${fw.count}" min="1" max="50" style="width:50px"
+        onchange="firewallEntries[${i}].count=parseInt(this.value)||1;calcSizing()"/>
+      <input type="text" value="${fw.model}" placeholder="Model" style="width:90px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:4px 8px;font-size:12px"
+        onchange="firewallEntries[${i}].model=this.value"/>
+      <button class="btn-sm" onclick="firewallEntries.splice(${i},1);renderFirewalls();calcSizing()" style="color:var(--danger);border-color:var(--danger);padding:4px 8px">x</button>
+      <div style="min-width:70px;text-align:right;font-size:11px;color:var(--cyan)">${(brand.eps * fw.count).toLocaleString()} EPS</div>
+    </div>
+    <div style="font-size:10px;color:var(--muted);margin:-4px 0 8px 8px">${brand.syslog} | ${brand.protocols}</div>`;
+  }).join('');
+  // Update hidden total
+  const total = firewallEntries.reduce((s,fw) => s + fw.count, 0);
+  document.getElementById('sz-firewalls').value = total;
+}
+
+function addFirewall() {
+  firewallEntries.push({ brand: 'other', count: 1, model: '' });
+  renderFirewalls();
+}
+
+// ── Sizing Calculator ────────────────────────────────────────────────────────
+function szNum(id) { return parseInt(document.getElementById(id).value) || 0; }
+function szChk(id) { const el = document.getElementById(id); return el ? el.checked : false; }
+
+function calcSizing() {
+  // ── Gather inputs ──
+  const winEndpoints = szNum('sz-endpoints');
+  const linuxWs = szNum('sz-linux-ws');
+  const macOs = szNum('sz-macos');
+  const winServers = szNum('sz-win-srv');
+  const linuxServers = szNum('sz-servers');
+  const adDCs = szNum('sz-dc');
+  const dnsServers = szNum('sz-dns');
+  const webServers = szNum('sz-web');
+  const dbServers = szNum('sz-db');
+  const containers = szNum('sz-containers');
+  const switches = szNum('sz-switches');
+  const ids = szNum('sz-ids');
+  const vpn = szNum('sz-vpn');
+  const wifi = szNum('sz-wifi');
+  const entra = szChk('sz-entra');
+  const o365 = szChk('sz-o365');
+  const azureAct = szChk('sz-azure-activity');
+  const useAzure = szChk('sz-azure');
+  const useAws = szChk('sz-aws');
+  const cloudtrail = szChk('sz-cloudtrail');
+  const guardduty = szChk('sz-guardduty');
+  const vpcflow = szChk('sz-vpcflow');
+  const useGcp = szChk('sz-gcp');
+  const gcpAudit = szChk('sz-gcp-audit');
+  const gws = szChk('sz-gws');
+  const okta = szChk('sz-okta');
+  const duo = szChk('sz-duo');
+  const salesforce = szChk('sz-salesforce');
+  const git = szChk('sz-git');
+  const otherSaas = szNum('sz-other-saas');
+  const retention = szNum('sz-retention');
+  const ha = szChk('sz-ha');
+  const ai = szChk('sz-ai');
+
+  // ── Cloud detail show/hide ──
+  const azDetail = document.getElementById('sz-azure-detail');
+  const awsDetail = document.getElementById('sz-aws-detail');
+  const gcpDetail = document.getElementById('sz-gcp-detail');
+  if (azDetail) azDetail.style.display = useAzure ? 'block' : 'none';
+  if (awsDetail) awsDetail.style.display = useAws ? 'block' : 'none';
+  if (gcpDetail) gcpDetail.style.display = useGcp ? 'block' : 'none';
+
+  // ── Cloud % labels ──
+  const azPct = szNum('sz-azure-pct'); if (document.getElementById('sz-azure-pct-lbl')) document.getElementById('sz-azure-pct-lbl').textContent = azPct + '%';
+  const awsPct = szNum('sz-aws-pct'); if (document.getElementById('sz-aws-pct-lbl')) document.getElementById('sz-aws-pct-lbl').textContent = awsPct + '%';
+  const gcpPct = szNum('sz-gcp-pct'); if (document.getElementById('sz-gcp-pct-lbl')) document.getElementById('sz-gcp-pct-lbl').textContent = gcpPct + '%';
+
+  // ── Cloud mix bar ──
+  const cloudMix = [];
+  if (useAzure) cloudMix.push({name:'Azure',color:'#0078D4',pct:azPct});
+  if (useAws) cloudMix.push({name:'AWS',color:'#FF9900',pct:awsPct});
+  if (useGcp) cloudMix.push({name:'GCP',color:'#4285F4',pct:gcpPct});
+  const onpremPct = Math.max(0, 100 - cloudMix.reduce((s,c)=>s+c.pct,0));
+  if (onpremPct > 0 || szChk('sz-onprem')) cloudMix.push({name:'On-Prem',color:'#6B2DBD',pct: onpremPct || 100});
+  const mixBar = document.getElementById('sz-cloud-mix-bar');
+  const mixLeg = document.getElementById('sz-cloud-mix-legend');
+  if (mixBar) {
+    const total = cloudMix.reduce((s,c)=>s+c.pct,0) || 1;
+    mixBar.innerHTML = cloudMix.map(c => `<div style="width:${c.pct/total*100}%;background:${c.color};height:100%" title="${c.name}: ${c.pct}%"></div>`).join('');
+    mixLeg.innerHTML = cloudMix.map(c => `<span style="font-size:11px;color:${c.color}"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${c.color};margin-right:4px"></span>${c.name} ${c.pct}%</span>`).join('');
+  }
+
+  // ── Firewall EPS from list ──
+  renderFirewalls();
+  const firewallEps = firewallEntries.reduce((sum, fw) => {
+    const brand = FW_BRANDS.find(b => b.value === fw.brand) || FW_BRANDS[FW_BRANDS.length-1];
+    return sum + brand.eps * fw.count;
+  }, 0);
+  const firewalls = firewallEntries.reduce((s,fw) => s + fw.count, 0);
+
+  // ── EPS per source ──
+  const sources = [
+    { label: 'Windows Endpoints', count: winEndpoints, epsEach: 5, color: '#6B2DBD', category: 'endpoint' },
+    { label: 'Estacoes Linux', count: linuxWs, epsEach: 3, color: '#9b59b6', category: 'endpoint' },
+    { label: 'macOS Endpoints', count: macOs, epsEach: 2, color: '#A2A9B0', category: 'endpoint' },
+    { label: 'Servidores Windows', count: winServers, epsEach: 25, color: '#00F4A3', category: 'server' },
+    { label: 'Servidores Linux', count: linuxServers, epsEach: 15, color: '#2ecc71', category: 'server' },
+    { label: 'Active Directory DCs', count: adDCs, epsEach: 100, color: '#3498db', category: 'server' },
+    { label: 'DNS / DHCP', count: dnsServers, epsEach: 30, color: '#1abc9c', category: 'server' },
+    { label: 'Servidores Web / App', count: webServers, epsEach: 40, color: '#e67e22', category: 'server' },
+    { label: 'Servidores de Banco de Dados', count: dbServers, epsEach: 10, color: '#e74c3c', category: 'server' },
+    { label: 'Container Nodes', count: containers, epsEach: 50, color: '#2496ED', category: 'server' },
+    { label: 'Firewalls (' + firewallEntries.map(fw => FW_BRANDS.find(b=>b.value===fw.brand)?.label||'Other').join(', ') + ')', count: 1, epsEach: firewallEps, color: '#32F5E1', category: 'network' },
+    { label: 'Switches / Routers', count: switches, epsEach: 5, color: '#16a085', category: 'network' },
+    { label: 'WAF / IDS / IPS', count: ids, epsEach: 80, color: '#f45d5d', category: 'network' },
+    { label: 'Concentradores VPN', count: vpn, epsEach: 20, color: '#9b59b6', category: 'network' },
+    { label: 'Wireless APs', count: wifi, epsEach: 3, color: '#95a5a6', category: 'network' },
+    { label: 'Entra ID', count: entra ? 1 : 0, epsEach: 15, color: '#0078D4', category: 'cloud' },
+    { label: 'Office 365', count: o365 ? 1 : 0, epsEach: 10, color: '#D83B01', category: 'cloud' },
+    { label: 'Okta', count: okta ? 1 : 0, epsEach: 8, color: '#007DC1', category: 'cloud' },
+    { label: 'Azure Activity Log', count: azureAct ? 1 : 0, epsEach: 15, color: '#0078D4', category: 'cloud' },
+    { label: 'CloudTrail', count: (useAws && cloudtrail) ? 1 : 0, epsEach: 20, color: '#FF9900', category: 'cloud' },
+    { label: 'GuardDuty', count: (useAws && guardduty) ? 1 : 0, epsEach: 5, color: '#FF9900', category: 'cloud' },
+    { label: 'VPC Flow Logs', count: (useAws && vpcflow) ? 1 : 0, epsEach: 100, color: '#FF9900', category: 'cloud' },
+    { label: 'GCP Audit', count: (useGcp && gcpAudit) ? 1 : 0, epsEach: 15, color: '#4285F4', category: 'cloud' },
+    { label: 'Duo MFA', count: duo ? 1 : 0, epsEach: 5, color: '#6DC04B', category: 'cloud' },
+    { label: 'Salesforce', count: salesforce ? 1 : 0, epsEach: 8, color: '#00A1E0', category: 'cloud' },
+    { label: 'GitHub/GitLab', count: git ? 1 : 0, epsEach: 5, color: '#f0f0f0', category: 'cloud' },
+    { label: 'Other SaaS', count: otherSaas, epsEach: 10, color: '#f59e0b', category: 'cloud' },
+  ];
+
+  const activeSources = sources.filter(s => s.count > 0);
+  const totalEps = activeSources.reduce((sum, s) => sum + s.count * s.epsEach, 0);
+
+  // ── Storage ──
+  const bytesPerEvent = 500;
+  const dailyGB = (totalEps * 86400 * bytesPerEvent) / (1024**3);
+  const totalStorageGB = dailyGB * retention;
+
+  // ── Infrastructure sizing ──
+  let tier, cpu, ram, diskCH, diskRP, instanceType, ec2Cost;
+  if (totalEps <= 500) {
+    tier = 'Starter'; cpu = 2; ram = 4; diskCH = 50; diskRP = 20;
+    instanceType = 't3.medium'; ec2Cost = 30;
+  } else if (totalEps <= 2000) {
+    tier = 'Small Business'; cpu = 2; ram = 8; diskCH = 100; diskRP = 30;
+    instanceType = 't3.large'; ec2Cost = 60;
+  } else if (totalEps <= 10000) {
+    tier = 'Mid-Market'; cpu = 4; ram = 16; diskCH = Math.max(200, Math.ceil(totalStorageGB * 1.5));
+    diskRP = 50; instanceType = 't3.xlarge'; ec2Cost = 121;
+  } else if (totalEps <= 50000) {
+    tier = 'Enterprise'; cpu = 8; ram = 32; diskCH = Math.max(500, Math.ceil(totalStorageGB * 1.5));
+    diskRP = 100; instanceType = 'r6g.2xlarge'; ec2Cost = 300;
+  } else {
+    tier = 'Large Enterprise'; cpu = 16; ram = 64; diskCH = Math.max(1000, Math.ceil(totalStorageGB * 1.5));
+    diskRP = 200; instanceType = 'r6g.4xlarge'; ec2Cost = 600;
+  }
+  if (ha) { ec2Cost *= 2; cpu *= 2; ram *= 2; tier += ' (HA)'; }
+
+  const ebsCost = (diskCH + diskRP + 30) * 0.08;
+  const networkCost = Math.max(1, dailyGB * 30 * 0.09); // data transfer
+  const vpnCost = 15; // OPNsense t3.small
+  const aiCost = ai ? 15 : 0; // LLM API estimated
+  const totalInfraCost = ec2Cost + ebsCost + networkCost + vpnCost + aiCost;
+
+  // ── Detection rules ──
+  let ruleCount = 20; let mitre = 15;
+  const ruleCats = [];
+  if (winEndpoints > 0 || winServers > 0) { ruleCount += 12; mitre += 10; ruleCats.push({name:'Windows/Sysmon', count:12, color:'#0078D4'}); }
+  if (linuxServers > 0 || linuxWs > 0 || containers > 0) { ruleCount += 6; mitre += 5; ruleCats.push({name:'Linux/Container', count:6, color:'#2ecc71'}); }
+  if (firewalls > 0) { ruleCount += 7; mitre += 4; ruleCats.push({name:'Firewall/OPNsense', count:7, color:'#32F5E1'}); }
+  if (entra || o365) { ruleCount += 9; mitre += 8; ruleCats.push({name:'Entra ID/O365', count:9, color:'#0078D4'}); }
+  if (useAws) { ruleCount += 5; mitre += 4; ruleCats.push({name:'AWS CloudTrail', count:5, color:'#FF9900'}); }
+  if (ids > 0) { ruleCount += 4; mitre += 3; ruleCats.push({name:'IDS/IPS', count:4, color:'#f45d5d'}); }
+  if (adDCs > 0) { ruleCount += 8; mitre += 6; ruleCats.push({name:'Active Directory', count:8, color:'#3498db'}); }
+  ruleCats.unshift({name:'Base (cross-platform)', count:20, color:'#6B2DBD'});
+
+  const totalAgents = winEndpoints + linuxWs + macOs + winServers + linuxServers;
+
+  // ── Bandwidth ──
+  const bwBps = totalEps * bytesPerEvent;
+  const bwMbps = (bwBps * 8) / (1024 * 1024);
+  const bwPeakMbps = bwMbps * 2;
+
+  // ── Update Summary Bar ──
+  document.getElementById('sz-total-eps').textContent = totalEps.toLocaleString();
+  document.getElementById('sz-daily-gb').textContent = dailyGB.toFixed(1) + ' GB';
+  document.getElementById('sz-total-storage').textContent = Math.ceil(totalStorageGB) + ' GB';
+  document.getElementById('sz-infra-cost').textContent = '$' + Math.round(totalInfraCost) + '/mo';
+
+  // ── Infrastructure ──
+  document.getElementById('sz-tier').textContent = tier;
+  document.getElementById('sz-instance').textContent = instanceType;
+  document.getElementById('sz-cpu').textContent = cpu + ' vCPU';
+  document.getElementById('sz-ram').textContent = ram + ' GB';
+  document.getElementById('sz-disk-ch').textContent = diskCH + ' GB';
+  document.getElementById('sz-disk-rp').textContent = diskRP + ' GB';
+
+  // ── Cost Breakdown ──
+  const costs = [
+    { label: 'EC2 Computacao (' + instanceType + ')', cost: ec2Cost },
+    { label: 'EBS Armazenamento (' + (diskCH+diskRP+30) + ' GB gp3)', cost: ebsCost },
+    { label: 'Transferencia de Dados (~' + (dailyGB*30).toFixed(0) + ' GB/mes)', cost: networkCost },
+    { label: 'Gateway VPN (t3.small)', cost: vpnCost },
+  ];
+  if (ai) costs.push({ label: 'API IA/LLM (estimado)', cost: aiCost });
+  const costEl = document.getElementById('sz-cost-breakdown');
+  costEl.innerHTML = costs.map(c =>
+    `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px">
+      <span style="color:var(--muted)">${c.label}</span>
+      <span style="color:var(--text);font-weight:600">$${Math.round(c.cost)}</span>
+    </div>`
+  ).join('');
+  document.getElementById('sz-infra-total-detail').textContent = '$' + Math.round(totalInfraCost) + '/mo';
+
+  // ── EPS Bars ──
+  const barContainer = document.getElementById('sz-eps-bars');
+  const maxEps = Math.max(...activeSources.map(s => s.count * s.epsEach), 1);
+  barContainer.innerHTML = activeSources.map(s => {
+    const eps = s.count * s.epsEach;
+    const pct = totalEps > 0 ? (eps / totalEps * 100).toFixed(0) : 0;
+    const w = Math.max(1, eps / maxEps * 100);
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <span style="width:130px;font-size:11px;color:var(--muted);text-align:right">${s.label}</span>
+      <div style="flex:1;background:var(--bg);border-radius:3px;height:18px;overflow:hidden">
+        <div style="width:${w}%;height:100%;background:${s.color};border-radius:3px;display:flex;align-items:center;padding-left:6px;min-width:50px">
+          <span style="font-size:10px;font-weight:600;color:#000">${eps.toLocaleString()}</span>
+        </div>
+      </div>
+      <span style="width:35px;text-align:right;font-size:11px;color:var(--muted)">${pct}%</span>
+    </div>`;
+  }).join('');
+
+  // ── Detection ──
+  document.getElementById('sz-rules').textContent = ruleCount;
+  document.getElementById('sz-mitre').textContent = mitre + '+';
+  document.getElementById('sz-agents').textContent = totalAgents > 0 ? totalAgents : '0';
+  document.getElementById('sz-rule-categories').innerHTML = ruleCats.map(c =>
+    `<span style="display:inline-block;margin:2px 4px 2px 0;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;background:${c.color}22;color:${c.color};border:1px solid ${c.color}44">${c.name}: ${c.count}</span>`
+  ).join('');
+
+  // ── Bandwidth ──
+  document.getElementById('sz-bandwidth').textContent = bwMbps < 1 ? (bwMbps * 1024).toFixed(0) + ' Kbps' : bwMbps.toFixed(1) + ' Mbps';
+  document.getElementById('sz-bandwidth-peak').textContent = bwPeakMbps < 1 ? (bwPeakMbps * 1024).toFixed(0) + ' Kbps' : bwPeakMbps.toFixed(1) + ' Mbps';
+
+  // ── Timeline ──
+  const timelineSteps = [
+    { day: 'Dia 1', task: 'Provisionamento de infraestrutura (EC2 + Docker)', done: true },
+    { day: 'Dia 1', task: 'Certificado TLS + configuracao VPN', done: true },
+    { day: 'Dia 2', task: 'Configuracao do coletor + fontes syslog', done: firewalls > 0 },
+    { day: 'Dia 2-3', task: 'Deploy de agentes (' + totalAgents + ' endpoints/servidores)', done: totalAgents > 0 },
+    { day: 'Dia 3', task: 'Integracao cloud (Entra ID, O365, AWS)', done: entra || o365 || useAws },
+    { day: 'Dia 4', task: 'Tuning de regras de deteccao + baseline', done: true },
+    { day: 'Dia 5', task: 'Configuracao de notificacoes (Teams/Slack/Email)', done: true },
+    { day: 'Dia 5', task: 'Handover para SOC + documentacao', done: true },
+    { day: 'Dia 7', task: 'Primeira revisao semanal + tuning de falso positivo', done: true },
+  ].filter(s => s.done);
+  document.getElementById('sz-timeline').innerHTML = timelineSteps.map(s =>
+    `<div style="display:flex;gap:12px;padding:6px 0;border-bottom:1px solid var(--border)">
+      <span style="min-width:60px;font-size:12px;font-weight:600;color:var(--cyan)">${s.day}</span>
+      <span style="font-size:12px;color:var(--text)">${s.task}</span>
+    </div>`
+  ).join('');
+
+  // ── Collector Config ──
+  const cfg = ['# Cyberbox Configuracao do Coletor', ''];
+  cfg.push('COLLECTOR_API_URL=https://siem.<client>.com.br');
+  cfg.push('COLLECTOR_API_KEY=<generated-api-key>');
+  cfg.push('COLLECTOR_TENANT_ID=<client-id>');
+  cfg.push('');
+  if (firewalls > 0 || switches > 0) { cfg.push('# Syslog (firewalls, switches, network devices)'); cfg.push('COLLECTOR_UDP_BIND=0.0.0.0:514'); cfg.push('COLLECTOR_TCP_BIND=0.0.0.0:601'); cfg.push(''); }
+  if (entra || o365) { cfg.push('# Microsoft 365 / Entra ID'); cfg.push('COLLECTOR_O365_ENABLED=true'); cfg.push('COLLECTOR_O365_TENANT_ID=<azure-tenant-id>'); cfg.push('COLLECTOR_O365_CLIENT_ID=<app-client-id>'); cfg.push('COLLECTOR_O365_CLIENT_SECRET=<secret>'); cfg.push('COLLECTOR_O365_CONTENT_TYPES=Audit.AzureActiveDirectory,Audit.Exchange,Audit.SharePoint,Audit.General'); cfg.push(''); }
+  if (useAws) { cfg.push('# AWS CloudTrail'); cfg.push('COLLECTOR_S3_ENABLED=true'); cfg.push('COLLECTOR_S3_BUCKET=<cloudtrail-bucket>'); cfg.push('COLLECTOR_S3_PREFIX=AWSLogs/'); cfg.push(''); }
+  if (okta) { cfg.push('# Okta'); cfg.push('COLLECTOR_OKTA_ENABLED=true'); cfg.push('COLLECTOR_OKTA_DOMAIN=<org>.okta.com'); cfg.push('COLLECTOR_OKTA_API_TOKEN=<token>'); cfg.push(''); }
+  cfg.push('# Performance');
+  cfg.push('COLLECTOR_BATCH_SIZE=' + (totalEps > 5000 ? 1000 : 500));
+  cfg.push('COLLECTOR_FLUSH_MS=' + (totalEps > 5000 ? 500 : 1000));
+  document.getElementById('sz-collector-config').textContent = cfg.join('\n');
+
+  // ── Checklist ──
+  const cl = [];
+  cl.push('━━ FASE 1: Infraestrutura ━━');
+  cl.push('[ ] Provisionar AWS EC2 (' + instanceType + ') na regiao do cliente');
+  cl.push('[ ] Anexar volumes EBS (' + diskCH + ' GB ClickHouse + ' + diskRP + ' GB Redpanda)');
+  cl.push('[ ] Deploy do stack Docker Compose (7 containers)');
+  cl.push('[ ] Configurar certificado TLS (Let\'s Encrypt / Cloudflare)');
+  cl.push('[ ] Configurar VPN WireGuard para acesso de gerenciamento');
+  cl.push('');
+  cl.push('━━ FASE 2: Fontes de Log ━━');
+  if (firewalls > 0) cl.push('[ ] Configurar ' + firewalls + ' firewall(s) syslog → coletor:514 (UDP/TCP)');
+  if (switches > 0) cl.push('[ ] Configurar ' + switches + ' switch(es)/roteador(es) syslog → coletor:514');
+  if (ids > 0) cl.push('[ ] Configurar ' + ids + ' WAF/IDS/IPS syslog → coletor:514');
+  if (vpn > 0) cl.push('[ ] Configurar ' + vpn + ' concentrador(es) VPN syslog → coletor:514');
+  if (wifi > 0) cl.push('[ ] Configurar ' + wifi + ' AP(s) Wi-Fi syslog → coletor:514');
+  if (winEndpoints > 0) cl.push('[ ] Instalar Cyberbox Agent em ' + winEndpoints + ' endpoints Windows (instalador MSI)');
+  if (linuxWs > 0) cl.push('[ ] Instalar Cyberbox Agent em ' + linuxWs + ' estacoes Linux (pacote .deb)');
+  if (macOs > 0) cl.push('[ ] Instalar Cyberbox Agent em ' + macOs + ' endpoints macOS');
+  if (winServers > 0) cl.push('[ ] Instalar Cyberbox Agent em ' + winServers + ' servidores Windows');
+  if (linuxServers > 0) cl.push('[ ] Instalar Cyberbox Agent em ' + linuxServers + ' servidores Linux');
+  if (adDCs > 0) cl.push('[ ] Habilitar Windows Security + Sysmon em ' + adDCs + ' Domain Controller(s)');
+  if (webServers > 0) cl.push('[ ] Configurar logs de acesso em ' + webServers + ' servidor(es) web');
+  if (dbServers > 0) cl.push('[ ] Habilitar log de auditoria em ' + dbServers + ' servidor(es) de banco');
+  if (containers > 0) cl.push('[ ] Deploy do forwarder de log em ' + containers + ' node(s) container');
+  if (entra) { cl.push('[ ] Registrar app Entra ID → conceder AuditLog.Read.All + Directory.Read.All'); cl.push('[ ] Conceder consentimento de admin para permissoes da API'); }
+  if (o365) { cl.push('[ ] Adicionar Office 365 Management API → permissao ActivityFeed.Read'); cl.push('[ ] Habilitar log de auditoria unificado no Microsoft Purview'); }
+  if (useAws) cl.push('[ ] Configurar CloudTrail → bucket S3 + IAM role do coletor');
+  if (okta) cl.push('[ ] Gerar token API do Okta com escopo admin somente leitura');
+  if (gws) cl.push('[ ] Configurar Google Workspace Admin SDK API');
+  cl.push('');
+  cl.push('━━ FASE 3: Validacao ━━');
+  cl.push('[ ] Verificar eventos chegando no Live Tail para cada fonte');
+  cl.push('[ ] Confirmar enriquecimento GeoIP em IPs publicos');
+  cl.push('[ ] Verificar regras de deteccao disparando (pagina de Alertas)');
+  cl.push('[ ] Testar criacao automatica de casos a partir de alertas');
+  cl.push('[ ] Configurar canal de notificacao de alertas (Teams/Slack/Email)');
+  cl.push('[ ] Executar 1 hora de baseline para estabelecer padroes normais');
+  cl.push('');
+  cl.push('━━ FASE 4: Entrega ━━');
+  cl.push('[ ] Treinamento do analista SOC (dashboard, alertas, busca, casos)');
+  cl.push('[ ] Documentar runbooks especificos do cliente');
+  cl.push('[ ] Agendar primeira revisao semanal (Dia 7)');
+  cl.push('[ ] Habilitar relatorio resumo periodico para gestao');
+  document.getElementById('sz-checklist').textContent = cl.join('\n');
+
+  // ── Conformidade ──
+  const comp = [];
+  comp.push({name:'LGPD (Lei 13.709/2018)', covered: true, items:'Exportacao de dados, anonimizacao, relato de incidente, config DPO'});
+  comp.push({name:'PCI DSS v4.0', covered: firewalls > 0 && (winEndpoints > 0 || winServers > 0), items:'Coleta de logs (10.2), monitoramento (10.4), retencao (10.7), FIM'});
+  comp.push({name:'ISO 27001', covered: true, items:'A.12.4 Logging, A.16.1 Gestao de incidentes, A.18.1 Conformidade'});
+  comp.push({name:'BACEN 4893/3909', covered: true, items:'Deteccao de incidentes, trilha de auditoria, protecao de dados'});
+  comp.push({name:'SOC 2 Type II', covered: totalAgents > 0 && firewalls > 0, items:'CC7.2 Monitoramento, CC7.3 Deteccao, CC7.4 Resposta a incidentes'});
+  comp.push({name:'NIST CSF', covered: true, items:'DE.CM (Monitoring), DE.AE (Analysis), RS.AN (Response)'});
+  document.getElementById('sz-compliance').innerHTML = comp.map(c =>
+    `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border)">
+      <span style="font-size:16px">${c.covered ? '✅' : '⚠️'}</span>
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:600;color:${c.covered ? 'var(--accent2)' : 'var(--warn)'}">${c.name}</div>
+        <div style="font-size:11px;color:var(--muted)">${c.items}</div>
+      </div>
+      <span style="font-size:11px;padding:2px 8px;border-radius:8px;background:${c.covered ? 'rgba(0,244,163,0.15)' : 'rgba(50,245,225,0.15)'};color:${c.covered ? 'var(--accent2)' : 'var(--warn)'}">${c.covered ? 'Coberto' : 'Parcial'}</span>
+    </div>`
+  ).join('');
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -1205,6 +1977,8 @@ document.getElementById('calc-date').textContent =
 renderTax();
 calc();
 fetchFX();
+renderFirewalls();
+calcSizing();
 </script>
 </body>
 </html>

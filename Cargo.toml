@@ -44,6 +44,9 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+postgres = { version = "0.19", features = ["with-chrono-0_4", "with-serde_json-1", "with-uuid-1"] }
+r2d2 = "0.8"
+r2d2_postgres = "0.18"
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }

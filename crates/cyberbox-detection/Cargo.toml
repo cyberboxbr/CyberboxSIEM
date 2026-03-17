@@ -7,8 +7,12 @@ license.workspace = true
 [dependencies]
 chrono.workspace = true
 dashmap.workspace = true
+postgres.workspace = true
+r2d2.workspace = true
+r2d2_postgres.workspace = true
 regex.workspace = true
 serde.workspace = true
+tracing.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true
 uuid.workspace = true

@@ -379,9 +379,31 @@ where
             match extract_api_key(&parts.headers) {
                 Some(key) if key == api_key_ext.0 => {
                     debug!("API key authentication successful");
+                    let tenant_id = parts
+                        .headers
+                        .get("x-tenant-id")
+                        .and_then(|v| v.to_str().ok())
+                        .filter(|tenant| !tenant.trim().is_empty())
+                        .map(ToOwned::to_owned)
+                        .unwrap_or_else(|| "default".to_string());
+                    let user_id = parts
+                        .headers
+                        .get("x-agent-id")
+                        .and_then(|v| v.to_str().ok())
+                        .filter(|value| !value.trim().is_empty())
+                        .map(ToOwned::to_owned)
+                        .or_else(|| {
+                            parts
+                                .headers
+                                .get("x-user-id")
+                                .and_then(|v| v.to_str().ok())
+                                .filter(|value| !value.trim().is_empty())
+                                .map(ToOwned::to_owned)
+                        })
+                        .unwrap_or_else(|| "api-key".to_string());
                     AuthContext {
-                        user_id: "api-key".to_string(),
-                        tenant_id: "default".to_string(),
+                        user_id,
+                        tenant_id,
                         roles: vec![Role::Ingestor],
                     }
                 }

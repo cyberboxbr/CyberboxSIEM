@@ -488,31 +488,44 @@ export interface RbacEntry {
 // ── Interfaces: LGPD ───────────────────────────────────────────────────────
 
 export interface LgpdExportInput {
-  subject_identifier: string;
+  subject_id: string;
 }
 
 export interface LgpdExportResponse {
+  controller_name: string;
+  dpo_email: string;
+  legal_basis: string;
+  subject_id: string;
+  tenant_id: string;
+  generated_at: string;
   events: Array<Record<string, unknown>>;
+  total_events: number;
 }
 
 export interface LgpdAnonymizeInput {
-  subject_identifier: string;
-  fields: string[];
+  subject_id: string;
+  before?: string;
 }
 
 export interface LgpdAnonymizeResponse {
-  anonymized_count: number;
+  subject_id: string;
+  tenant_id: string;
+  anonymized_events: number;
 }
 
 export interface LgpdBreachReportInput {
   description: string;
-  affected_subjects_count: number;
   data_categories: string[];
+  estimated_subjects_affected: number;
+  reported_to_anpd?: boolean;
 }
 
 export interface LgpdBreachReportResponse {
-  report_id: string;
-  dpo_notified: boolean;
+  incident_id: string;
+  tenant_id: string;
+  reported_at: string;
+  anpd_notification_deadline: string;
+  reported_to_anpd: boolean;
 }
 
 export interface LgpdConfig {
@@ -993,10 +1006,7 @@ export async function deleteRbacUser(userId: string): Promise<{ deleted: boolean
 // ── LGPD ───────────────────────────────────────────────────────────────────
 
 export async function lgpdExport(input: LgpdExportInput): Promise<LgpdExportResponse> {
-  return apiRequest<LgpdExportResponse>('/api/v1/lgpd/export', {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
+  return apiRequest<LgpdExportResponse>(`/api/v1/lgpd/export${qs({ subject_id: input.subject_id })}`);
 }
 
 export async function lgpdAnonymize(input: LgpdAnonymizeInput): Promise<LgpdAnonymizeResponse> {
@@ -1007,7 +1017,7 @@ export async function lgpdAnonymize(input: LgpdAnonymizeInput): Promise<LgpdAnon
 }
 
 export async function lgpdBreachReport(input: LgpdBreachReportInput): Promise<LgpdBreachReportResponse> {
-  return apiRequest<LgpdBreachReportResponse>('/api/v1/lgpd/breach-report', {
+  return apiRequest<LgpdBreachReportResponse>('/api/v1/lgpd/breach', {
     method: 'POST',
     body: JSON.stringify(input),
   });

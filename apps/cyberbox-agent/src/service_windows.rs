@@ -217,7 +217,11 @@ async fn run_agent(
         let reg_cfg = crate::registration::RegistrationConfig {
             api_url: api_cfg.url.clone(),
             token: api_cfg.token.clone(),
+            enrollment_token: api_cfg.enrollment_token.clone(),
+            agent_secret: api_cfg.agent_secret.clone(),
+            device_certificate: api_cfg.device_certificate.clone(),
             heartbeat_secs: api_cfg.heartbeat_secs,
+            credential_rotation_secs: api_cfg.credential_rotation_secs,
             agent_id: hostname.clone(),
             hostname: hostname.clone(),
             tenant_id: cfg.agent.tenant_id.clone(),

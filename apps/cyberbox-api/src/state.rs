@@ -14,13 +14,15 @@ use cyberbox_core::{
     threatintel::ThreatIntelFeed, AppConfig, CyberboxError, EpsLimiter, GeoIpEnricher, LookupStore,
     TeamsNotifier,
 };
-use cyberbox_detection::{RuleExecutor, SigmaCompiler};
+use cyberbox_detection::{RuleExecutor, SharedCorrelationState, SigmaCompiler};
 use cyberbox_models::{
     AgentRecord, AlertRecord, DetectionMode, DetectionRule, EventEnvelope, SourceInfo,
 };
-use cyberbox_storage::{ClickHouseEventStore, ClickHouseWriteBuffer, InMemoryStore};
+use cyberbox_storage::{
+    ClickHouseEventStore, ClickHouseWriteBuffer, InMemoryStore, WorkflowStore,
+};
 
-use crate::stream::RawEventPublisher;
+use crate::stream::{RawEventPublisher, ReplayRequestPublisher};
 
 /// O(1) event deduplication cache with amortised O(1) eviction.
 ///
@@ -131,9 +133,11 @@ impl StreamRuleCache {
 #[derive(Clone)]
 pub struct AppState {
     pub storage: Arc<InMemoryStore>,
+    pub workflow_store: Arc<WorkflowStore>,
     pub sigma_compiler: SigmaCompiler,
     pub rule_executor: RuleExecutor,
     pub raw_event_publisher: RawEventPublisher,
+    pub replay_request_publisher: ReplayRequestPublisher,
     pub clickhouse_event_store: Option<Arc<ClickHouseEventStore>>,
     pub max_ingest_events_per_request: usize,
     pub max_ingest_body_bytes: usize,
@@ -214,6 +218,10 @@ pub struct AppState {
     pub tenant_id_override: Option<String>,
     /// Static API key for machine-to-machine ingestion. `None` when not configured.
     pub ingest_api_key: Option<String>,
+    /// HMAC secret used to sign and verify agent device certificates.
+    pub agent_device_certificate_signing_secret: String,
+    /// Signed agent device certificate lifetime.
+    pub agent_device_certificate_ttl_secs: u64,
 }
 
 impl AppState {
@@ -244,9 +252,14 @@ impl AppState {
         let defaults = AppConfig::default();
         Self {
             storage: Arc::new(InMemoryStore::default()),
+            workflow_store: Arc::new(
+                WorkflowStore::open_file_blocking(&defaults.state_dir)
+                    .expect("workflow store should initialise"),
+            ),
             sigma_compiler: SigmaCompiler,
             rule_executor: RuleExecutor::default(),
             raw_event_publisher: RawEventPublisher::default(),
+            replay_request_publisher: ReplayRequestPublisher::default(),
             clickhouse_event_store: None,
             max_ingest_events_per_request: defaults.ingest_max_events_per_request.max(1),
             max_ingest_body_bytes: defaults.ingest_max_body_bytes.max(1024),
@@ -285,6 +298,8 @@ impl AppState {
             agents: Arc::new(DashMap::new()),
             tenant_id_override: None,
             ingest_api_key: None,
+            agent_device_certificate_signing_secret: format!("dev-device-cert-{}", Uuid::new_v4()),
+            agent_device_certificate_ttl_secs: defaults.agent_device_certificate_ttl_secs.max(60),
         }
     }
 
@@ -293,11 +308,39 @@ impl AppState {
         config: &AppConfig,
         jwt_validator: Option<Arc<JwtValidator>>,
     ) -> Result<Self, CyberboxError> {
+        let correlation_postgres_url = if config.correlation_state_postgres_url.trim().is_empty() {
+            config.workflow_store_postgres_url.as_str()
+        } else {
+            config.correlation_state_postgres_url.as_str()
+        };
+        let correlation_state = Arc::new(SharedCorrelationState::from_backend(
+            &config.correlation_state_backend,
+            correlation_postgres_url,
+            &config.correlation_state_postgres_schema,
+        )?);
+        let agent_device_certificate_signing_secret =
+            if config.agent_device_certificate_signing_secret.trim().is_empty() {
+                if !config.auth_disabled {
+                    tracing::error!(
+                        "agent_device_certificate_signing_secret is empty but auth is enabled! \
+                         Agent enrollment will use an ephemeral key that is lost on restart. \
+                         Set CYBERBOX__AGENT_DEVICE_CERTIFICATE_SIGNING_SECRET for production."
+                    );
+                }
+                tracing::warn!(
+                    "agent_device_certificate_signing_secret is empty; using an ephemeral dev secret for this process"
+                );
+                format!("dev-device-cert-{}", Uuid::new_v4())
+            } else {
+                config.agent_device_certificate_signing_secret.clone()
+            };
         Ok(Self {
             storage: Arc::new(InMemoryStore::default()),
+            workflow_store: Arc::new(WorkflowStore::from_config(config)?),
             sigma_compiler: SigmaCompiler,
-            rule_executor: RuleExecutor::default(),
+            rule_executor: RuleExecutor::default().with_correlation_state(correlation_state),
             raw_event_publisher: RawEventPublisher::from_config(config)?,
+            replay_request_publisher: ReplayRequestPublisher::from_config(config)?,
             clickhouse_event_store: config.clickhouse_search_enabled.then(|| {
                 Arc::new(
                     ClickHouseEventStore::new(
@@ -394,6 +437,8 @@ impl AppState {
             } else {
                 Some(config.ingest_api_key.clone())
             },
+            agent_device_certificate_signing_secret,
+            agent_device_certificate_ttl_secs: config.agent_device_certificate_ttl_secs.max(60),
         })
     }
 }

@@ -14,6 +14,10 @@ spec:
       app.kubernetes.io/component: clickhouse
   template:
     metadata:
+      {{- if not .Values.secrets.existingSecret }}
+      annotations:
+        checksum/secret: {{ include (print .Template.BasePath "/secret.yaml") . | sha256sum }}
+      {{- end }}
       labels:
         {{- include "cyberbox.labels" . | nindent 8 }}
         app.kubernetes.io/component: clickhouse
@@ -38,7 +42,10 @@ spec:
             - name: CLICKHOUSE_USER
               value: {{ .Values.clickhouse.user | quote }}
             - name: CLICKHOUSE_PASSWORD
-              value: {{ .Values.clickhouse.password | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cyberbox.secretName" . }}
+                  key: CLICKHOUSE_PASSWORD
             - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
               value: "1"
           volumeMounts:

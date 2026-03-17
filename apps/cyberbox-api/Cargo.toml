@@ -18,6 +18,7 @@ dashmap.workspace = true
 futures.workspace = true
 metrics.workspace = true
 metrics-exporter-prometheus.workspace = true
+jsonwebtoken.workspace = true
 rdkafka = { workspace = true, optional = true }
 rayon.workspace = true
 reqwest.workspace = true

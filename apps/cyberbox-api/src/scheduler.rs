@@ -15,7 +15,8 @@ use std::collections::HashMap;
 use chrono::Utc;
 use cyberbox_core::CyberboxError;
 use cyberbox_models::{
-    AlertStatus, CaseRecord, CaseStatus, RuleScheduleConfig, RuleSchedulerHealth, Severity,
+    AlertRecord, AlertStatus, CaseRecord, CaseStatus, RuleScheduleConfig, RuleSchedulerHealth,
+    Severity,
 };
 use cyberbox_storage::{sla_due_at, AlertStore, CaseStore};
 use metrics::gauge;
@@ -29,6 +30,32 @@ const EVENTS_PER_RULE_LIMIT: usize = 500;
 pub struct SchedulerTickResult {
     pub rules_scanned: usize,
     pub alerts_emitted: usize,
+}
+
+async fn persist_alert(state: &AppState, alert: AlertRecord) -> Result<AlertRecord, CyberboxError> {
+    let saved = state.workflow_store.suppress_or_create_alert(alert).await?;
+    if let Err(err) = state.storage.upsert_alert(saved.clone()).await {
+        tracing::warn!(
+            tenant_id = %saved.tenant_id,
+            alert_id = %saved.alert_id,
+            error = %err,
+            "failed to refresh in-memory alert cache after workflow write"
+        );
+    }
+    Ok(saved)
+}
+
+async fn persist_case(state: &AppState, case: CaseRecord) -> Result<CaseRecord, CyberboxError> {
+    let saved = state.workflow_store.upsert_case(case).await?;
+    if let Err(err) = state.storage.upsert_case(saved.clone()).await {
+        tracing::warn!(
+            tenant_id = %saved.tenant_id,
+            case_id = %saved.case_id,
+            error = %err,
+            "failed to refresh in-memory case cache after workflow write"
+        );
+    }
+    Ok(saved)
 }
 
 /// Execute one pass of the scheduled-rule loop.
@@ -94,7 +121,7 @@ pub async fn run_tick(state: &AppState) -> Result<SchedulerTickResult, CyberboxE
                 event,
                 format!("event:{}", event.event_id),
             ) {
-                if let Ok(saved) = state.storage.suppress_or_create_alert(alert).await {
+                if let Ok(saved) = persist_alert(state, alert).await {
                     alerts_emitted += 1;
                     // Broadcast to live alert stream
                     let _ = state.alert_tx.send(saved.clone());
@@ -205,7 +232,7 @@ pub async fn run_tick(state: &AppState) -> Result<SchedulerTickResult, CyberboxE
     let tenants: std::collections::HashSet<String> =
         rules.iter().map(|r| r.tenant_id.clone()).collect();
     for tenant_id in &tenants {
-        if let Ok(breaches) = state.storage.list_sla_breaches(tenant_id).await {
+        if let Ok(breaches) = state.workflow_store.list_sla_breaches(tenant_id).await {
             if !breaches.is_empty() {
                 tracing::warn!(
                     tenant_id = %tenant_id,
@@ -225,7 +252,7 @@ pub async fn run_tick(state: &AppState) -> Result<SchedulerTickResult, CyberboxE
     // that bundles them. This surfaces alert storms without analyst triage.
     const AUTO_GROUP_THRESHOLD: usize = 3;
     for tenant_id in &tenants {
-        if let Ok(alerts) = state.storage.list_alerts(tenant_id).await {
+        if let Ok(alerts) = state.workflow_store.list_alerts(tenant_id).await {
             // Map rule_id → [alert_id] for open/in-progress, non-suppressed alerts.
             let mut by_rule: HashMap<uuid::Uuid, Vec<uuid::Uuid>> = HashMap::new();
             for alert in &alerts {
@@ -244,21 +271,17 @@ pub async fn run_tick(state: &AppState) -> Result<SchedulerTickResult, CyberboxE
 
                 // Check if a case already groups these alerts (by tag "auto:rule:<rule_id>").
                 let tag = format!("auto:rule:{rule_id}");
-                let existing_case =
-                    state
-                        .storage
-                        .list_cases(tenant_id)
-                        .await
-                        .ok()
-                        .and_then(|cases| {
-                            cases.into_iter().find(|c| {
-                                c.tags.contains(&tag)
-                                    && !matches!(
-                                        c.status,
-                                        CaseStatus::Closed | CaseStatus::Resolved
-                                    )
-                            })
-                        });
+                let existing_case = state
+                    .workflow_store
+                    .list_cases(tenant_id)
+                    .await
+                    .ok()
+                    .and_then(|cases| {
+                        cases.into_iter().find(|c| {
+                            c.tags.contains(&tag)
+                                && !matches!(c.status, CaseStatus::Closed | CaseStatus::Resolved)
+                        })
+                    });
 
                 let now_utc = Utc::now();
                 if let Some(mut case) = existing_case {
@@ -272,7 +295,7 @@ pub async fn run_tick(state: &AppState) -> Result<SchedulerTickResult, CyberboxE
                     }
                     if updated {
                         case.updated_at = now_utc;
-                        let _ = state.storage.upsert_case(case).await;
+                        let _ = persist_case(state, case).await;
                     }
                 } else {
                     // Create a new auto-grouped case.
@@ -297,7 +320,7 @@ pub async fn run_tick(state: &AppState) -> Result<SchedulerTickResult, CyberboxE
                         closed_at: None,
                         tags: vec![tag],
                     };
-                    let _ = state.storage.upsert_case(new_case).await;
+                    let _ = persist_case(state, new_case).await;
                     tracing::info!(
                         tenant_id = %tenant_id,
                         rule_id = %rule_id,
@@ -324,20 +347,20 @@ pub async fn run_tick(state: &AppState) -> Result<SchedulerTickResult, CyberboxE
             let mut open_cases = 0usize;
             let mut sla_breaches_count = 0usize;
             for tenant_id in &tenants {
-                if let Ok(alerts) = state.storage.list_alerts(tenant_id).await {
+                if let Ok(alerts) = state.workflow_store.list_alerts(tenant_id).await {
                     total_alerts += alerts.len();
                     open_alerts += alerts
                         .iter()
                         .filter(|a| matches!(a.status, AlertStatus::Open | AlertStatus::InProgress))
                         .count();
                 }
-                if let Ok(cases) = state.storage.list_cases(tenant_id).await {
+                if let Ok(cases) = state.workflow_store.list_cases(tenant_id).await {
                     open_cases += cases
                         .iter()
                         .filter(|c| matches!(c.status, CaseStatus::Open | CaseStatus::InProgress))
                         .count();
                 }
-                if let Ok(b) = state.storage.list_sla_breaches(tenant_id).await {
+                if let Ok(b) = state.workflow_store.list_sla_breaches(tenant_id).await {
                     sla_breaches_count += b.len();
                 }
             }

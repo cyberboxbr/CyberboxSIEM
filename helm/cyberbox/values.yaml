@@ -160,7 +160,7 @@ clickhouse:
   enabled: true
   image: clickhouse/clickhouse-server:24.8
   user: cyberbox
-  password: cyberbox
+  password: ""  # deprecated fallback; prefer secrets.clickhousePassword or secrets.existingSecret
   storage: 100Gi
   storageClass: "gp2"
   resources:
@@ -194,8 +194,20 @@ config:
     oidcIssuer: "https://login.microsoftonline.com/a8014c28-79d4-4695-8890-0ed0bf766668/v2.0"
     oidcAudience: "api://3fd8922e-d137-4d50-b160-b552ceda18c1"
     tenantIdOverride: "safebox"  # single-tenant mode — all data scoped to "safebox"
-    ingestApiKey: "919302f136fc80b561a577491854bfc5a50c9d8489c66ce9f87f11d0ebf67b4d"
+    ingestApiKey: ""  # deprecated fallback; prefer secrets.ingestApiKey or secrets.existingSecret
   epsLimit: 5000  # ~50 hosts × 100 EPS average
+
+# ---------------------------------------------------------------------------
+# Secrets
+# Existing secrets should expose:
+#   CLICKHOUSE_PASSWORD
+#   CYBERBOX__CLICKHOUSE_PASSWORD
+#   CYBERBOX__INGEST_API_KEY
+# ---------------------------------------------------------------------------
+secrets:
+  existingSecret: ""
+  clickhousePassword: ""
+  ingestApiKey: ""
 
 # ---------------------------------------------------------------------------
 # Ingress

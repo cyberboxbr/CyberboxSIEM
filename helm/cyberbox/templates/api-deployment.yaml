@@ -17,6 +17,9 @@ spec:
     metadata:
       annotations:
         checksum/config: {{ include (print .Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if not .Values.secrets.existingSecret }}
+        checksum/secret: {{ include (print .Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
         {{- with .Values.api.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -44,6 +47,8 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "cyberbox.fullname" . }}-config
+            - secretRef:
+                name: {{ include "cyberbox.secretName" . }}
           livenessProbe:
             httpGet:
               path: /healthz

@@ -1,20 +1,21 @@
 use std::time::Duration;
 
 use axum::{routing::get, Router};
-use cyberbox_core::{telemetry, AppConfig};
 #[cfg(feature = "kafka-native")]
-use cyberbox_detection::RuleExecutor;
+use chrono::Utc;
+use cyberbox_core::{telemetry, AppConfig};
 use cyberbox_detection::SigmaCompiler;
 #[cfg(feature = "kafka-native")]
-use cyberbox_models::RuleSchedulerHealth;
+use cyberbox_detection::{RuleExecutor, SharedCorrelationState};
 #[cfg(feature = "kafka-native")]
-use futures::{future::BoxFuture, stream::FuturesUnordered, StreamExt};
+use cyberbox_models::{DlqMessage, ReplayRequest, RuleSchedulerHealth};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
-
 #[cfg(feature = "kafka-native")]
 const NORMALIZED_EVENT_PRODUCER_LABEL: &str = "worker_normalized";
 #[cfg(feature = "kafka-native")]
-type DeliveryTrackerFuture = BoxFuture<'static, DeliveryOutcome>;
+const DLQ_PRODUCER_LABEL: &str = "worker_dlq";
+#[cfg(feature = "kafka-native")]
+const REPLAY_PRODUCER_LABEL: &str = "worker_replay";
 
 #[cfg(feature = "kafka-native")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +25,7 @@ enum WorkerRole {
     StreamDetect,
     Scheduler,
     Sink,
+    Replay,
 }
 
 #[cfg(feature = "kafka-native")]
@@ -37,8 +39,9 @@ impl WorkerRole {
             }
             "scheduler" => Ok(Self::Scheduler),
             "sink" | "clickhouse-sink" | "clickhouse_sink" => Ok(Self::Sink),
+            "replay" => Ok(Self::Replay),
             other => anyhow::bail!(
-                "unsupported worker_role '{}'; expected one of: all, normalizer, stream-detect, scheduler, sink",
+                "unsupported worker_role '{}'; expected one of: all, normalizer, stream-detect, scheduler, sink, replay",
                 other
             ),
         }
@@ -58,6 +61,10 @@ impl WorkerRole {
 
     fn runs_sink(self) -> bool {
         matches!(self, Self::All | Self::Sink)
+    }
+
+    fn runs_replay(self) -> bool {
+        matches!(self, Self::All | Self::Replay)
     }
 
     fn requires_clickhouse(self, config: &AppConfig) -> bool {
@@ -127,20 +134,6 @@ async fn serve_metrics_endpoint(
 }
 
 #[cfg(feature = "kafka-native")]
-#[derive(Clone)]
-struct DeliveryReporter {
-    tx: tokio::sync::mpsc::Sender<TrackedDeliveryFuture>,
-    publisher_label: &'static str,
-    queue_size: usize,
-}
-
-#[cfg(feature = "kafka-native")]
-struct TrackedDeliveryFuture {
-    queued_at: std::time::Instant,
-    delivery_future: rdkafka::producer::future_producer::DeliveryFuture,
-}
-
-#[cfg(feature = "kafka-native")]
 struct DeliveryOutcome {
     duration_seconds: f64,
     state: DeliveryState,
@@ -151,94 +144,6 @@ enum DeliveryState {
     Acked,
     Failed(rdkafka::error::KafkaError),
     Canceled,
-}
-
-#[cfg(feature = "kafka-native")]
-impl DeliveryReporter {
-    fn spawn(publisher_label: &'static str, queue_size: usize) -> Self {
-        let queue_size = queue_size.max(1);
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<TrackedDeliveryFuture>(queue_size);
-        tokio::spawn(async move {
-            let mut in_flight: FuturesUnordered<DeliveryTrackerFuture> = FuturesUnordered::new();
-            loop {
-                tokio::select! {
-                    maybe_tracked = rx.recv() => {
-                        match maybe_tracked {
-                            Some(tracked) => {
-                                in_flight.push(Box::pin(async move {
-                                    let duration_seconds = tracked.queued_at.elapsed().as_secs_f64();
-                                    let state = match tracked.delivery_future.await {
-                                        Ok(Ok((_partition, _offset))) => DeliveryState::Acked,
-                                        Ok(Err((err, _message))) => DeliveryState::Failed(err),
-                                        Err(_canceled) => DeliveryState::Canceled,
-                                    };
-                                    DeliveryOutcome {
-                                        duration_seconds,
-                                        state,
-                                    }
-                                }));
-                            }
-                            None => break,
-                        }
-                    }
-                    maybe_outcome = in_flight.next(), if !in_flight.is_empty() => {
-                        if let Some(outcome) = maybe_outcome {
-                            record_delivery_outcome(publisher_label, outcome);
-                        }
-                    }
-                }
-            }
-
-            while let Some(outcome) = in_flight.next().await {
-                record_delivery_outcome(publisher_label, outcome);
-            }
-        });
-
-        Self {
-            tx,
-            publisher_label,
-            queue_size,
-        }
-    }
-
-    fn track(&self, delivery_future: rdkafka::producer::future_producer::DeliveryFuture) {
-        let queue_depth = self.queue_size.saturating_sub(self.tx.capacity());
-        metrics::gauge!(
-            "kafka_producer_delivery_tracker_queue_depth",
-            "publisher" => self.publisher_label
-        )
-        .set(queue_depth as f64);
-        match self.tx.try_send(TrackedDeliveryFuture {
-            queued_at: std::time::Instant::now(),
-            delivery_future,
-        }) {
-            Ok(()) => {
-                metrics::counter!(
-                    "kafka_producer_delivery_future_enqueued_total",
-                    "publisher" => self.publisher_label
-                )
-                .increment(1);
-            }
-            Err(err) => {
-                let reason = match err {
-                    tokio::sync::mpsc::error::TrySendError::Full(_) => "full",
-                    tokio::sync::mpsc::error::TrySendError::Closed(_) => "closed",
-                };
-                metrics::counter!(
-                    "kafka_producer_delivery_future_drop_total",
-                    "publisher" => self.publisher_label,
-                    "reason" => reason
-                )
-                .increment(1);
-            }
-        }
-        let queue_depth = self.queue_size.saturating_sub(self.tx.capacity());
-        metrics::gauge!(
-            "kafka_producer_delivery_tracker_queue_depth",
-            "publisher" => self.publisher_label
-        )
-        .set(queue_depth as f64);
-    }
 }
 
 #[cfg(feature = "kafka-native")]
@@ -290,13 +195,178 @@ fn delivery_error_kind(err: &rdkafka::error::KafkaError) -> &'static str {
 }
 
 #[cfg(feature = "kafka-native")]
+fn build_shared_correlation_state(
+    config: &AppConfig,
+) -> anyhow::Result<std::sync::Arc<SharedCorrelationState>> {
+    let postgres_url = if config.correlation_state_postgres_url.trim().is_empty() {
+        config.workflow_store_postgres_url.as_str()
+    } else {
+        config.correlation_state_postgres_url.as_str()
+    };
+    let state = SharedCorrelationState::from_backend(
+        &config.correlation_state_backend,
+        postgres_url,
+        &config.correlation_state_postgres_schema,
+    )
+    .map_err(anyhow::Error::msg)?;
+    Ok(std::sync::Arc::new(state))
+}
+
+#[cfg(feature = "kafka-native")]
+fn commit_stage_message(
+    consumer: &rdkafka::consumer::StreamConsumer,
+    msg: &rdkafka::message::BorrowedMessage<'_>,
+    stage: &'static str,
+    reason: &'static str,
+) {
+    use rdkafka::{
+        consumer::{CommitMode, Consumer},
+        message::Message,
+    };
+
+    match consumer.commit_message(msg, CommitMode::Sync) {
+        Ok(()) => {
+            metrics::counter!(
+                "worker_consumer_commit_total",
+                "stage" => stage,
+                "reason" => reason
+            )
+            .increment(1);
+        }
+        Err(err) => {
+            metrics::counter!(
+                "worker_consumer_commit_error_total",
+                "stage" => stage,
+                "reason" => reason
+            )
+            .increment(1);
+            tracing::warn!(
+                stage,
+                reason,
+                topic = msg.topic(),
+                partition = msg.partition(),
+                offset = msg.offset(),
+                error = %err,
+                "failed to commit consumer offset"
+            );
+        }
+    }
+}
+
+#[cfg(feature = "kafka-native")]
+fn build_kafka_producer(
+    config: &AppConfig,
+    context: &'static str,
+) -> anyhow::Result<rdkafka::producer::FutureProducer> {
+    use anyhow::Context;
+    use rdkafka::{config::ClientConfig, producer::FutureProducer};
+
+    ClientConfig::new()
+        .set("bootstrap.servers", &config.redpanda_brokers)
+        .set(
+            "message.timeout.ms",
+            config
+                .kafka_producer_message_timeout_ms
+                .max(1000)
+                .to_string(),
+        )
+        .set("acks", &config.kafka_producer_acks)
+        .set(
+            "enable.idempotence",
+            if config.kafka_producer_enable_idempotence {
+                "true"
+            } else {
+                "false"
+            },
+        )
+        .set(
+            "max.in.flight.requests.per.connection",
+            config
+                .kafka_producer_max_in_flight_requests_per_connection
+                .max(1)
+                .to_string(),
+        )
+        .set("retries", i32::MAX.to_string())
+        .set("linger.ms", "10")
+        .set("batch.num.messages", "10000")
+        .set(
+            "queue.buffering.max.messages",
+            config
+                .kafka_producer_queue_buffering_max_messages
+                .max(1)
+                .to_string(),
+        )
+        .set(
+            "queue.buffering.max.kbytes",
+            config
+                .kafka_producer_queue_buffering_max_kbytes
+                .max(1)
+                .to_string(),
+        )
+        .set("compression.type", "lz4")
+        .create::<FutureProducer>()
+        .with_context(|| format!("failed to create kafka producer for {context}"))
+}
+
+#[cfg(feature = "kafka-native")]
+async fn publish_dlq_message(
+    producer: &rdkafka::producer::FutureProducer,
+    topic: &str,
+    message: &DlqMessage,
+    queue_full_max_retries: u32,
+    queue_full_backoff_ms: u64,
+) -> anyhow::Result<()> {
+    let payload = serde_json::to_vec(message)?;
+    enqueue_with_backpressure(
+        producer,
+        topic,
+        &payload,
+        message.tenant_id.as_deref(),
+        queue_full_max_retries,
+        queue_full_backoff_ms,
+        DLQ_PRODUCER_LABEL,
+    )
+    .await?;
+    Ok(())
+}
+
+#[cfg(feature = "kafka-native")]
+fn make_dlq_message(
+    msg: &rdkafka::message::BorrowedMessage<'_>,
+    stage: &str,
+    reason: &str,
+    tenant_id: Option<String>,
+    error: Option<String>,
+) -> DlqMessage {
+    use rdkafka::message::Message;
+
+    DlqMessage {
+        stage: stage.to_string(),
+        reason: reason.to_string(),
+        source_topic: msg.topic().to_string(),
+        source_partition: msg.partition(),
+        source_offset: msg.offset(),
+        tenant_id,
+        key: msg
+            .key()
+            .map(|key| String::from_utf8_lossy(key).to_string()),
+        payload: msg
+            .payload()
+            .map(|payload| String::from_utf8_lossy(payload).to_string())
+            .unwrap_or_default(),
+        error,
+        captured_at: Utc::now(),
+    }
+}
+
+#[cfg(feature = "kafka-native")]
 async fn enqueue_with_backpressure(
     producer: &rdkafka::producer::FutureProducer,
     topic: &str,
     payload: &[u8],
+    partition_key: Option<&str>,
     queue_full_max_retries: u32,
     queue_full_backoff_ms: u64,
-    delivery_reporter: &DeliveryReporter,
     publisher_label: &'static str,
 ) -> Result<(), rdkafka::error::KafkaError> {
     use rdkafka::{
@@ -316,10 +386,13 @@ async fn enqueue_with_backpressure(
     let mut attempt = 0u32;
     loop {
         attempt += 1;
-        // Keep key unset so librdkafka can spread batches across partitions.
-        match producer.send_result(FutureRecord::<(), _>::to(topic).payload(payload)) {
+        let mut record = FutureRecord::<str, _>::to(topic).payload(payload);
+        if let Some(key) = partition_key {
+            record = record.key(key);
+        }
+
+        match producer.send_result(record) {
             Ok(delivery_future) => {
-                delivery_reporter.track(delivery_future);
                 metrics::counter!(
                     "kafka_producer_enqueue_success_total",
                     "publisher" => publisher_label
@@ -342,7 +415,40 @@ async fn enqueue_with_backpressure(
                     "publisher" => publisher_label
                 )
                 .set(producer.in_flight_count() as f64);
-                return Ok(());
+
+                let delivery_started = std::time::Instant::now();
+                match delivery_future.await {
+                    Ok(Ok((_partition, _offset))) => {
+                        record_delivery_outcome(
+                            publisher_label,
+                            DeliveryOutcome {
+                                duration_seconds: delivery_started.elapsed().as_secs_f64(),
+                                state: DeliveryState::Acked,
+                            },
+                        );
+                        return Ok(());
+                    }
+                    Ok(Err((err, _message))) => {
+                        record_delivery_outcome(
+                            publisher_label,
+                            DeliveryOutcome {
+                                duration_seconds: delivery_started.elapsed().as_secs_f64(),
+                                state: DeliveryState::Failed(err.clone()),
+                            },
+                        );
+                        return Err(err);
+                    }
+                    Err(_canceled) => {
+                        record_delivery_outcome(
+                            publisher_label,
+                            DeliveryOutcome {
+                                duration_seconds: delivery_started.elapsed().as_secs_f64(),
+                                state: DeliveryState::Canceled,
+                            },
+                        );
+                        return Err(rdkafka::error::KafkaError::Canceled);
+                    }
+                }
             }
             Err((err, _msg)) => {
                 let queue_full =
@@ -453,6 +559,20 @@ async fn run_with_kafka(config: &AppConfig, role: WorkerRole) -> anyhow::Result<
 
     let mut tasks = tokio::task::JoinSet::new();
 
+    // Create WorkflowStore for authoritative alert/case persistence
+    let workflow_store: Option<std::sync::Arc<cyberbox_storage::WorkflowStore>> = {
+        match cyberbox_storage::WorkflowStore::from_config(&config) {
+            Ok(ws) => {
+                tracing::info!("worker workflow store initialized");
+                Some(std::sync::Arc::new(ws))
+            }
+            Err(err) => {
+                tracing::warn!(error = %err, "worker workflow store init failed — alerts only persist to ClickHouse");
+                None
+            }
+        }
+    };
+
     if role.runs_normalizer() {
         let normalizer_config = config.clone();
         tasks.spawn(async move { run_normalizer_loop(normalizer_config).await });
@@ -463,8 +583,10 @@ async fn run_with_kafka(config: &AppConfig, role: WorkerRole) -> anyhow::Result<
         let detector_store = clickhouse_store
             .clone()
             .context("stream detection role requires clickhouse store")?;
-        tasks
-            .spawn(async move { run_stream_detection_loop(detector_config, detector_store).await });
+        let detector_wf_store = workflow_store.clone();
+        tasks.spawn(async move {
+            run_stream_detection_loop(detector_config, detector_store, detector_wf_store).await
+        });
     }
 
     if role.runs_scheduler() {
@@ -472,7 +594,10 @@ async fn run_with_kafka(config: &AppConfig, role: WorkerRole) -> anyhow::Result<
         let scheduler_store = clickhouse_store
             .clone()
             .context("scheduler role requires clickhouse store")?;
-        tasks.spawn(async move { run_scheduler_loop(scheduler_config, scheduler_store).await });
+        let scheduler_wf_store = workflow_store.clone();
+        tasks.spawn(async move {
+            run_scheduler_loop(scheduler_config, scheduler_store, scheduler_wf_store).await
+        });
     }
 
     if role.runs_sink() {
@@ -489,6 +614,11 @@ async fn run_with_kafka(config: &AppConfig, role: WorkerRole) -> anyhow::Result<
                 async move { run_clickhouse_sink(sink_config, sink_store, worker_index).await },
             );
         }
+    }
+
+    if role.runs_replay() {
+        let replay_config = config.clone();
+        tasks.spawn(async move { run_replay_loop(replay_config).await });
     }
 
     if tasks.is_empty() {
@@ -537,69 +667,21 @@ async fn run_normalizer_loop(config: AppConfig) -> anyhow::Result<()> {
         config::ClientConfig,
         consumer::{Consumer, StreamConsumer},
         message::Message,
-        producer::FutureProducer,
     };
 
     let group_id = normalizer_group_id(&config);
     let consumer: StreamConsumer = ClientConfig::new()
         .set("group.id", &group_id)
         .set("bootstrap.servers", &config.redpanda_brokers)
-        .set("enable.auto.commit", "true")
+        .set("enable.auto.commit", "false")
+        .set("enable.auto.offset.store", "false")
         .set("session.timeout.ms", "6000")
         .create()
         .context("failed to create raw normalizer consumer")?;
 
-    let producer: FutureProducer = ClientConfig::new()
-        .set("bootstrap.servers", &config.redpanda_brokers)
-        .set(
-            "message.timeout.ms",
-            config
-                .kafka_producer_message_timeout_ms
-                .max(1000)
-                .to_string(),
-        )
-        .set("acks", &config.kafka_producer_acks)
-        .set(
-            "enable.idempotence",
-            if config.kafka_producer_enable_idempotence {
-                "true"
-            } else {
-                "false"
-            },
-        )
-        .set(
-            "max.in.flight.requests.per.connection",
-            config
-                .kafka_producer_max_in_flight_requests_per_connection
-                .max(1)
-                .to_string(),
-        )
-        .set("retries", i32::MAX.to_string())
-        .set("linger.ms", "10")
-        .set("batch.num.messages", "10000")
-        .set(
-            "queue.buffering.max.messages",
-            config
-                .kafka_producer_queue_buffering_max_messages
-                .max(1)
-                .to_string(),
-        )
-        .set(
-            "queue.buffering.max.kbytes",
-            config
-                .kafka_producer_queue_buffering_max_kbytes
-                .max(1)
-                .to_string(),
-        )
-        .set("compression.type", "lz4")
-        .create()
-        .context("failed to create normalized event producer")?;
+    let producer = build_kafka_producer(&config, "normalizer")?;
     let producer_queue_full_max_retries = config.kafka_producer_queue_full_max_retries;
     let producer_queue_full_backoff_ms = config.kafka_producer_queue_full_backoff_ms.max(1);
-    let delivery_reporter = DeliveryReporter::spawn(
-        NORMALIZED_EVENT_PRODUCER_LABEL,
-        config.kafka_producer_delivery_tracker_queue_size,
-    );
 
     let geoip_enricher: Option<cyberbox_core::geoip::GeoIpEnricher> =
         if config.geoip_enabled && !config.geoip_db_path.is_empty() {
@@ -657,30 +739,158 @@ async fn run_normalizer_loop(config: AppConfig) -> anyhow::Result<()> {
                                         &producer,
                                         &config.kafka_normalized_topic,
                                         &normalized_payload,
+                                        Some(normalized.tenant_id.as_str()),
                                         producer_queue_full_max_retries,
                                         producer_queue_full_backoff_ms,
-                                        &delivery_reporter,
                                         NORMALIZED_EVENT_PRODUCER_LABEL,
                                     )
                                     .await
                                     {
+                                        metrics::counter!("worker_normalizer_publish_error_total")
+                                            .increment(1);
                                         tracing::error!(
+                                            tenant_id = %normalized.tenant_id,
                                             error = %err,
                                             "failed to publish normalized event"
+                                        );
+                                        let dlq_message = make_dlq_message(
+                                            &msg,
+                                            "normalizer",
+                                            "publish_error",
+                                            Some(normalized.tenant_id.clone()),
+                                            Some(err.to_string()),
+                                        );
+                                        match publish_dlq_message(
+                                            &producer,
+                                            &config.kafka_normalized_dlq_topic,
+                                            &dlq_message,
+                                            producer_queue_full_max_retries,
+                                            producer_queue_full_backoff_ms,
+                                        )
+                                        .await
+                                        {
+                                            Ok(()) => {
+                                                commit_stage_message(
+                                                    &consumer,
+                                                    &msg,
+                                                    "normalizer",
+                                                    "publish_dlq",
+                                                );
+                                            }
+                                            Err(dlq_err) => {
+                                                tracing::error!(
+                                                    error = %dlq_err,
+                                                    "failed to publish normalizer DLQ message"
+                                                );
+                                            }
+                                        }
+                                    } else {
+                                        commit_stage_message(
+                                            &consumer,
+                                            &msg,
+                                            "normalizer",
+                                            "success",
                                         );
                                     }
                                 }
                                 Err(err) => {
+                                    metrics::counter!("worker_normalizer_serialize_error_total")
+                                        .increment(1);
                                     tracing::error!(
                                         error = %err,
                                         "failed to serialize normalized event"
                                     );
+                                    let dlq_message = make_dlq_message(
+                                        &msg,
+                                        "normalizer",
+                                        "serialize_error",
+                                        Some(normalized.tenant_id.clone()),
+                                        Some(err.to_string()),
+                                    );
+                                    match publish_dlq_message(
+                                        &producer,
+                                        &config.kafka_raw_dlq_topic,
+                                        &dlq_message,
+                                        producer_queue_full_max_retries,
+                                        producer_queue_full_backoff_ms,
+                                    )
+                                    .await
+                                    {
+                                        Ok(()) => {
+                                            commit_stage_message(
+                                                &consumer,
+                                                &msg,
+                                                "normalizer",
+                                                "serialize_dlq",
+                                            );
+                                        }
+                                        Err(dlq_err) => {
+                                            tracing::error!(
+                                                error = %dlq_err,
+                                                "failed to publish normalizer serialize DLQ message"
+                                            );
+                                        }
+                                    }
                                 }
                             }
                         }
                         Err(err) => {
                             metrics::counter!("worker_normalizer_decode_error_total").increment(1);
                             tracing::warn!(error = %err, "failed to decode raw event payload");
+                            let dlq_message = make_dlq_message(
+                                &msg,
+                                "normalizer",
+                                "decode_error",
+                                None,
+                                Some(err.to_string()),
+                            );
+                            match publish_dlq_message(
+                                &producer,
+                                &config.kafka_raw_dlq_topic,
+                                &dlq_message,
+                                producer_queue_full_max_retries,
+                                producer_queue_full_backoff_ms,
+                            )
+                            .await
+                            {
+                                Ok(()) => {
+                                    commit_stage_message(
+                                        &consumer,
+                                        &msg,
+                                        "normalizer",
+                                        "decode_dlq",
+                                    );
+                                }
+                                Err(dlq_err) => {
+                                    tracing::error!(
+                                        error = %dlq_err,
+                                        "failed to publish normalizer decode DLQ message"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    metrics::counter!("worker_normalizer_empty_payload_total").increment(1);
+                    let dlq_message =
+                        make_dlq_message(&msg, "normalizer", "empty_payload", None, None);
+                    match publish_dlq_message(
+                        &producer,
+                        &config.kafka_raw_dlq_topic,
+                        &dlq_message,
+                        producer_queue_full_max_retries,
+                        producer_queue_full_backoff_ms,
+                    )
+                    .await
+                    {
+                        Ok(()) => {
+                            commit_stage_message(&consumer, &msg, "normalizer", "empty_dlq");
+                        }
+                        Err(dlq_err) => {
+                            tracing::error!(
+                                error = %dlq_err,
+                                "failed to publish normalizer empty-payload DLQ message"
+                            );
                         }
                     }
                 }
@@ -698,10 +908,12 @@ async fn run_normalizer_loop(config: AppConfig) -> anyhow::Result<()> {
 async fn run_stream_detection_loop(
     config: AppConfig,
     clickhouse_store: cyberbox_storage::ClickHouseEventStore,
+    workflow_store: Option<std::sync::Arc<cyberbox_storage::WorkflowStore>>,
 ) -> anyhow::Result<()> {
     use anyhow::Context;
     use cyberbox_core::TeamsNotifier;
     use cyberbox_models::EventEnvelope;
+    use cyberbox_storage::AlertStore;
     use futures::StreamExt;
     use rdkafka::{
         config::ClientConfig,
@@ -714,7 +926,8 @@ async fn run_stream_detection_loop(
     let consumer: StreamConsumer = ClientConfig::new()
         .set("group.id", &group_id)
         .set("bootstrap.servers", &config.redpanda_brokers)
-        .set("enable.auto.commit", "true")
+        .set("enable.auto.commit", "false")
+        .set("enable.auto.offset.store", "false")
         .set("session.timeout.ms", "6000")
         .create()
         .context("failed to create stream detection consumer")?;
@@ -728,11 +941,22 @@ async fn run_stream_detection_loop(
     );
 
     let teams_notifier = TeamsNotifier::from_config(&config);
-    // Per-partition RuleExecutor map: aggregate/temporal state is fully isolated per
-    // Kafka partition, so events for the same group_by field always land on the same
-    // RuleExecutor (Kafka key-based partitioning guarantees this).  Zero cross-partition
-    // contention on agg_buffers under concurrent consumption.
-    let mut executors_by_partition: std::collections::HashMap<i32, RuleExecutor> =
+    let dlq_producer = build_kafka_producer(&config, "stream-detect-dlq")?;
+    let producer_queue_full_max_retries = config.kafka_producer_queue_full_max_retries;
+    let producer_queue_full_backoff_ms = config.kafka_producer_queue_full_backoff_ms.max(1);
+    let distributed_correlation_state = matches!(
+        config.correlation_state_backend.trim().to_ascii_lowercase().as_str(),
+        "postgres"
+    )
+    .then(|| build_shared_correlation_state(&config))
+    .transpose()?;
+    // Keep correlation state separate from executor instances so rule-cache refreshes
+    // and executor recreation do not throw away in-flight aggregate / near windows.
+    let mut correlation_state_by_tenant: std::collections::HashMap<
+        String,
+        std::sync::Arc<SharedCorrelationState>,
+    > = std::collections::HashMap::new();
+    let mut executors_by_tenant: std::collections::HashMap<String, RuleExecutor> =
         std::collections::HashMap::new();
     let refresh_interval_seconds = config.stream_rule_cache_refresh_interval_seconds.max(1);
     let mut stream_rule_refresh_interval =
@@ -763,71 +987,228 @@ async fn run_stream_detection_loop(
             maybe_message = stream.next() => {
                 match maybe_message {
                     Some(Ok(msg)) => {
-                        if let Some(payload) = msg.payload() {
-                            match serde_json::from_slice::<EventEnvelope>(payload) {
-                                Ok(normalized) => {
-                                    if let Some(rules) = stream_rules_by_tenant.get(&normalized.tenant_id) {
-                                        // Route to the partition-local executor so that aggregate
-                                        // and temporal buffers are never shared across partitions.
-                                        let partition = msg.partition();
-                                        let executor = executors_by_partition
-                                            .entry(partition)
-                                            .or_insert_with(RuleExecutor::default);
-                                        for rule in rules {
-                                            let result = executor.evaluate(rule, &normalized);
-                                            if !result.matched {
-                                                continue;
-                                            }
+                        let Some(payload) = msg.payload() else {
+                            metrics::counter!("stream_detect_empty_payload_total").increment(1);
+                            let dlq_message =
+                                make_dlq_message(&msg, "stream_detect", "empty_payload", None, None);
+                            match publish_dlq_message(
+                                &dlq_producer,
+                                &config.kafka_normalized_dlq_topic,
+                                &dlq_message,
+                                producer_queue_full_max_retries,
+                                producer_queue_full_backoff_ms,
+                            )
+                            .await
+                            {
+                                Ok(()) => {
+                                    commit_stage_message(
+                                        &consumer,
+                                        &msg,
+                                        "stream_detect",
+                                        "empty_dlq",
+                                    );
+                                }
+                                Err(dlq_err) => {
+                                    tracing::error!(
+                                        error = %dlq_err,
+                                        "failed to publish stream-detect empty-payload DLQ message"
+                                    );
+                                }
+                            }
+                            continue;
+                        };
 
-                                            metrics::counter!(
-                                                "stream_rule_match_count",
-                                                "tenant_id" => normalized.tenant_id.clone(),
-                                                "rule_id" => rule.rule_id.to_string()
-                                            )
-                                            .increment(1);
-
-                                            if let Some(alert) = executor.maybe_build_alert(
-                                                rule,
-                                                &normalized,
-                                                format!("event:{}", normalized.event_id),
-                                            ) {
-                                                let mut alert = alert;
-                                                match teams_notifier.send_alert(&alert).await {
-                                                    Ok(()) => {
-                                                        alert.routing_state.last_routed_at =
-                                                            Some(chrono::Utc::now());
-                                                    }
-                                                    Err(err) => {
-                                                        tracing::warn!(
-                                                            tenant_id = %normalized.tenant_id,
-                                                            rule_id = %rule.rule_id,
-                                                            event_id = %normalized.event_id,
-                                                            error = %err,
-                                                            "teams alert routing failed"
-                                                        );
-                                                    }
-                                                }
-                                                if let Err(err) = cyberbox_storage::AlertStore::suppress_or_create_alert(
-                                                    &clickhouse_store,
-                                                    alert,
-                                                )
-                                                .await
-                                                {
-                                                    tracing::error!(
-                                                        tenant_id = %normalized.tenant_id,
-                                                        rule_id = %rule.rule_id,
-                                                        event_id = %normalized.event_id,
-                                                        error = %err,
-                                                        "failed to persist stream detection alert"
-                                                    );
-                                                }
-                                            }
-                                        }
+                        let normalized = match serde_json::from_slice::<EventEnvelope>(payload) {
+                            Ok(normalized) => normalized,
+                            Err(err) => {
+                                metrics::counter!("stream_detect_decode_error_total").increment(1);
+                                tracing::warn!(error = %err, "failed to decode normalized event payload");
+                                let dlq_message = make_dlq_message(
+                                    &msg,
+                                    "stream_detect",
+                                    "decode_error",
+                                    None,
+                                    Some(err.to_string()),
+                                );
+                                match publish_dlq_message(
+                                    &dlq_producer,
+                                    &config.kafka_normalized_dlq_topic,
+                                    &dlq_message,
+                                    producer_queue_full_max_retries,
+                                    producer_queue_full_backoff_ms,
+                                )
+                                .await
+                                {
+                                    Ok(()) => {
+                                        commit_stage_message(
+                                            &consumer,
+                                            &msg,
+                                            "stream_detect",
+                                            "decode_dlq",
+                                        );
+                                    }
+                                    Err(dlq_err) => {
+                                        tracing::error!(
+                                            error = %dlq_err,
+                                            "failed to publish stream-detect decode DLQ message"
+                                        );
                                     }
                                 }
-                                Err(err) => {
-                                    metrics::counter!("stream_detect_decode_error_total").increment(1);
-                                    tracing::warn!(error = %err, "failed to decode normalized event payload");
+                                continue;
+                            }
+                        };
+
+                        let processing_result = async {
+                            let pending_alerts = if let Some(rules) =
+                                stream_rules_by_tenant.get(&normalized.tenant_id).cloned()
+                            {
+                                let executor = executors_by_tenant
+                                    .entry(normalized.tenant_id.clone())
+                                    .or_insert_with(|| {
+                                        let shared_state = if let Some(shared_state) =
+                                            distributed_correlation_state.as_ref()
+                                        {
+                                            shared_state.clone()
+                                        } else {
+                                            correlation_state_by_tenant
+                                                .entry(normalized.tenant_id.clone())
+                                                .or_insert_with(|| {
+                                                    std::sync::Arc::new(
+                                                        SharedCorrelationState::new(),
+                                                    )
+                                                })
+                                                .clone()
+                                        };
+                                        RuleExecutor::default()
+                                            .with_correlation_state(shared_state)
+                                    });
+                                let mut pending_alerts = Vec::new();
+
+                                for rule in &rules {
+                                    let result = executor.evaluate(rule, &normalized);
+                                    if !result.matched {
+                                        continue;
+                                    }
+
+                                    metrics::counter!(
+                                        "stream_rule_match_count",
+                                        "tenant_id" => normalized.tenant_id.clone(),
+                                        "rule_id" => rule.rule_id.to_string()
+                                    )
+                                    .increment(1);
+
+                                    if let Some(alert) = executor.maybe_build_alert(
+                                        rule,
+                                        &normalized,
+                                        format!("event:{}", normalized.event_id),
+                                    ) {
+                                        pending_alerts.push((rule.rule_id, alert));
+                                    }
+                                }
+
+                                pending_alerts
+                            } else {
+                                Vec::new()
+                            };
+
+                            for (rule_id, alert) in pending_alerts {
+                                let alert_payload = serde_json::to_string(&alert)
+                                    .unwrap_or_else(|_| "{}".to_string());
+                                let saved_alert = match clickhouse_store
+                                    .suppress_or_create_alert(alert)
+                                    .await
+                                {
+                                    Ok(saved_alert) => saved_alert,
+                                    Err(err) => {
+                                        return Err(DlqMessage {
+                                            stage: "stream_detect".to_string(),
+                                            reason: "alert_persist_error".to_string(),
+                                            source_topic: msg.topic().to_string(),
+                                            source_partition: msg.partition(),
+                                            source_offset: msg.offset(),
+                                            tenant_id: Some(normalized.tenant_id.clone()),
+                                            key: msg
+                                                .key()
+                                                .map(|key| String::from_utf8_lossy(key).to_string()),
+                                            payload: alert_payload,
+                                            error: Some(err.to_string()),
+                                            captured_at: Utc::now(),
+                                        });
+                                    }
+                                };
+                                // Also persist to WorkflowStore (authoritative)
+                                if let Some(ref wf) = workflow_store {
+                                    if let Err(e) = wf.upsert_alert(saved_alert.clone()).await {
+                                        tracing::warn!(
+                                            rule_id = %rule_id,
+                                            error = %e,
+                                            "failed to persist alert to workflow store"
+                                        );
+                                    }
+                                }
+                                match teams_notifier.send_alert(&saved_alert).await {
+                                    Ok(()) => {
+                                        let mut routed_alert = saved_alert.clone();
+                                        routed_alert.routing_state.last_routed_at =
+                                            Some(chrono::Utc::now());
+                                        if let Err(err) =
+                                            clickhouse_store.upsert_alert(routed_alert).await
+                                        {
+                                            tracing::warn!(
+                                                tenant_id = %normalized.tenant_id,
+                                                rule_id = %rule_id,
+                                                alert_id = %saved_alert.alert_id,
+                                                error = %err,
+                                                "failed to persist stream detection routing state update"
+                                            );
+                                        }
+                                    }
+                                    Err(err) => {
+                                        tracing::warn!(
+                                            tenant_id = %normalized.tenant_id,
+                                            rule_id = %rule_id,
+                                            event_id = %normalized.event_id,
+                                            error = %err,
+                                            "teams alert routing failed"
+                                        );
+                                    }
+                                }
+                            }
+
+                            Ok::<(), DlqMessage>(())
+                        }
+                        .await;
+
+                        match processing_result {
+                            Ok(()) => {
+                                commit_stage_message(&consumer, &msg, "stream_detect", "success");
+                            }
+                            Err(dlq_message) => {
+                                metrics::counter!("stream_detect_persist_error_total").increment(1);
+                                tracing::error!(tenant_id = %normalized.tenant_id, event_id = %normalized.event_id, reason = %dlq_message.reason, "failed to persist stream detection result");
+                                match publish_dlq_message(
+                                    &dlq_producer,
+                                    &config.kafka_alerts_dlq_topic,
+                                    &dlq_message,
+                                    producer_queue_full_max_retries,
+                                    producer_queue_full_backoff_ms,
+                                )
+                                .await
+                                {
+                                    Ok(()) => {
+                                        commit_stage_message(
+                                            &consumer,
+                                            &msg,
+                                            "stream_detect",
+                                            "alert_dlq",
+                                        );
+                                    }
+                                    Err(dlq_err) => {
+                                        tracing::error!(
+                                            error = %dlq_err,
+                                            "failed to publish stream-detect alert DLQ message"
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -847,9 +1228,9 @@ async fn run_stream_detection_loop(
                         metrics::gauge!("stream_rule_cache_rule_count")
                             .set(rules.values().map(std::vec::Vec::len).sum::<usize>() as f64);
                         stream_rules_by_tenant = rules;
-                        // Invalidate plan caches on all partition executors so the next
+                        // Invalidate plan caches on all tenant executors so the next
                         // evaluate() call picks up the refreshed compiled plans.
-                        for exec in executors_by_partition.values() {
+                        for exec in executors_by_tenant.values() {
                             exec.invalidate_all();
                         }
                     }
@@ -867,12 +1248,15 @@ async fn run_stream_detection_loop(
 async fn run_scheduler_loop(
     config: AppConfig,
     clickhouse_store: cyberbox_storage::ClickHouseEventStore,
+    workflow_store: Option<std::sync::Arc<cyberbox_storage::WorkflowStore>>,
 ) -> anyhow::Result<()> {
     use cyberbox_core::TeamsNotifier;
     use std::collections::HashMap;
 
-    let rule_executor = RuleExecutor::default();
+    let shared_correlation_state = build_shared_correlation_state(&config)?;
+    let rule_executor = RuleExecutor::default().with_correlation_state(shared_correlation_state);
     let teams_notifier = TeamsNotifier::from_config(&config);
+    let dlq_producer = build_kafka_producer(&config, "scheduler-dlq")?;
 
     // Restore watermarks persisted by previous runs so we resume from exactly
     // where we left off instead of re-scanning the fixed lookback window.
@@ -906,12 +1290,130 @@ async fn run_scheduler_loop(
             &clickhouse_store,
             &rule_executor,
             &teams_notifier,
+            &dlq_producer,
             &mut last_run_by_rule,
             &mut health_by_rule,
         )
         .await
         {
             tracing::error!(error = %err, "scheduled detection tick failed");
+        }
+    }
+}
+
+#[cfg(feature = "kafka-native")]
+async fn run_replay_loop(config: AppConfig) -> anyhow::Result<()> {
+    use anyhow::Context;
+    use futures::StreamExt;
+    use rdkafka::{
+        config::ClientConfig,
+        consumer::{Consumer, StreamConsumer},
+        message::Message,
+    };
+
+    let group_id = format!("{}-replay", config.kafka_worker_group_id);
+    let consumer: StreamConsumer = ClientConfig::new()
+        .set("group.id", &group_id)
+        .set("bootstrap.servers", &config.redpanda_brokers)
+        .set("enable.auto.commit", "false")
+        .set("enable.auto.offset.store", "false")
+        .set("session.timeout.ms", "6000")
+        .create()
+        .context("failed to create replay consumer")?;
+    let producer = build_kafka_producer(&config, "replay")?;
+    let dlq_producer = build_kafka_producer(&config, "replay-dlq")?;
+    let producer_queue_full_max_retries = config.kafka_producer_queue_full_max_retries;
+    let producer_queue_full_backoff_ms = config.kafka_producer_queue_full_backoff_ms.max(1);
+
+    consumer.subscribe(&[&config.kafka_replay_topic])?;
+    tracing::info!(
+        group_id = %group_id,
+        replay_topic = %config.kafka_replay_topic,
+        "replay worker subscribed"
+    );
+
+    let mut stream = consumer.stream();
+    loop {
+        match stream.next().await {
+            Some(Ok(msg)) => {
+                let Some(payload) = msg.payload() else {
+                    commit_stage_message(&consumer, &msg, "replay", "empty_skip");
+                    continue;
+                };
+
+                let request = match serde_json::from_slice::<ReplayRequest>(payload) {
+                    Ok(request) => request,
+                    Err(err) => {
+                        let dlq_message = make_dlq_message(
+                            &msg,
+                            "replay",
+                            "decode_error",
+                            None,
+                            Some(err.to_string()),
+                        );
+                        if publish_dlq_message(
+                            &dlq_producer,
+                            &config.kafka_replay_dlq_topic,
+                            &dlq_message,
+                            producer_queue_full_max_retries,
+                            producer_queue_full_backoff_ms,
+                        )
+                        .await
+                        .is_ok()
+                        {
+                            commit_stage_message(&consumer, &msg, "replay", "decode_dlq");
+                        }
+                        continue;
+                    }
+                };
+
+                match enqueue_with_backpressure(
+                    &producer,
+                    &request.target_topic,
+                    request.payload.as_bytes(),
+                    request.key.as_deref(),
+                    producer_queue_full_max_retries,
+                    producer_queue_full_backoff_ms,
+                    REPLAY_PRODUCER_LABEL,
+                )
+                .await
+                {
+                    Ok(()) => {
+                        commit_stage_message(&consumer, &msg, "replay", "success");
+                    }
+                    Err(err) => {
+                        let dlq_message = DlqMessage {
+                            stage: "replay".to_string(),
+                            reason: "publish_error".to_string(),
+                            source_topic: config.kafka_replay_topic.clone(),
+                            source_partition: msg.partition(),
+                            source_offset: msg.offset(),
+                            tenant_id: request.key.clone(),
+                            key: request.key.clone(),
+                            payload: request.payload,
+                            error: Some(err.to_string()),
+                            captured_at: Utc::now(),
+                        };
+                        if publish_dlq_message(
+                            &dlq_producer,
+                            &config.kafka_replay_dlq_topic,
+                            &dlq_message,
+                            producer_queue_full_max_retries,
+                            producer_queue_full_backoff_ms,
+                        )
+                        .await
+                        .is_ok()
+                        {
+                            commit_stage_message(&consumer, &msg, "replay", "publish_dlq");
+                        }
+                    }
+                }
+            }
+            Some(Err(err)) => tracing::error!(error = %err, "replay consumer error"),
+            None => {
+                tracing::warn!("replay consumer ended unexpectedly; sleeping before retry");
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
         }
     }
 }
@@ -939,6 +1441,7 @@ async fn run_scheduled_detection_tick(
     clickhouse_store: &cyberbox_storage::ClickHouseEventStore,
     rule_executor: &RuleExecutor,
     teams_notifier: &cyberbox_core::TeamsNotifier,
+    dlq_producer: &rdkafka::producer::FutureProducer,
     last_run_by_rule: &mut std::collections::HashMap<uuid::Uuid, chrono::DateTime<chrono::Utc>>,
     health_by_rule: &mut std::collections::HashMap<(String, uuid::Uuid), RuleSchedulerHealth>,
 ) -> anyhow::Result<()> {
@@ -952,7 +1455,7 @@ async fn run_scheduled_detection_tick(
         return Ok(());
     }
 
-    const EVENTS_PER_RULE_LIMIT: u64 = 500;
+    const SCHEDULER_EVENT_PAGE_SIZE: u64 = 500;
     const DEFAULT_RULE_INTERVAL_SECONDS: u32 = 30;
     const DEFAULT_RULE_LOOKBACK_SECONDS: u32 = 300;
 
@@ -1026,49 +1529,128 @@ async fn run_scheduled_detection_tick(
         // On the very first run (no watermark) we fall back to the rule's
         // configured lookback_seconds so we don't cold-start with zero history.
         let watermark_start = last_run_by_rule.get(&rule.rule_id).copied();
+        let window_start = watermark_start.unwrap_or_else(|| {
+            now - chrono::Duration::seconds(i64::from(schedule.lookback_seconds))
+        });
         let execution_result = async {
-            let events = if let Some(from) = watermark_start {
-                clickhouse_store
-                    .list_events_in_range(&rule.tenant_id, from, now, EVENTS_PER_RULE_LIMIT)
-                    .await?
-            } else {
-                clickhouse_store
-                    .list_recent_events(
+            let mut cursor: Option<(chrono::DateTime<Utc>, uuid::Uuid)> = None;
+            loop {
+                let events = clickhouse_store
+                    .list_events_in_range_after_cursor(
                         &rule.tenant_id,
-                        schedule.lookback_seconds as u64,
-                        EVENTS_PER_RULE_LIMIT,
+                        window_start,
+                        now,
+                        cursor,
+                        SCHEDULER_EVENT_PAGE_SIZE,
                     )
-                    .await?
-            };
-            for event in events {
-                let result = rule_executor.evaluate(&rule, &event);
-                if !result.matched {
-                    continue;
+                    .await?;
+                if events.is_empty() {
+                    break;
                 }
-                matches_for_rule += 1;
 
-                if let Some(alert) = rule_executor.maybe_build_alert(
-                    &rule,
-                    &event,
-                    format!("event:{}", event.event_id),
-                ) {
-                    let mut alert = alert;
-                    match teams_notifier.send_alert(&alert).await {
-                        Ok(()) => {
-                            alert.routing_state.last_routed_at = Some(Utc::now());
+                metrics::counter!(
+                    "scheduler_rule_page_count",
+                    "tenant_id" => tenant_label.clone(),
+                    "rule_id" => rule_id_label.clone()
+                )
+                .increment(1);
+
+                let page_exhausted = events.len() < SCHEDULER_EVENT_PAGE_SIZE as usize;
+                cursor = events
+                    .last()
+                    .map(|event| (event.event_time, event.event_id));
+
+                for event in events {
+                    let result = rule_executor.evaluate(&rule, &event);
+                    if !result.matched {
+                        continue;
+                    }
+                    matches_for_rule += 1;
+
+                    if let Some(alert) = rule_executor.maybe_build_alert(
+                        &rule,
+                        &event,
+                        format!("event:{}", event.event_id),
+                    ) {
+                        let alert_payload =
+                            serde_json::to_string(&alert).unwrap_or_else(|_| "{}".to_string());
+                        let saved_alert =
+                            match clickhouse_store.suppress_or_create_alert(alert).await {
+                                Ok(saved_alert) => saved_alert,
+                                Err(err) => {
+                                    let dlq_message = DlqMessage {
+                                        stage: "scheduler".to_string(),
+                                        reason: "alert_persist_error".to_string(),
+                                        source_topic: config.kafka_alerts_topic.clone(),
+                                        source_partition: -1,
+                                        source_offset: -1,
+                                        tenant_id: Some(rule.tenant_id.clone()),
+                                        key: Some(rule.tenant_id.clone()),
+                                        payload: alert_payload,
+                                        error: Some(err.to_string()),
+                                        captured_at: Utc::now(),
+                                    };
+                                    if let Err(dlq_err) = publish_dlq_message(
+                                        dlq_producer,
+                                        &config.kafka_alerts_dlq_topic,
+                                        &dlq_message,
+                                        config.kafka_producer_queue_full_max_retries,
+                                        config.kafka_producer_queue_full_backoff_ms.max(1),
+                                    )
+                                    .await
+                                    {
+                                        tracing::error!(
+                                            tenant_id = %rule.tenant_id,
+                                            rule_id = %rule.rule_id,
+                                            error = %dlq_err,
+                                            "failed to publish scheduler alert DLQ message"
+                                        );
+                                    }
+                                    continue;
+                                }
+                            };
+                        alerts_emitted += 1;
+                        // Also persist to WorkflowStore (authoritative)
+                        if let Some(ref wf) = workflow_store {
+                            if let Err(e) = wf.upsert_alert(saved_alert.clone()).await {
+                                tracing::warn!(
+                                    rule_id = %rule.rule_id,
+                                    error = %e,
+                                    "failed to persist scheduler alert to workflow store"
+                                );
+                            }
                         }
-                        Err(err) => {
-                            tracing::warn!(
-                                tenant_id = %rule.tenant_id,
-                                rule_id = %rule.rule_id,
-                                event_id = %event.event_id,
-                                error = %err,
-                                "teams alert routing failed"
-                            );
+
+                        match teams_notifier.send_alert(&saved_alert).await {
+                            Ok(()) => {
+                                let mut routed_alert = saved_alert.clone();
+                                routed_alert.routing_state.last_routed_at = Some(Utc::now());
+                                if let Err(err) = clickhouse_store.upsert_alert(routed_alert).await
+                                {
+                                    tracing::warn!(
+                                        tenant_id = %rule.tenant_id,
+                                        rule_id = %rule.rule_id,
+                                        alert_id = %saved_alert.alert_id,
+                                        error = %err,
+                                        "failed to persist scheduled detection routing state update"
+                                    );
+                                }
+                            }
+                            Err(err) => {
+                                tracing::warn!(
+                                    tenant_id = %rule.tenant_id,
+                                    rule_id = %rule.rule_id,
+                                    event_id = %event.event_id,
+                                    error = %err,
+                                    "teams alert routing failed"
+                                );
+                            }
                         }
                     }
-                    clickhouse_store.suppress_or_create_alert(alert).await?;
-                    alerts_emitted += 1;
+                }
+
+                if page_exhausted {
+                    break;
                 }
             }
             Ok::<(), anyhow::Error>(())

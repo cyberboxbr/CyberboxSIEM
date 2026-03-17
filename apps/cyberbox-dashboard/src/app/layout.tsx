@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import Link from "next/link";
+import { previewTenant } from "@/lib/api";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "CyberboxSIEM",
-  description: "Security Information and Event Management Dashboard",
+  title: "Cyberbox Dashboard Preview",
+  description: "Internal preview console for the Cyberbox SIEM API",
 };
 
 const nav = [
@@ -19,30 +20,37 @@ const nav = [
   { href: "/coverage", label: "ATT&CK Coverage" },
 ];
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
     <html lang="en">
       <body className={inter.className}>
         <div className="flex h-screen bg-gray-950 text-gray-100">
-          <aside className="w-56 shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col">
-            <div className="px-4 py-5 border-b border-gray-800">
-              <span className="text-blue-400 font-bold text-lg tracking-tight">
-                CyberboxSIEM
+          <aside className="flex w-56 shrink-0 flex-col border-r border-gray-800 bg-gray-900">
+            <div className="border-b border-gray-800 px-4 py-5">
+              <span className="text-lg font-bold tracking-tight text-blue-400">
+                Cyberbox Preview
               </span>
             </div>
-            <nav className="flex-1 px-2 py-4 space-y-1">
+            <div className="border-b border-amber-900/60 bg-amber-950/50 px-4 py-3 text-xs text-amber-200">
+              Internal preview. The supported operator UI remains <code>web/cyberbox-ui</code>.
+            </div>
+            <nav className="flex-1 space-y-1 px-2 py-4">
               {nav.map(({ href, label }) => (
                 <Link
                   key={href}
                   href={href}
-                  className="block px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-800 transition-colors"
+                  className="block rounded-md px-3 py-2 text-sm font-medium text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
                 >
                   {label}
                 </Link>
               ))}
             </nav>
-            <div className="px-4 py-3 border-t border-gray-800 text-xs text-gray-500">
-              tenant: default
+            <div className="border-t border-gray-800 px-4 py-3 text-xs text-gray-500">
+              tenant: {previewTenant()}
             </div>
           </aside>
           <main className="flex-1 overflow-auto">{children}</main>

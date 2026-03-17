@@ -27,7 +27,10 @@
       "Bash(do)",
       "Bash(echo \"Deleted $vol\")",
       "Bash(echo \"Already gone: $vol\")",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(aws acm:*)",
+      "Bash(aws ec2-instance-connect:*)",
+      "Bash(aws ssm:*)"
     ]
   }
 }

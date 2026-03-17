@@ -9,6 +9,11 @@ pub struct AppConfig {
     pub kafka_raw_topic: String,
     pub kafka_normalized_topic: String,
     pub kafka_alerts_topic: String,
+    pub kafka_raw_dlq_topic: String,
+    pub kafka_normalized_dlq_topic: String,
+    pub kafka_alerts_dlq_topic: String,
+    pub kafka_replay_topic: String,
+    pub kafka_replay_dlq_topic: String,
     pub kafka_worker_group_id: String,
     pub worker_role: String,
     pub scheduler_tick_interval_seconds: u64,
@@ -113,9 +118,26 @@ pub struct AppConfig {
     // ── State persistence ─────────────────────────────────────────────────────
     /// Directory for persistent JSON state (feeds, RBAC). Empty = in-memory only.
     pub state_dir: String,
+    /// Workflow storage backend: `file` or `postgres`.
+    pub workflow_store_backend: String,
+    /// PostgreSQL connection string for workflow storage.
+    pub workflow_store_postgres_url: String,
+    /// PostgreSQL schema for workflow tables.
+    pub workflow_store_postgres_schema: String,
+    /// Correlation-state backend: `memory` or `postgres`.
+    pub correlation_state_backend: String,
+    /// Optional PostgreSQL connection string for correlation state.
+    /// Falls back to `workflow_store_postgres_url` when empty.
+    pub correlation_state_postgres_url: String,
+    /// PostgreSQL schema for correlation-state tables.
+    pub correlation_state_postgres_schema: String,
     // ── Auth hardening ────────────────────────────────────────────────────────
     /// Background JWKS refresh interval in seconds. `0` = on-demand only.
     pub jwks_refresh_interval_secs: u64,
+    /// HMAC signing secret used for signed agent device certificates.
+    pub agent_device_certificate_signing_secret: String,
+    /// Signed agent device certificate lifetime in seconds.
+    pub agent_device_certificate_ttl_secs: u64,
     // ── OpenTelemetry ─────────────────────────────────────────────────────────
     /// OTLP gRPC endpoint (e.g. `http://jaeger:4317`). Empty = OTel disabled.
     pub otlp_endpoint: String,
@@ -139,6 +161,11 @@ impl Default for AppConfig {
             kafka_raw_topic: "cyberbox.events.raw".to_string(),
             kafka_normalized_topic: "cyberbox.events.normalized".to_string(),
             kafka_alerts_topic: "cyberbox.alerts".to_string(),
+            kafka_raw_dlq_topic: "cyberbox.events.raw.dlq".to_string(),
+            kafka_normalized_dlq_topic: "cyberbox.events.normalized.dlq".to_string(),
+            kafka_alerts_dlq_topic: "cyberbox.alerts.dlq".to_string(),
+            kafka_replay_topic: "cyberbox.replay".to_string(),
+            kafka_replay_dlq_topic: "cyberbox.replay.dlq".to_string(),
             kafka_worker_group_id: "cyberbox-worker-v1".to_string(),
             worker_role: "all".to_string(),
             scheduler_tick_interval_seconds: 5,
@@ -204,7 +231,15 @@ impl Default for AppConfig {
             openai_api_key: String::new(),
             nlq_provider: "auto".to_string(),
             state_dir: "data".to_string(),
+            workflow_store_backend: "file".to_string(),
+            workflow_store_postgres_url: String::new(),
+            workflow_store_postgres_schema: "public".to_string(),
+            correlation_state_backend: "memory".to_string(),
+            correlation_state_postgres_url: String::new(),
+            correlation_state_postgres_schema: "public".to_string(),
             jwks_refresh_interval_secs: 300,
+            agent_device_certificate_signing_secret: String::new(),
+            agent_device_certificate_ttl_secs: 604_800,
             otlp_endpoint: String::new(),
             tenant_id_override: String::new(),
             ingest_api_key: String::new(),

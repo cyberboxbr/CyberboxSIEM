@@ -1,3 +1,4 @@
+pub mod agent_identity;
 pub mod extractors;
 pub mod persist;
 pub mod routes;
