@@ -77,6 +77,46 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
         }
+
+        // Reload persisted alerts into the in-memory DashMap
+        match clickhouse_store.list_alerts_all().await {
+            Ok(alerts) => {
+                let count = alerts.len();
+                for alert in alerts {
+                    use cyberbox_storage::AlertStore as _;
+                    let _ = state.storage.upsert_alert(alert).await;
+                }
+                if count > 0 {
+                    tracing::info!(count, "loaded alerts from ClickHouse");
+                }
+            }
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "failed to load alerts from ClickHouse — alert list will start empty"
+                );
+            }
+        }
+
+        // Reload persisted cases into the in-memory DashMap
+        match clickhouse_store.list_cases_all().await {
+            Ok(cases) => {
+                let count = cases.len();
+                for case in cases {
+                    use cyberbox_storage::CaseStore as _;
+                    let _ = state.storage.upsert_case(case).await;
+                }
+                if count > 0 {
+                    tracing::info!(count, "loaded cases from ClickHouse");
+                }
+            }
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "failed to load cases from ClickHouse — case list will start empty"
+                );
+            }
+        }
     }
 
     // Start the ClickHouse async write buffer if the sink is enabled.

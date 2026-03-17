@@ -405,6 +405,16 @@ pub async fn ingest_events(
                         }
                     }
                     if let Ok(saved) = state.storage.suppress_or_create_alert(alert).await {
+                        // Persist alert to ClickHouse (best-effort, non-blocking).
+                        if let Some(ch) = &state.clickhouse_event_store {
+                            let ch = ch.clone();
+                            let ch_alert = saved.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = ch.upsert_alert(ch_alert).await {
+                                    tracing::warn!(error = %e, "failed to persist alert to ClickHouse");
+                                }
+                            });
+                        }
                         counter!("cyberbox_alerts_fired_total", "tenant" => saved.tenant_id.clone())
                             .increment(1);
                         // Auto-correlate: group into an existing or new case (background).
@@ -2011,6 +2021,16 @@ async fn create_case(
         tags: payload.tags,
     };
     let saved = state.storage.upsert_case(case).await?;
+    // Persist case to ClickHouse (best-effort, non-blocking).
+    if let Some(ch) = &state.clickhouse_event_store {
+        let ch = ch.clone();
+        let ch_case = saved.clone();
+        tokio::spawn(async move {
+            if let Err(e) = ch.upsert_case(ch_case).await {
+                tracing::warn!(error = %e, "failed to persist case to ClickHouse");
+            }
+        });
+    }
     tracing::info!(actor = %auth.user_id, case_id = %saved.case_id, "case created");
     Ok(Json(saved))
 }
@@ -2081,6 +2101,16 @@ async fn update_case(
         .storage
         .update_case(&auth.tenant_id, id, &patch, now)
         .await?;
+    // Persist updated case to ClickHouse (best-effort, non-blocking).
+    if let Some(ch) = &state.clickhouse_event_store {
+        let ch = ch.clone();
+        let ch_case = updated.clone();
+        tokio::spawn(async move {
+            if let Err(e) = ch.upsert_case(ch_case).await {
+                tracing::warn!(error = %e, "failed to persist case update to ClickHouse");
+            }
+        });
+    }
     tracing::info!(actor = %auth.user_id, case_id = %id, "case updated");
     Ok(Json(updated))
 }
@@ -2093,6 +2123,16 @@ async fn delete_case(
 ) -> Result<Json<Value>, CyberboxError> {
     auth.require_any(&[Role::Admin])?;
     state.storage.delete_case(&auth.tenant_id, id).await?;
+    // Persist case deletion to ClickHouse (best-effort, non-blocking).
+    if let Some(ch) = &state.clickhouse_event_store {
+        let ch = ch.clone();
+        let tid = auth.tenant_id.clone();
+        tokio::spawn(async move {
+            if let Err(e) = ch.delete_case(&tid, id).await {
+                tracing::warn!(error = %e, "failed to persist case deletion to ClickHouse");
+            }
+        });
+    }
     tracing::info!(actor = %auth.user_id, case_id = %id, "case deleted");
     Ok(Json(json!({ "deleted": true, "case_id": id })))
 }
@@ -2114,6 +2154,15 @@ async fn attach_alerts_to_case(
     }
     case.updated_at = now;
     let saved = state.storage.upsert_case(case).await?;
+    if let Some(ch) = &state.clickhouse_event_store {
+        let ch = ch.clone();
+        let ch_case = saved.clone();
+        tokio::spawn(async move {
+            if let Err(e) = ch.upsert_case(ch_case).await {
+                tracing::warn!(error = %e, "failed to persist case attach to ClickHouse");
+            }
+        });
+    }
     Ok(Json(saved))
 }
 
@@ -2131,6 +2180,15 @@ async fn detach_alerts_from_case(
         .retain(|aid| !payload.alert_ids.contains(aid));
     case.updated_at = now;
     let saved = state.storage.upsert_case(case).await?;
+    if let Some(ch) = &state.clickhouse_event_store {
+        let ch = ch.clone();
+        let ch_case = saved.clone();
+        tokio::spawn(async move {
+            if let Err(e) = ch.upsert_case(ch_case).await {
+                tracing::warn!(error = %e, "failed to persist case detach to ClickHouse");
+            }
+        });
+    }
     Ok(Json(saved))
 }
 

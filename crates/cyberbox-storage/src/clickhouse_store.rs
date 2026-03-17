@@ -422,6 +422,8 @@ impl ClickHouseEventStore {
                 alert_id UUID,
                 tenant_id String,
                 rule_id UUID,
+                severity String DEFAULT 'medium',
+                rule_title String DEFAULT '',
                 first_seen DateTime64(3, 'UTC'),
                 last_seen DateTime64(3, 'UTC'),
                 status String,
@@ -442,6 +444,19 @@ impl ClickHouseEventStore {
             self.database, self.alerts_table, alerts_engine
         );
         self.execute_sql(&alerts_ddl).await?;
+
+        // Forward-migration for existing alerts tables: add severity + rule_title columns.
+        let alerts_migrations: &[(&str, &str)] = &[
+            ("severity", "String DEFAULT 'medium'"),
+            ("rule_title", "String DEFAULT ''"),
+        ];
+        for (col, ty) in alerts_migrations {
+            let stmt = format!(
+                "ALTER TABLE {}.{} ADD COLUMN IF NOT EXISTS {} {}",
+                self.database, self.alerts_table, col, ty
+            );
+            self.execute_sql(&stmt).await?;
+        }
 
         let audits_ddl = format!(
             r#"
@@ -1073,6 +1088,34 @@ impl ClickHouseEventStore {
         resp.data.iter().map(parse_agent_row).collect()
     }
 
+    /// Load all persisted alerts across all tenants (for startup reload into DashMap).
+    pub async fn list_alerts_all(&self) -> Result<Vec<AlertRecord>, CyberboxError> {
+        let query = format!(
+            "SELECT alert_id, tenant_id, rule_id, severity, rule_title, first_seen, last_seen, \
+             status, evidence_refs, routing_state, assignee, hit_count, mitre_attack, resolution, close_note \
+             FROM {}.{} FINAL \
+             ORDER BY tenant_id, last_seen DESC \
+             FORMAT JSON",
+            self.database, self.alerts_table
+        );
+        let resp = self.execute_sql_json(&query).await?;
+        resp.data.iter().map(parse_alert_row).collect()
+    }
+
+    /// Load all persisted cases across all tenants (for startup reload into DashMap).
+    pub async fn list_cases_all(&self) -> Result<Vec<CaseRecord>, CyberboxError> {
+        let query = format!(
+            "SELECT case_id, tenant_id, title, description, status, severity, alert_ids, \
+             assignee, created_by, created_at, updated_at, sla_due_at, closed_at, tags \
+             FROM {}.{} FINAL \
+             ORDER BY tenant_id, created_at DESC \
+             FORMAT JSON",
+            self.database, self.cases_table
+        );
+        let resp = self.execute_sql_json(&query).await?;
+        resp.data.iter().map(parse_case_row).collect()
+    }
+
     pub async fn delete_agent(&self, tenant_id: &str, agent_id: &str) -> Result<(), CyberboxError> {
         let sql = format!(
             "ALTER TABLE {}.{} DELETE WHERE tenant_id = '{}' AND agent_id = '{}'",
@@ -1440,6 +1483,8 @@ impl AlertStore for ClickHouseEventStore {
             "alert_id": alert.alert_id.to_string(),
             "tenant_id": alert.tenant_id,
             "rule_id": alert.rule_id.to_string(),
+            "severity": severity_to_string(&alert.severity),
+            "rule_title": alert.rule_title,
             "first_seen": format_clickhouse_datetime(alert.first_seen),
             "last_seen": format_clickhouse_datetime(alert.last_seen),
             "status": alert_status_to_string(&alert.status),
@@ -1455,7 +1500,7 @@ impl AlertStore for ClickHouseEventStore {
         });
 
         let query = format!(
-            "INSERT INTO {}.{} (alert_id, tenant_id, rule_id, first_seen, last_seen, status, evidence_refs, routing_state, assignee, hit_count, mitre_attack, resolution, close_note, updated_at, version) FORMAT JSONEachRow\n{}\n",
+            "INSERT INTO {}.{} (alert_id, tenant_id, rule_id, severity, rule_title, first_seen, last_seen, status, evidence_refs, routing_state, assignee, hit_count, mitre_attack, resolution, close_note, updated_at, version) FORMAT JSONEachRow\n{}\n",
             self.database,
             self.alerts_table,
             serde_json::to_string(&row)
@@ -1468,7 +1513,7 @@ impl AlertStore for ClickHouseEventStore {
 
     async fn list_alerts(&self, tenant_id: &str) -> Result<Vec<AlertRecord>, CyberboxError> {
         let query = format!(
-            "SELECT alert_id, tenant_id, rule_id, first_seen, last_seen, status, evidence_refs, routing_state, assignee, hit_count, mitre_attack, resolution, close_note \
+            "SELECT alert_id, tenant_id, rule_id, severity, rule_title, first_seen, last_seen, status, evidence_refs, routing_state, assignee, hit_count, mitre_attack, resolution, close_note \
              FROM {}.{} FINAL \
              WHERE tenant_id = '{}' \
              ORDER BY last_seen DESC \
@@ -1753,7 +1798,7 @@ impl ClickHouseEventStore {
         alert_id: Uuid,
     ) -> Result<Option<AlertRecord>, CyberboxError> {
         let query = format!(
-            "SELECT alert_id, tenant_id, rule_id, first_seen, last_seen, status, evidence_refs, routing_state, assignee, hit_count, mitre_attack, resolution, close_note \
+            "SELECT alert_id, tenant_id, rule_id, severity, rule_title, first_seen, last_seen, status, evidence_refs, routing_state, assignee, hit_count, mitre_attack, resolution, close_note \
              FROM {}.{} FINAL \
              WHERE tenant_id = '{}' AND alert_id = '{}' \
              LIMIT 1 \
