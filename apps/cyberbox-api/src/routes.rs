@@ -2736,6 +2736,9 @@ async fn restore_rule_version(
 
 /// Group a fired alert into an existing open case for the same rule, or create
 /// a new case automatically.  Runs as a background task — never blocks ingest.
+///
+/// Uses a per-rule_id async mutex to prevent concurrent tasks from creating
+/// duplicate cases when multiple alerts for the same rule fire simultaneously.
 pub async fn auto_correlate_alert(state: AppState, alert: AlertRecord) {
     tracing::info!(
         alert_id = %alert.alert_id,
@@ -2743,25 +2746,37 @@ pub async fn auto_correlate_alert(state: AppState, alert: AlertRecord) {
         tenant = %alert.tenant_id,
         "auto_correlate_alert: starting"
     );
-    let rule = state
-        .storage
-        .get_rule(&alert.tenant_id, alert.rule_id)
-        .await
-        .ok();
-    let severity = rule
-        .as_ref()
-        .map(|r| r.severity.clone())
-        .unwrap_or(Severity::Medium);
-    let rule_name = rule
-        .as_ref()
-        .and_then(|r| {
-            r.sigma_source
-                .lines()
-                .find(|l| l.trim_start().starts_with("title:"))
-                .and_then(|l| l.split_once(':').map(|(_, v)| v.trim().to_string()))
-        })
-        .unwrap_or_else(|| format!("Rule {}", alert.rule_id));
 
+    // Acquire a per-rule_id lock to serialise case creation for the same rule.
+    let lock = state
+        .case_correlation_locks
+        .entry(alert.rule_id)
+        .or_insert_with(|| std::sync::Arc::new(tokio::sync::Mutex::new(())))
+        .clone();
+    let _guard = lock.lock().await;
+
+    // Prefer the rule_title already stored on the alert (extracted from the
+    // compiled plan's `title:` field at detection time).  Fall back to parsing
+    // the Sigma YAML source, and finally to a readable rule-id stub.
+    let rule_name = if !alert.rule_title.is_empty() {
+        alert.rule_title.clone()
+    } else {
+        let rule = state
+            .storage
+            .get_rule(&alert.tenant_id, alert.rule_id)
+            .await
+            .ok();
+        rule.as_ref()
+            .and_then(|r| {
+                r.sigma_source
+                    .lines()
+                    .find(|l| l.trim_start().starts_with("title:"))
+                    .and_then(|l| l.split_once(':').map(|(_, v)| v.trim().to_string()))
+            })
+            .unwrap_or_else(|| format!("Rule {}", alert.rule_id))
+    };
+
+    let severity = alert.severity.clone();
     let correlation_tag = format!("rule:{}", alert.rule_id);
     let cutoff = Utc::now() - chrono::Duration::hours(24);
 
@@ -2775,7 +2790,7 @@ pub async fn auto_correlate_alert(state: AppState, alert: AlertRecord) {
             .unwrap_or_default()
     };
 
-    // Find an open/in-progress case with the same rule tag within the last hour.
+    // Find an open/in-progress case with the same rule tag created within 24 h.
     let existing = cases.into_iter().find(|c| {
         matches!(c.status, CaseStatus::Open | CaseStatus::InProgress)
             && c.tags.iter().any(|t| t == &correlation_tag)

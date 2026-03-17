@@ -198,6 +198,10 @@ pub struct AppState {
     pub suppression_map: Arc<DashMap<String, std::time::Instant>>,
     /// Directory where persistent JSON state (feeds, RBAC) is saved. Empty = disabled.
     pub state_dir: String,
+    /// Per-rule_id mutex for auto-case correlation.
+    /// Prevents concurrent `auto_correlate_alert` tasks from creating duplicate cases
+    /// when multiple alerts for the same rule fire simultaneously.
+    pub case_correlation_locks: Arc<DashMap<Uuid, Arc<tokio::sync::Mutex<()>>>>,
     /// Short-lived WebSocket auth tokens: opaque token string → (tenant_id, expiry Instant).
     /// Tokens are issued by `GET /api/v1/alerts/ws-token` and validated on WebSocket upgrade.
     pub ws_tokens: Arc<DashMap<String, (String, std::time::Instant)>>,
@@ -275,6 +279,7 @@ impl AppState {
             event_tx: broadcast::channel(4096).0,
             suppression_map: Arc::new(DashMap::new()),
             state_dir: "data".to_string(),
+            case_correlation_locks: Arc::new(DashMap::new()),
             ws_tokens: Arc::new(DashMap::new()),
             sources: Arc::new(DashMap::new()),
             agents: Arc::new(DashMap::new()),
@@ -375,6 +380,7 @@ impl AppState {
             event_tx: broadcast::channel(4096).0,
             suppression_map: Arc::new(DashMap::new()),
             state_dir: config.state_dir.clone(),
+            case_correlation_locks: Arc::new(DashMap::new()),
             ws_tokens: Arc::new(DashMap::new()),
             sources: Arc::new(DashMap::new()),
             agents: Arc::new(DashMap::new()),
