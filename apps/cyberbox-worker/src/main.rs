@@ -945,7 +945,11 @@ async fn run_stream_detection_loop(
     let producer_queue_full_max_retries = config.kafka_producer_queue_full_max_retries;
     let producer_queue_full_backoff_ms = config.kafka_producer_queue_full_backoff_ms.max(1);
     let distributed_correlation_state = matches!(
-        config.correlation_state_backend.trim().to_ascii_lowercase().as_str(),
+        config
+            .correlation_state_backend
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
         "postgres"
     )
     .then(|| build_shared_correlation_state(&config))

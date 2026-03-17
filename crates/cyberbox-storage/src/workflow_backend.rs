@@ -33,7 +33,12 @@ impl WorkflowStore {
     }
 
     pub fn from_config(config: &AppConfig) -> Result<Self, CyberboxError> {
-        match config.workflow_store_backend.trim().to_ascii_lowercase().as_str() {
+        match config
+            .workflow_store_backend
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
             "" | "file" => Self::open_file_blocking(&config.state_dir),
             "postgres" => Self::open_postgres_blocking(
                 &config.workflow_store_postgres_url,
@@ -106,9 +111,15 @@ impl WorkflowStore {
         request: &CreateAgentEnrollmentTokenRequest,
     ) -> Result<AgentEnrollmentTokenResponse, CyberboxError> {
         match self {
-            Self::File(store) => store.issue_enrollment_token(tenant_id, issued_by, request).await,
+            Self::File(store) => {
+                store
+                    .issue_enrollment_token(tenant_id, issued_by, request)
+                    .await
+            }
             Self::Postgres(store) => {
-                store.issue_enrollment_token(tenant_id, issued_by, request).await
+                store
+                    .issue_enrollment_token(tenant_id, issued_by, request)
+                    .await
             }
         }
     }
@@ -130,9 +141,15 @@ impl WorkflowStore {
         agent_secret: &str,
     ) -> Result<AgentRecord, CyberboxError> {
         match self {
-            Self::File(store) => store.authenticate_agent(tenant_id, agent_id, agent_secret).await,
+            Self::File(store) => {
+                store
+                    .authenticate_agent(tenant_id, agent_id, agent_secret)
+                    .await
+            }
             Self::Postgres(store) => {
-                store.authenticate_agent(tenant_id, agent_id, agent_secret).await
+                store
+                    .authenticate_agent(tenant_id, agent_id, agent_secret)
+                    .await
             }
         }
     }
@@ -182,12 +199,30 @@ impl WorkflowStore {
         match self {
             Self::File(store) => {
                 store
-                    .list_audit_logs(tenant_id, action, entity_type, actor, from, to, cursor, limit)
+                    .list_audit_logs(
+                        tenant_id,
+                        action,
+                        entity_type,
+                        actor,
+                        from,
+                        to,
+                        cursor,
+                        limit,
+                    )
                     .await
             }
             Self::Postgres(store) => {
                 store
-                    .list_audit_logs(tenant_id, action, entity_type, actor, from, to, cursor, limit)
+                    .list_audit_logs(
+                        tenant_id,
+                        action,
+                        entity_type,
+                        actor,
+                        from,
+                        to,
+                        cursor,
+                        limit,
+                    )
                     .await
             }
         }

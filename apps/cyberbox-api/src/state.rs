@@ -18,9 +18,7 @@ use cyberbox_detection::{RuleExecutor, SharedCorrelationState, SigmaCompiler};
 use cyberbox_models::{
     AgentRecord, AlertRecord, DetectionMode, DetectionRule, EventEnvelope, SourceInfo,
 };
-use cyberbox_storage::{
-    ClickHouseEventStore, ClickHouseWriteBuffer, InMemoryStore, WorkflowStore,
-};
+use cyberbox_storage::{ClickHouseEventStore, ClickHouseWriteBuffer, InMemoryStore, WorkflowStore};
 
 use crate::stream::{RawEventPublisher, ReplayRequestPublisher};
 
@@ -318,22 +316,25 @@ impl AppState {
             correlation_postgres_url,
             &config.correlation_state_postgres_schema,
         )?);
-        let agent_device_certificate_signing_secret =
-            if config.agent_device_certificate_signing_secret.trim().is_empty() {
-                if !config.auth_disabled {
-                    tracing::error!(
-                        "agent_device_certificate_signing_secret is empty but auth is enabled! \
+        let agent_device_certificate_signing_secret = if config
+            .agent_device_certificate_signing_secret
+            .trim()
+            .is_empty()
+        {
+            if !config.auth_disabled {
+                tracing::error!(
+                    "agent_device_certificate_signing_secret is empty but auth is enabled! \
                          Agent enrollment will use an ephemeral key that is lost on restart. \
                          Set CYBERBOX__AGENT_DEVICE_CERTIFICATE_SIGNING_SECRET for production."
-                    );
-                }
-                tracing::warn!(
+                );
+            }
+            tracing::warn!(
                     "agent_device_certificate_signing_secret is empty; using an ephemeral dev secret for this process"
                 );
-                format!("dev-device-cert-{}", Uuid::new_v4())
-            } else {
-                config.agent_device_certificate_signing_secret.clone()
-            };
+            format!("dev-device-cert-{}", Uuid::new_v4())
+        } else {
+            config.agent_device_certificate_signing_secret.clone()
+        };
         Ok(Self {
             storage: Arc::new(InMemoryStore::default()),
             workflow_store: Arc::new(WorkflowStore::from_config(config)?),

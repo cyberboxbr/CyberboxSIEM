@@ -38,17 +38,14 @@ use cyberbox_models::{
     BacktestRequest, BacktestResponse, CaseAlertIdsRequest, CaseRecord, CaseStatus,
     CloseAlertRequest, CoverageReport, CoveredTechnique, CreateAgentEnrollmentTokenRequest,
     CreateCaseRequest, CreateReplayRequest, DetectionMode, DetectionRule, DryRunRequest,
-    DryRunResponse, EventEnvelope, EventIngestRequest, EventIngestResponse,
-    ListAlertsQuery, Pagination, ReplayFromDlqRequest, ReplayRequest, ReplayRequestResponse,
-    RevokeAgentRequest, RotateAgentCredentialResponse, RuleScheduleConfig, RuleTestRequest,
-    RuleTestResult, RuleVersion, SearchQueryRequest, Severity, SourceInfo, TimeRange,
-    UpdateCaseRequest,
+    DryRunResponse, EventEnvelope, EventIngestRequest, EventIngestResponse, ListAlertsQuery,
+    Pagination, ReplayFromDlqRequest, ReplayRequest, ReplayRequestResponse, RevokeAgentRequest,
+    RotateAgentCredentialResponse, RuleScheduleConfig, RuleTestRequest, RuleTestResult,
+    RuleVersion, SearchQueryRequest, Severity, SourceInfo, TimeRange, UpdateCaseRequest,
 };
 use cyberbox_storage::{sla_due_at, AlertStore, CaseStore, EventStore, RuleStore};
 
-use crate::agent_identity::{
-    issue_agent_device_certificate, verify_agent_device_certificate,
-};
+use crate::agent_identity::{issue_agent_device_certificate, verify_agent_device_certificate};
 use crate::extractors::SimdJson;
 use crate::persist;
 use crate::state::AppState;
@@ -1101,7 +1098,9 @@ pub async fn redrive_dlq_message(
         "dlq_message",
         &format!(
             "{}:{}:{}",
-            body.dlq_message.source_topic, body.dlq_message.source_partition, body.dlq_message.source_offset
+            body.dlq_message.source_topic,
+            body.dlq_message.source_partition,
+            body.dlq_message.source_offset
         ),
         serde_json::to_value(&body.dlq_message).unwrap_or(Value::Null),
         json!({
@@ -3397,7 +3396,13 @@ fn required_header(headers: &HeaderMap, name: &str) -> Result<String, CyberboxEr
 async fn issue_and_persist_agent_device_certificate(
     state: &AppState,
     mut agent: AgentRecord,
-) -> Result<(AgentRecord, crate::agent_identity::IssuedAgentDeviceCertificate), CyberboxError> {
+) -> Result<
+    (
+        AgentRecord,
+        crate::agent_identity::IssuedAgentDeviceCertificate,
+    ),
+    CyberboxError,
+> {
     let issued = issue_agent_device_certificate(
         &state.agent_device_certificate_signing_secret,
         state.agent_device_certificate_ttl_secs,

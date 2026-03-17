@@ -1456,7 +1456,9 @@ impl SharedCorrelationState {
         match &self.backend {
             CorrelationStateBackend::Memory(memory) => {
                 let prefix = format!("{rule_id}:");
-                memory.temporal_buffers.retain(|k, _| !k.starts_with(&prefix));
+                memory
+                    .temporal_buffers
+                    .retain(|k, _| !k.starts_with(&prefix));
                 memory.agg_buffers.retain(|k| !k.starts_with(&prefix));
                 memory.distinct_buffers.retain(|k| !k.starts_with(&prefix));
             }
@@ -1527,7 +1529,10 @@ impl SharedCorrelationState {
                 Ok(memory
                     .temporal_buffers
                     .get(&key)
-                    .map(|buf| buf.iter().any(|(ts, current)| *ts >= cutoff && current == entity))
+                    .map(|buf| {
+                        buf.iter()
+                            .any(|(ts, current)| *ts >= cutoff && current == entity)
+                    })
                     .unwrap_or(false))
             }
             CorrelationStateBackend::Postgres(pg) => {
@@ -1545,13 +1550,13 @@ impl SharedCorrelationState {
         cutoff: chrono::DateTime<Utc>,
     ) -> Result<usize, CyberboxError> {
         match &self.backend {
-            CorrelationStateBackend::Memory(memory) => Ok(memory
-                .distinct_buffers
-                .with_entry(buffer_key, |entry| {
+            CorrelationStateBackend::Memory(memory) => {
+                Ok(memory.distinct_buffers.with_entry(buffer_key, |entry| {
                     entry.evict_stale(cutoff);
                     entry.push(now, value.to_string());
                     entry.distinct_count()
-                })),
+                }))
+            }
             CorrelationStateBackend::Postgres(pg) => {
                 pg.apply_distinct_count(rule_id, buffer_key, value, now, cutoff)
             }
@@ -1568,9 +1573,8 @@ impl SharedCorrelationState {
         function: &AggregateFunction,
     ) -> Result<f64, CyberboxError> {
         match &self.backend {
-            CorrelationStateBackend::Memory(memory) => Ok(memory.agg_buffers.with_entry(
-                buffer_key,
-                |entry| {
+            CorrelationStateBackend::Memory(memory) => {
+                Ok(memory.agg_buffers.with_entry(buffer_key, |entry| {
                     entry.evict_stale(cutoff);
                     entry.push(now, contrib);
                     match function {
@@ -1582,8 +1586,8 @@ impl SharedCorrelationState {
                         AggregateFunction::Max => entry.max(),
                         AggregateFunction::Avg => entry.avg(),
                     }
-                },
-            )),
+                }))
+            }
             CorrelationStateBackend::Postgres(pg) => {
                 pg.apply_numeric_aggregate(rule_id, buffer_key, contrib, now, cutoff, function)
             }
@@ -1599,17 +1603,22 @@ impl PostgresCorrelationState {
             ));
         }
         let schema = sanitize_pg_identifier(schema)?;
-        let manager = PostgresConnectionManager::new(url.parse().map_err(|err| {
-            CyberboxError::Internal(format!("parse correlation postgres url: {err}"))
-        })?, NoTls);
+        let manager = PostgresConnectionManager::new(
+            url.parse().map_err(|err| {
+                CyberboxError::Internal(format!("parse correlation postgres url: {err}"))
+            })?,
+            NoTls,
+        );
         let pool = Pool::builder()
             .min_idle(Some(1))
             .max_size(4)
             .build(manager)
-            .map_err(|err| CyberboxError::Internal(format!("build correlation postgres pool: {err}")))?;
-        let mut conn = pool
-            .get()
-            .map_err(|err| CyberboxError::Internal(format!("get correlation postgres conn: {err}")))?;
+            .map_err(|err| {
+                CyberboxError::Internal(format!("build correlation postgres pool: {err}"))
+            })?;
+        let mut conn = pool.get().map_err(|err| {
+            CyberboxError::Internal(format!("get correlation postgres conn: {err}"))
+        })?;
         ensure_correlation_schema(&mut conn, &schema)?;
         Ok(Self {
             pool,
@@ -1622,10 +1631,9 @@ impl PostgresCorrelationState {
     where
         F: FnOnce(&mut Client, &str) -> Result<T, CyberboxError>,
     {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|err| CyberboxError::Internal(format!("correlation postgres pool get: {err}")))?;
+        let mut conn = self.pool.get().map_err(|err| {
+            CyberboxError::Internal(format!("correlation postgres pool get: {err}"))
+        })?;
         f(&mut conn, self.schema.as_str())
     }
 
@@ -1636,19 +1644,25 @@ impl PostgresCorrelationState {
                     &format!("DELETE FROM {schema}.correlation_temporal WHERE rule_id = $1"),
                     &[&rule_id],
                 )
-                .map_err(pg_correlation_err("delete temporal correlation state for rule"))?;
+                .map_err(pg_correlation_err(
+                    "delete temporal correlation state for rule",
+                ))?;
             client
                 .execute(
                     &format!("DELETE FROM {schema}.correlation_numeric WHERE rule_id = $1"),
                     &[&rule_id],
                 )
-                .map_err(pg_correlation_err("delete numeric correlation state for rule"))?;
+                .map_err(pg_correlation_err(
+                    "delete numeric correlation state for rule",
+                ))?;
             client
                 .execute(
                     &format!("DELETE FROM {schema}.correlation_distinct WHERE rule_id = $1"),
                     &[&rule_id],
                 )
-                .map_err(pg_correlation_err("delete distinct correlation state for rule"))?;
+                .map_err(pg_correlation_err(
+                    "delete distinct correlation state for rule",
+                ))?;
             Ok(())
         })
     }
@@ -1697,8 +1711,9 @@ impl PostgresCorrelationState {
                 )
                 .map_err(pg_correlation_err("insert temporal correlation state"))?;
             }
-            tx.commit()
-                .map_err(pg_correlation_err("commit temporal correlation transaction"))?;
+            tx.commit().map_err(pg_correlation_err(
+                "commit temporal correlation transaction",
+            ))?;
             Ok(())
         })
     }
@@ -2323,16 +2338,24 @@ fn eval_near(
         .map(|group| eval_selection_group(group, ctx))
         .unwrap_or(false);
 
-    if let Err(e) = executor
-        .correlation_state
-        .record_temporal_match(rule_id, base, &entity_val, now, cutoff, base_hit)
-    {
+    if let Err(e) = executor.correlation_state.record_temporal_match(
+        rule_id,
+        base,
+        &entity_val,
+        now,
+        cutoff,
+        base_hit,
+    ) {
         tracing::error!(rule_id = %rule_id, selection = base, error = %e, "correlation state error: failed to record temporal match");
     }
-    if let Err(e) = executor
-        .correlation_state
-        .record_temporal_match(rule_id, nearby, &entity_val, now, cutoff, nearby_hit)
-    {
+    if let Err(e) = executor.correlation_state.record_temporal_match(
+        rule_id,
+        nearby,
+        &entity_val,
+        now,
+        cutoff,
+        nearby_hit,
+    ) {
         tracing::error!(rule_id = %rule_id, selection = nearby, error = %e, "correlation state error: failed to record temporal match");
     }
 
@@ -2417,10 +2440,13 @@ fn eval_aggregate(
         let distinct_key = format!("{buf_key}:distinct");
         // ShardedMap::with_entry locks exactly one of 64 shards for the duration
         // of the closure, then releases it — no two-phase DashMap dance needed.
-        let distinct_count = match executor
-            .correlation_state
-            .apply_distinct_count(rule_id, &distinct_key, &field_val, now, cutoff)
-        {
+        let distinct_count = match executor.correlation_state.apply_distinct_count(
+            rule_id,
+            &distinct_key,
+            &field_val,
+            now,
+            cutoff,
+        ) {
             Ok(v) => v,
             Err(e) => {
                 tracing::error!(rule_id = %rule_id, error = %e, "correlation state error: failed to apply distinct count");
@@ -2474,10 +2500,14 @@ fn eval_aggregate(
             .unwrap_or(0.0),
     };
 
-    let result = match executor
-        .correlation_state
-        .apply_numeric_aggregate(rule_id, &buf_key, contrib, now, cutoff, &agg.function)
-    {
+    let result = match executor.correlation_state.apply_numeric_aggregate(
+        rule_id,
+        &buf_key,
+        contrib,
+        now,
+        cutoff,
+        &agg.function,
+    ) {
         Ok(v) => v,
         Err(e) => {
             tracing::error!(rule_id = %rule_id, error = %e, "correlation state error: failed to apply numeric aggregate");

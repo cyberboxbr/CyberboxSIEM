@@ -174,10 +174,9 @@ async fn ensure_agent_credentials(
     cfg: &RegistrationConfig,
     os: &str,
 ) -> Option<MachineCredentials> {
-    if let (Some(agent_secret), Some(device_certificate)) = (
-        cfg.agent_secret.clone(),
-        cfg.device_certificate.clone(),
-    ) {
+    if let (Some(agent_secret), Some(device_certificate)) =
+        (cfg.agent_secret.clone(), cfg.device_certificate.clone())
+    {
         return Some(MachineCredentials {
             agent_secret,
             device_certificate,
@@ -352,7 +351,10 @@ fn persist_agent_credentials(config_path: &std::path::Path, credentials: &Machin
 fn upsert_api_credentials(raw: &str, agent_secret: &str, device_certificate: &str) -> String {
     // Escape the values for TOML string literals (handle backslashes and quotes).
     let secret_line = format!("agent_secret = \"{}\"", toml_escape(agent_secret));
-    let cert_line = format!("device_certificate = \"{}\"", toml_escape(device_certificate));
+    let cert_line = format!(
+        "device_certificate = \"{}\"",
+        toml_escape(device_certificate)
+    );
 
     // Find the `[api]` section header.
     let lines: Vec<&str> = raw.lines().collect();

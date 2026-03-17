@@ -555,8 +555,7 @@ impl KafkaReplayRequestPublisher {
                     .record(started.elapsed().as_secs_f64());
                     return Ok(());
                 }
-                Err(err) if is_queue_full_error(&err) && attempt <= self.queue_full_max_retries =>
-                {
+                Err(err) if is_queue_full_error(&err) && attempt <= self.queue_full_max_retries => {
                     metrics::counter!(
                         "kafka_producer_queue_full_retry_total",
                         "publisher" => Self::METRIC_PUBLISHER_LABEL

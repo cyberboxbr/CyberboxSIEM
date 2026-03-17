@@ -42,14 +42,19 @@ impl PostgresWorkflowStore {
             ));
         }
         let schema = sanitize_identifier(schema)?;
-        let manager = PostgresConnectionManager::new(url.parse().map_err(|err| {
-            CyberboxError::Internal(format!("parse workflow postgres url: {err}"))
-        })?, NoTls);
+        let manager = PostgresConnectionManager::new(
+            url.parse().map_err(|err| {
+                CyberboxError::Internal(format!("parse workflow postgres url: {err}"))
+            })?,
+            NoTls,
+        );
         let pool = Pool::builder()
             .min_idle(Some(1))
             .max_size(4)
             .build(manager)
-            .map_err(|err| CyberboxError::Internal(format!("build workflow postgres pool: {err}")))?;
+            .map_err(|err| {
+                CyberboxError::Internal(format!("build workflow postgres pool: {err}"))
+            })?;
         let mut conn = pool
             .get()
             .map_err(|err| CyberboxError::Internal(format!("get workflow postgres conn: {err}")))?;
@@ -65,9 +70,7 @@ impl PostgresWorkflowStore {
         self.with_client(|client, schema| {
             let rows = client
                 .query(
-                    &format!(
-                        "SELECT record FROM {schema}.workflow_agents ORDER BY last_seen DESC"
-                    ),
+                    &format!("SELECT record FROM {schema}.workflow_agents ORDER BY last_seen DESC"),
                     &[],
                 )
                 .map_err(pg_err("list workflow agents"))?;
@@ -79,9 +82,7 @@ impl PostgresWorkflowStore {
         self.with_client(|client, schema| {
             let rows = client
                 .query(
-                    &format!(
-                        "SELECT record FROM {schema}.workflow_alerts ORDER BY last_seen DESC"
-                    ),
+                    &format!("SELECT record FROM {schema}.workflow_alerts ORDER BY last_seen DESC"),
                     &[],
                 )
                 .map_err(pg_err("list workflow alerts"))?;
@@ -93,9 +94,7 @@ impl PostgresWorkflowStore {
         self.with_client(|client, schema| {
             let rows = client
                 .query(
-                    &format!(
-                        "SELECT record FROM {schema}.workflow_cases ORDER BY created_at DESC"
-                    ),
+                    &format!("SELECT record FROM {schema}.workflow_cases ORDER BY created_at DESC"),
                     &[],
                 )
                 .map_err(pg_err("list workflow cases"))?;
@@ -952,7 +951,11 @@ fn ensure_schema(client: &mut Client, schema: &str) -> Result<(), CyberboxError>
     Ok(())
 }
 
-fn upsert_agent_row<C>(client: &mut C, schema: &str, agent: &AgentRecord) -> Result<(), CyberboxError>
+fn upsert_agent_row<C>(
+    client: &mut C,
+    schema: &str,
+    agent: &AgentRecord,
+) -> Result<(), CyberboxError>
 where
     C: GenericClient,
 {
@@ -981,7 +984,11 @@ fn upsert_agent_row_tx(
     upsert_agent_row(client, schema, agent)
 }
 
-fn upsert_alert_row<C>(client: &mut C, schema: &str, alert: &AlertRecord) -> Result<(), CyberboxError>
+fn upsert_alert_row<C>(
+    client: &mut C,
+    schema: &str,
+    alert: &AlertRecord,
+) -> Result<(), CyberboxError>
 where
     C: GenericClient,
 {
@@ -1037,7 +1044,13 @@ where
                     created_at = EXCLUDED.created_at, \
                     record = EXCLUDED.record"
             ),
-            &[&case.tenant_id, &case.case_id, &status, &case.created_at, &record],
+            &[
+                &case.tenant_id,
+                &case.case_id,
+                &status,
+                &case.created_at,
+                &record,
+            ],
         )
         .map_err(pg_err("upsert workflow case"))?;
     Ok(())
