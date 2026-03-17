@@ -1,4 +1,5 @@
-//! Cloud source polling: AWS S3, Okta System Log, Microsoft 365 Management Activity API.
+//! Cloud source polling: AWS S3, Okta System Log, Microsoft 365 Management Activity API,
+//! Microsoft Graph API (Entra ID audit/sign-in logs).
 //!
 //! Each source is independently configurable and runs as its own async task.
 //! All tasks honour a shared shutdown signal (`tokio::sync::watch`) so they
@@ -34,6 +35,20 @@
 //! | `COLLECTOR_O365_CLIENT_SECRET` | *(req)* | App registration secret |
 //! | `COLLECTOR_O365_CONTENT_TYPES` | `Audit.AzureActiveDirectory,Audit.Exchange` | Comma-separated |
 //! | `COLLECTOR_O365_POLL_SECS` | `300` | Poll interval (API has ~5 min delay) |
+//!
+//! # Microsoft Graph API (Entra ID)
+//! Uses `graph.microsoft.com` as a fallback/alternative to the O365 Management
+//! Activity API which requires tenant audit provisioning. Polls `signIns` and
+//! `directoryAudits` endpoints with client-credentials OAuth2.
+//!
+//! | Variable | Default | Description |
+//! |---|---|---|
+//! | `COLLECTOR_GRAPH_ENABLED` | `true` (if O365 enabled) | Enable Graph API polling |
+//! | `COLLECTOR_GRAPH_POLL_SECS` | `300` | Poll interval |
+//!
+//! Reuses `COLLECTOR_O365_TENANT_ID`, `COLLECTOR_O365_CLIENT_ID`, and
+//! `COLLECTOR_O365_CLIENT_SECRET` for credentials.  The app registration must
+//! have `AuditLog.Read.All` and `Directory.Read.All` permissions granted.
 
 use std::{
     collections::HashSet,
@@ -124,6 +139,25 @@ pub async fn spawn_all(
         );
         tokio::spawn(async move {
             run_o365(c2, t2, tx2, m2, sd).await;
+        });
+    }
+
+    // Microsoft Graph API — defaults to enabled when O365 credentials are present.
+    let graph_enabled = if std::env::var("COLLECTOR_GRAPH_ENABLED").is_ok() {
+        env_bool("COLLECTOR_GRAPH_ENABLED")
+    } else {
+        env_bool("COLLECTOR_O365_ENABLED")
+    };
+    if graph_enabled {
+        let (c2, t2, tx2, m2, sd) = (
+            client.clone(),
+            Arc::clone(&tenant_id),
+            tx.clone(),
+            Arc::clone(&metrics),
+            shutdown.clone(),
+        );
+        tokio::spawn(async move {
+            run_graph(c2, t2, tx2, m2, sd).await;
         });
     }
 }
@@ -748,6 +782,312 @@ async fn fetch_o365_content(
         }
         metrics.cloud_received.fetch_add(batch_count, Relaxed);
     }
+    Ok(total)
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// MICROSOFT GRAPH API SOURCE (Entra ID sign-in + directory audit logs)
+// ════════════════════════════════════════════════════════════════════════════════
+
+async fn run_graph(
+    client: reqwest::Client,
+    tenant_id: Arc<String>,
+    tx: mpsc::Sender<Value>,
+    metrics: Arc<CollectorMetrics>,
+    mut shutdown: watch::Receiver<bool>,
+) {
+    let aad_tenant = env_str("COLLECTOR_O365_TENANT_ID", "");
+    let client_id = env_str("COLLECTOR_O365_CLIENT_ID", "");
+    let client_secret = env_str("COLLECTOR_O365_CLIENT_SECRET", "");
+    let poll_secs: u64 = env_str("COLLECTOR_GRAPH_POLL_SECS", "300")
+        .parse()
+        .unwrap_or(300);
+
+    if aad_tenant.is_empty() || client_id.is_empty() || client_secret.is_empty() {
+        error!("Graph API source enabled but O365 credentials (COLLECTOR_O365_TENANT_ID, COLLECTOR_O365_CLIENT_ID, COLLECTOR_O365_CLIENT_SECRET) are missing");
+        return;
+    }
+
+    info!(
+        aad_tenant,
+        poll_secs, "Microsoft Graph API source started (signIns + directoryAudits)"
+    );
+
+    let poll_dur = Duration::from_secs(poll_secs);
+    let mut consecutive_errors: u32 = 0;
+    let mut last_poll_time = Utc::now() - chrono::Duration::seconds(poll_secs as i64);
+
+    // Register cloud agents so they show as ACTIVE in the fleet view.
+    let api_url = env_str("COLLECTOR_API_URL", "http://localhost:8080");
+    let api_key = env_str("COLLECTOR_API_KEY", "");
+    let cloud_agents: Vec<(&str, &str, &str)> = vec![
+        (
+            "cloud-graph-signin",
+            "Microsoft Entra ID Sign-ins (Graph)",
+            "azure",
+        ),
+        (
+            "cloud-graph-directory",
+            "Microsoft Entra ID Directory (Graph)",
+            "azure",
+        ),
+    ];
+    for (agent_id, hostname, os) in &cloud_agents {
+        let url = format!("{api_url}/api/v1/agents/register");
+        let body = json!({
+            "agent_id": agent_id,
+            "tenant_id": tenant_id.as_str(),
+            "hostname": hostname,
+            "os": os,
+            "version": "graph-api-poller",
+        });
+        let mut req = client
+            .post(&url)
+            .header("x-tenant-id", tenant_id.as_str())
+            .header("x-user-id", "cyberbox-collector")
+            .header("x-roles", "ingestor");
+        if !api_key.is_empty() {
+            req = req.header("X-Api-Key", api_key.as_str());
+        }
+        match req.json(&body).send().await {
+            Ok(r) if r.status().is_success() => {
+                info!(agent_id, hostname, "registered Graph API cloud agent");
+            }
+            Ok(r) => {
+                warn!(agent_id, status = %r.status(), "failed to register Graph API cloud agent");
+            }
+            Err(e) => {
+                warn!(agent_id, %e, "failed to register Graph API cloud agent");
+            }
+        }
+    }
+
+    loop {
+        // Heartbeat at the TOP of each loop so agents stay ACTIVE during the sleep.
+        for (agent_id, _, _) in &cloud_agents {
+            let url = format!("{api_url}/api/v1/agents/{agent_id}/heartbeat");
+            let mut req = client
+                .post(&url)
+                .header("x-tenant-id", tenant_id.as_str())
+                .header("x-user-id", "cyberbox-collector")
+                .header("x-roles", "ingestor");
+            if !api_key.is_empty() {
+                req = req.header("X-Api-Key", api_key.as_str());
+            }
+            let _ = req.send().await;
+        }
+
+        if sleep_or_shutdown(poll_dur, &mut shutdown).await {
+            return;
+        }
+
+        let token = match get_graph_token(&client, &aad_tenant, &client_id, &client_secret).await {
+            Ok(t) => {
+                consecutive_errors = 0;
+                t
+            }
+            Err(e) => {
+                consecutive_errors += 1;
+                let delay = backoff(consecutive_errors, poll_secs);
+                warn!(%e, consecutive_errors, backoff_secs = delay.as_secs(), "Graph: token request failed — backing off");
+                if sleep_or_shutdown(delay, &mut shutdown).await {
+                    return;
+                }
+                continue;
+            }
+        };
+
+        let filter_time = last_poll_time.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        let now = Utc::now();
+        let mut any_error = false;
+
+        // Poll sign-in logs → source "entra_id"
+        match fetch_graph_signins(&client, &token, &filter_time, &tenant_id, &tx, &metrics).await {
+            Ok(n) => {
+                if n > 0 {
+                    info!(events = n, "Graph: received signIn events");
+                }
+            }
+            Err(e) => {
+                warn!(%e, "Graph: signIns fetch error");
+                any_error = true;
+            }
+        }
+
+        // Poll directory audit logs → source "o365" (same source tag as the O365 path)
+        match fetch_graph_directory_audits(&client, &token, &filter_time, &tenant_id, &tx, &metrics)
+            .await
+        {
+            Ok(n) => {
+                if n > 0 {
+                    info!(events = n, "Graph: received directoryAudit events");
+                }
+            }
+            Err(e) => {
+                warn!(%e, "Graph: directoryAudits fetch error");
+                any_error = true;
+            }
+        }
+
+        if any_error {
+            consecutive_errors += 1;
+            let delay = backoff(consecutive_errors, poll_secs);
+            warn!(
+                consecutive_errors,
+                backoff_secs = delay.as_secs(),
+                "Graph: partial errors — backing off before next poll"
+            );
+            if sleep_or_shutdown(delay, &mut shutdown).await {
+                return;
+            }
+        } else {
+            consecutive_errors = 0;
+            last_poll_time = now;
+        }
+    }
+}
+
+/// Acquire an OAuth2 token for Microsoft Graph API using client credentials.
+/// Uses scope `https://graph.microsoft.com/.default` (distinct from the O365
+/// Management Activity API scope).
+async fn get_graph_token(
+    client: &reqwest::Client,
+    tenant: &str,
+    client_id: &str,
+    client_secret: &str,
+) -> Result<String> {
+    let url = format!("https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token");
+    let body = [
+        ("grant_type", "client_credentials"),
+        ("client_id", client_id),
+        ("client_secret", client_secret),
+        ("scope", "https://graph.microsoft.com/.default"),
+    ];
+
+    let resp: serde_json::Value = client
+        .post(&url)
+        .form(&body)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+
+    resp["access_token"]
+        .as_str()
+        .map(|s| s.to_string())
+        .context("Graph token response missing access_token")
+}
+
+/// Fetch Entra ID sign-in logs from `GET /v1.0/auditLogs/signIns`.
+/// Paginates via `@odata.nextLink`.  Each event is emitted with `source: "entra_id"`.
+async fn fetch_graph_signins(
+    client: &reqwest::Client,
+    token: &str,
+    since: &str,
+    tenant_id: &str,
+    tx: &mpsc::Sender<Value>,
+    metrics: &CollectorMetrics,
+) -> Result<usize> {
+    let initial_url = format!(
+        "https://graph.microsoft.com/v1.0/auditLogs/signIns?$filter=createdDateTime ge {since}&$orderby=createdDateTime asc&$top=500"
+    );
+    fetch_graph_paged(
+        client,
+        token,
+        &initial_url,
+        "entra_id",
+        "createdDateTime",
+        tenant_id,
+        tx,
+        metrics,
+    )
+    .await
+}
+
+/// Fetch Entra ID directory audit logs from `GET /v1.0/auditLogs/directoryAudits`.
+/// Paginates via `@odata.nextLink`.  Each event is emitted with `source: "o365"`.
+async fn fetch_graph_directory_audits(
+    client: &reqwest::Client,
+    token: &str,
+    since: &str,
+    tenant_id: &str,
+    tx: &mpsc::Sender<Value>,
+    metrics: &CollectorMetrics,
+) -> Result<usize> {
+    let initial_url = format!(
+        "https://graph.microsoft.com/v1.0/auditLogs/directoryAudits?$filter=activityDateTime ge {since}&$orderby=activityDateTime asc&$top=500"
+    );
+    fetch_graph_paged(
+        client,
+        token,
+        &initial_url,
+        "o365",
+        "activityDateTime",
+        tenant_id,
+        tx,
+        metrics,
+    )
+    .await
+}
+
+/// Generic paginated Graph API fetcher.  Follows `@odata.nextLink` until
+/// exhausted.  `ts_field` is the JSON key used to extract the event timestamp
+/// (e.g. `createdDateTime` for signIns, `activityDateTime` for directoryAudits).
+#[allow(clippy::too_many_arguments)]
+async fn fetch_graph_paged(
+    client: &reqwest::Client,
+    token: &str,
+    initial_url: &str,
+    source_tag: &str,
+    ts_field: &str,
+    tenant_id: &str,
+    tx: &mpsc::Sender<Value>,
+    metrics: &CollectorMetrics,
+) -> Result<usize> {
+    let mut total = 0usize;
+    let mut url = initial_url.to_string();
+
+    loop {
+        let resp: Value = client
+            .get(&url)
+            .bearer_auth(token)
+            .header("ConsistencyLevel", "eventual")
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+
+        if let Some(events) = resp.get("value").and_then(|v| v.as_array()) {
+            let batch_count = events.len() as u64;
+            for ev in events {
+                let ts = ev
+                    .get(ts_field)
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let wrapped = json!({
+                    "tenant_id":  tenant_id,
+                    "source":     source_tag,
+                    "event_time": ts,
+                    "raw_payload": ev,
+                });
+                if tx.send(wrapped).await.is_err() {
+                    return Ok(total);
+                }
+                total += 1;
+            }
+            metrics.cloud_received.fetch_add(batch_count, Relaxed);
+        }
+
+        // Follow OData pagination.
+        match resp.get("@odata.nextLink").and_then(|v| v.as_str()) {
+            Some(next) => url = next.to_string(),
+            None => break,
+        }
+    }
+
     Ok(total)
 }
 
