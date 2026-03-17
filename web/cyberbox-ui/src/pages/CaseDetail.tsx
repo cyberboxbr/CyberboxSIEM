@@ -282,10 +282,10 @@ export function CaseDetail() {
           {c.description && <p className="cd-description">{c.description}</p>}
           <div className="cd-header-badges">
             <span className={`cd-sev-badge cd-sev-badge--${c.severity}`}>
-              {c.severity.toUpperCase()}
+              {(c.severity ?? 'medium').toUpperCase()}
             </span>
             <span className={`cs-status-badge cs-status-badge--${c.status}`}>
-              {c.status.replace('_', ' ')}
+              {(c.status ?? 'open').replace('_', ' ')}
             </span>
             {c.priority && (
               <span className="cd-priority-badge">P{c.priority}</span>

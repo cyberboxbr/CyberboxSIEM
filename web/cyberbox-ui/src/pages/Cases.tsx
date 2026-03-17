@@ -337,7 +337,7 @@ export function Cases() {
                   {/* Status */}
                   <span className="cs-col-status">
                     <span className={`cs-status-badge cs-status-badge--${c.status}`}>
-                      {c.status.replace('_', ' ')}
+                      {(c.status ?? 'open').replace('_', ' ')}
                     </span>
                   </span>
 

@@ -2287,7 +2287,7 @@ async fn get_case(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<CaseRecord>, CyberboxError> {
-    auth.require_any(&[Role::Admin, Role::Analyst])?;
+    auth.require_any(&[Role::Admin, Role::Analyst, Role::Viewer])?;
     let case = get_case_snapshot(&state, &auth.tenant_id, id).await?;
     Ok(Json(case))
 }
