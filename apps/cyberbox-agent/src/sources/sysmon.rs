@@ -66,7 +66,7 @@ fn subscribe_sysmon(tenant_id: Arc<String>, hostname: Arc<String>, tx: mpsc::Sen
         .encode_utf16()
         .chain(std::iter::once(0))
         .collect();
-    let query_w: Vec<u16> = "*\0".encode_utf16().collect();
+    let query_w: Vec<u16> = "*".encode_utf16().chain(std::iter::once(0)).collect();
 
     let subscription = unsafe {
         match EvtSubscribe(

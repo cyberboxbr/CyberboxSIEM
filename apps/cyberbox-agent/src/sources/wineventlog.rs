@@ -46,7 +46,7 @@ fn subscribe_channel(
     tx: mpsc::Sender<Value>,
 ) {
     let channel_w: Vec<u16> = channel.encode_utf16().chain(std::iter::once(0)).collect();
-    let query_w: Vec<u16> = "*\0".encode_utf16().collect();
+    let query_w: Vec<u16> = "*".encode_utf16().chain(std::iter::once(0)).collect();
 
     let subscription = unsafe {
         match EvtSubscribe(
