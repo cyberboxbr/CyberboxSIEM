@@ -48,6 +48,42 @@ function parseAllMatchingValues(raw: string, metricName: string): number {
   return total;
 }
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+function appendError(current: string, next: string): string {
+  return current ? `${current} ${next}` : next;
+}
+
+function formatSystemError(error: unknown): string {
+  const message = getErrorMessage(error);
+  const normalized = message.toLowerCase();
+  if (message.includes('API 401') || normalized.includes('authentication failed')) {
+    return 'Your session expired or you are not authorized to view system data. Please sign in again and retry.';
+  }
+  if (message.includes('API 403')) {
+    return 'You do not have permission to view system data.';
+  }
+  return message;
+}
+
+function formatTimestamp(value?: string): string {
+  if (!value) return 'Unavailable';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleString();
+}
+
+function formatCount(value: number | null | undefined): string {
+  return Number.isFinite(value) ? Number(value).toLocaleString() : '0';
+}
+
 // ---------------------------------------------------------------------------
 // KPI card
 // ---------------------------------------------------------------------------
@@ -87,16 +123,41 @@ export function SystemHealth() {
     setLoading(true);
     setHealthError('');
     try {
-      const [h, m, src] = await Promise.all([
+      const [healthResult, metricsResult, sourcesResult] = await Promise.allSettled([
         healthCheck(),
         getMetrics(),
         getSources(),
       ]);
-      setHealth(h);
-      setMetricsRaw(m);
-      setSources(src);
+
+      let nextError = '';
+
+      if (healthResult.status === 'fulfilled') {
+        setHealth(healthResult.value);
+      } else {
+        setHealth(null);
+        nextError = appendError(nextError, `Health check unavailable: ${formatSystemError(healthResult.reason)}`);
+      }
+
+      if (metricsResult.status === 'fulfilled') {
+        setMetricsRaw(metricsResult.value);
+      } else {
+        setMetricsRaw('');
+        nextError = appendError(nextError, `Metrics unavailable: ${formatSystemError(metricsResult.reason)}`);
+      }
+
+      if (sourcesResult.status === 'fulfilled') {
+        setSources(sourcesResult.value);
+      } else {
+        setSources([]);
+        nextError = appendError(nextError, `Sources unavailable: ${formatSystemError(sourcesResult.reason)}`);
+      }
+
+      setHealthError(nextError);
     } catch (err) {
-      setHealthError(String(err));
+      setHealth(null);
+      setMetricsRaw('');
+      setSources([]);
+      setHealthError(formatSystemError(err));
     } finally {
       setLoading(false);
     }
@@ -111,7 +172,7 @@ export function SystemHealth() {
     try {
       setTickResult(await schedulerTick());
     } catch (err) {
-      setTickError(String(err));
+      setTickError(formatSystemError(err));
     } finally {
       setTickLoading(false);
     }
@@ -171,7 +232,7 @@ export function SystemHealth() {
           </strong>
           {health?.time && (
             <span style={{ fontSize: 12, color: s.dim, marginLeft: 12 }}>
-              Server time: {new Date(health.time).toLocaleString()}
+              Server time: {formatTimestamp(health.time)}
             </span>
           )}
         </div>
@@ -181,22 +242,22 @@ export function SystemHealth() {
       <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
         <KpiCard
           label="Events Ingested"
-          value={eventsIngested.toLocaleString()}
+          value={formatCount(eventsIngested)}
           color={s.accent}
         />
         <KpiCard
           label="Alerts Fired"
-          value={alertsFired.toLocaleString()}
+          value={formatCount(alertsFired)}
           color={alertsFired > 0 ? s.warn : s.good}
         />
         <KpiCard
           label="EPS Rejected"
-          value={epsRejected.toLocaleString()}
+          value={formatCount(epsRejected)}
           color={epsRejected > 0 ? s.bad : s.good}
         />
         <KpiCard
           label="Dedup Dropped"
-          value={dedupDropped.toLocaleString()}
+          value={formatCount(dedupDropped)}
           color={dedupDropped > 0 ? s.warn : s.dim}
         />
       </div>
@@ -243,18 +304,20 @@ export function SystemHealth() {
             <thead>
               <tr>
                 <th style={th}>Source</th>
+                <th style={th}>Status</th>
                 <th style={th}>Event Count</th>
                 <th style={th}>Last Seen</th>
               </tr>
             </thead>
             <tbody>
               {sources.map((src) => (
-                <tr key={src.source}>
-                  <td style={td}><code style={{ fontSize: 12 }}>{src.source}</code></td>
+                <tr key={`${src.source_type}-${src.last_seen ?? 'unknown'}`}>
+                  <td style={td}><code style={{ fontSize: 12 }}>{src.source_type}</code></td>
+                  <td style={td}>{src.status ?? 'unknown'}</td>
                   <td style={{ ...td, fontWeight: 700, color: s.accent }}>
-                    {src.event_count.toLocaleString()}
+                    {formatCount(src.total_events)}
                   </td>
-                  <td style={td}>{new Date(src.last_seen).toLocaleString()}</td>
+                  <td style={td}>{formatTimestamp(src.last_seen)}</td>
                 </tr>
               ))}
             </tbody>

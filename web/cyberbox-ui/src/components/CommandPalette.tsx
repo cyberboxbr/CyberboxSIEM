@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
 /* ------------------------------------------------------------------ */
 /*  Data                                                               */
@@ -12,26 +13,28 @@ interface PaletteItem {
   to?: string;
   action?: () => void;
   keywords?: string;
+  adminOnly?: boolean;
+  analystOnly?: boolean;
 }
 
 const NAV_ITEMS: PaletteItem[] = [
   { id: 'nav-dashboard', label: 'Dashboard', section: 'Navigation', to: '/', keywords: 'home overview' },
   { id: 'nav-alerts', label: 'Alerts', section: 'Navigation', to: '/alerts', keywords: 'alert queue notifications' },
   { id: 'nav-cases', label: 'Cases', section: 'Navigation', to: '/cases', keywords: 'case incident' },
-  { id: 'nav-rules', label: 'Detection Rules', section: 'Navigation', to: '/rules', keywords: 'rule sigma detection' },
-  { id: 'nav-coverage', label: 'MITRE Coverage', section: 'Navigation', to: '/coverage', keywords: 'mitre att&ck matrix' },
-  { id: 'nav-lookups', label: 'Lookup Tables', section: 'Navigation', to: '/lookups', keywords: 'lookup enrichment' },
+  { id: 'nav-rules', label: 'Detection Rules', section: 'Navigation', to: '/rules', keywords: 'rule sigma detection', analystOnly: true },
+  { id: 'nav-coverage', label: 'MITRE Coverage', section: 'Navigation', to: '/coverage', keywords: 'mitre att&ck matrix', analystOnly: true },
+  { id: 'nav-lookups', label: 'Lookup Tables', section: 'Navigation', to: '/lookups', keywords: 'lookup enrichment', analystOnly: true },
   { id: 'nav-search', label: 'Search', section: 'Navigation', to: '/search', keywords: 'query investigate' },
-  { id: 'nav-threatintel', label: 'Threat Intel', section: 'Navigation', to: '/threat-intel', keywords: 'threat intelligence ioc' },
-  { id: 'nav-agents', label: 'Agents', section: 'Navigation', to: '/agents', keywords: 'agent collector endpoint' },
-  { id: 'nav-rbac', label: 'RBAC', section: 'Navigation', to: '/admin/rbac', keywords: 'roles permissions access' },
-  { id: 'nav-audit', label: 'Audit Logs', section: 'Navigation', to: '/admin/audit', keywords: 'audit trail log' },
-  { id: 'nav-lgpd', label: 'LGPD Compliance', section: 'Navigation', to: '/admin/lgpd', keywords: 'privacy compliance gdpr' },
-  { id: 'nav-system', label: 'System', section: 'Navigation', to: '/admin/system', keywords: 'settings configuration' },
+  { id: 'nav-threatintel', label: 'Threat Intel', section: 'Navigation', to: '/threat-intel', keywords: 'threat intelligence ioc', analystOnly: true },
+  { id: 'nav-agents', label: 'Agents', section: 'Navigation', to: '/agents', keywords: 'agent collector endpoint', analystOnly: true },
+  { id: 'nav-rbac', label: 'RBAC', section: 'Navigation', to: '/admin/rbac', keywords: 'roles permissions access', adminOnly: true },
+  { id: 'nav-audit', label: 'Audit Logs', section: 'Navigation', to: '/admin/audit', keywords: 'audit trail log', adminOnly: true },
+  { id: 'nav-lgpd', label: 'LGPD Compliance', section: 'Navigation', to: '/admin/lgpd', keywords: 'privacy compliance gdpr', adminOnly: true },
+  { id: 'nav-system', label: 'System', section: 'Navigation', to: '/admin/system', keywords: 'settings configuration', adminOnly: true },
 ];
 
 const ACTION_ITEMS: PaletteItem[] = [
-  { id: 'act-create-rule', label: 'Create Rule', section: 'Actions', to: '/rules', keywords: 'new add sigma detection' },
+  { id: 'act-create-rule', label: 'Create Rule', section: 'Actions', to: '/rules', keywords: 'new add sigma detection', analystOnly: true },
   { id: 'act-ingest', label: 'Ingest Event', section: 'Actions', to: '/alerts', keywords: 'send submit event log' },
 ];
 
@@ -187,22 +190,29 @@ interface CommandPaletteProps {
 }
 
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
+  const { isAdmin, isAnalyst } = useAuth();
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
+  const availableItems = ALL_ITEMS.filter((item) => {
+    if (item.adminOnly && !isAdmin) return false;
+    if (item.analystOnly && !(isAdmin || isAnalyst)) return false;
+    return true;
+  });
+
   // Filter items
   const filtered = query.trim()
-    ? ALL_ITEMS.filter((item) => {
+    ? availableItems.filter((item) => {
         const q = query.toLowerCase();
         return (
           item.label.toLowerCase().includes(q) ||
           (item.keywords && item.keywords.toLowerCase().includes(q))
         );
       })
-    : ALL_ITEMS;
+    : availableItems;
 
   // Group by section
   const sections: { title: string; items: PaletteItem[] }[] = [];

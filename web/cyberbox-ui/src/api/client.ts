@@ -135,9 +135,12 @@ export interface IngestResponse {
 }
 
 export interface SourceInfo {
-  source: string;
-  event_count: number;
-  last_seen: string;
+  tenant_id?: string;
+  source_type: string;
+  first_seen?: string;
+  last_seen?: string;
+  total_events: number;
+  status?: string;
 }
 
 // ── Interfaces: Rules ──────────────────────────────────────────────────────
@@ -633,7 +636,19 @@ export async function purgeEvents(): Promise<void> {
 }
 
 export async function getSources(): Promise<SourceInfo[]> {
-  return apiRequest<SourceInfo[]>('/api/v1/sources');
+  const response = await apiRequest<Array<SourceInfo & {
+    source?: string;
+    event_count?: number;
+  }>>('/api/v1/sources');
+
+  return (response ?? []).map((source) => ({
+    tenant_id: source.tenant_id,
+    source_type: source.source_type ?? source.source ?? 'unknown',
+    first_seen: source.first_seen,
+    last_seen: source.last_seen,
+    total_events: source.total_events ?? source.event_count ?? 0,
+    status: source.status,
+  }));
 }
 
 /**
