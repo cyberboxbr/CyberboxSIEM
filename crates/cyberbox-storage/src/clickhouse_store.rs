@@ -1867,14 +1867,15 @@ fn normalize_base_query(input: &str, fallback: &str) -> Result<String, CyberboxE
     }
 
     let lower = candidate.to_ascii_lowercase();
-    if !lower.starts_with("select ") {
-        return Err(CyberboxError::BadRequest(
-            "search:query sql must be a SELECT statement".to_string(),
-        ));
-    }
     if lower.contains(" format ") {
         return Err(CyberboxError::BadRequest(
             "search:query sql must not include FORMAT clause".to_string(),
+        ));
+    }
+
+    if !lower.starts_with("select ") {
+        return Ok(format!(
+            "SELECT * FROM ({fallback}) AS events WHERE ({candidate})"
         ));
     }
 
@@ -2274,7 +2275,7 @@ fn pagination_offset(page: u32, page_size: u32) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::pagination_offset;
+    use super::{normalize_base_query, pagination_offset};
 
     #[test]
     fn pagination_offset_uses_one_based_pages() {
@@ -2282,5 +2283,25 @@ mod tests {
         assert_eq!(pagination_offset(1, 10), 0);
         assert_eq!(pagination_offset(2, 10), 10);
         assert_eq!(pagination_offset(3, 10), 20);
+    }
+
+    #[test]
+    fn normalize_base_query_supports_filter_shorthand() {
+        let fallback = "SELECT * FROM cyberbox.events_hot";
+        let query = normalize_base_query("event_id = 'abc123'", fallback)
+            .expect("filter shorthand should normalize");
+
+        assert_eq!(
+            query,
+            "SELECT * FROM (SELECT * FROM cyberbox.events_hot) AS events WHERE (event_id = 'abc123')"
+        );
+    }
+
+    #[test]
+    fn normalize_base_query_keeps_full_selects() {
+        let query = normalize_base_query("SELECT * FROM cyberbox.events_hot LIMIT 5", "ignored")
+            .expect("full select should pass through");
+
+        assert_eq!(query, "SELECT * FROM cyberbox.events_hot LIMIT 5");
     }
 }

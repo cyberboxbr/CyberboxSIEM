@@ -7,7 +7,7 @@
 export type Severity = 'low' | 'medium' | 'high' | 'critical';
 export type DetectionMode = 'stream' | 'scheduled';
 export type AlertStatus = 'open' | 'acknowledged' | 'closed' | 'false_positive';
-export type CaseStatus = 'open' | 'in_progress' | 'closed';
+export type CaseStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
 export type AgentStatus = 'active' | 'stale' | 'offline';
 export type FeedType = 'taxii' | 'stix' | 'csv' | 'json';
 
@@ -19,12 +19,14 @@ export type FeedType = 'taxii' | 'stix' | 'csv' | 'json';
  * dev-mode identity headers (for local development with auth_disabled=true).
  */
 let tokenProvider: (() => Promise<string>) | null = null;
+let pendingToken: Promise<string> | null = null;
 
 /**
  * Called by AuthContext after login to wire up token acquisition.
  */
 export function setTokenProvider(provider: (() => Promise<string>) | null): void {
   tokenProvider = provider;
+  pendingToken = null;
 }
 
 // ── Dev-mode identity headers (used when no token provider is set) ────────
@@ -55,13 +57,17 @@ async function apiRequest<T>(url: string, init: RequestInit = {}): Promise<T> {
   };
 
   if (tokenProvider) {
-    // Production: attach Azure AD access token
     try {
-      const token = await tokenProvider();
+      if (!pendingToken) {
+        pendingToken = tokenProvider().finally(() => {
+          pendingToken = null;
+        });
+      }
+      const token = await pendingToken;
       headers['Authorization'] = `Bearer ${token}`;
     } catch (e) {
-      console.warn('Token acquisition failed, falling back to identity headers', e);
-      Object.assign(headers, BASE_HEADERS);
+      console.warn('Token acquisition failed', e);
+      throw new Error('Authentication failed. Please sign in again.');
     }
   } else {
     // Dev mode: use plain identity headers (auth_disabled=true on backend)
@@ -347,6 +353,19 @@ export interface CaseUpdateInput {
   priority?: number;
 }
 
+function normalizeCaseRecord(record: CaseRecord): CaseRecord {
+  return {
+    ...record,
+    description: record.description ?? '',
+    alert_ids: record.alert_ids ?? [],
+    tags: record.tags ?? [],
+  };
+}
+
+function normalizeCaseRecords(records: CaseRecord[] | null | undefined): CaseRecord[] {
+  return (records ?? []).map(normalizeCaseRecord);
+}
+
 // ── Interfaces: Search ─────────────────────────────────────────────────────
 
 export interface TimeRange {
@@ -376,13 +395,14 @@ export interface SearchQueryResponse {
 
 export interface NlqInput {
   query: string;
-  time_range: TimeRange;
+  time_range?: TimeRange;
 }
 
 export interface NlqResponse {
   rows: Array<Record<string, unknown>>;
-  generated_sql: string;
-  has_more: boolean;
+  generated_where: string;
+  interpreted_as: string;
+  time_range: TimeRange;
   total?: number;
 }
 
@@ -732,6 +752,10 @@ export async function getAlerts(query: AlertsQuery = {}): Promise<AlertsPage> {
   return apiRequest<AlertsPage>(`/api/v1/alerts${qs({ ...query })}`);
 }
 
+export async function getAlert(alertId: string): Promise<AlertRecord> {
+  return apiRequest<AlertRecord>(`/api/v1/alerts/${alertId}`);
+}
+
 /**
  * Fetch all alerts by following cursor pagination.
  */
@@ -823,38 +847,42 @@ export async function connectEventSSE(): Promise<EventSource> {
 // ── Cases ──────────────────────────────────────────────────────────────────
 
 export async function getCases(): Promise<CaseRecord[]> {
-  const resp = await apiRequest<{ cases: CaseRecord[]; total: number }>('/api/v1/cases');
-  return resp.cases ?? [];
+  const resp = await apiRequest<{ cases?: CaseRecord[]; total: number }>('/api/v1/cases');
+  return normalizeCaseRecords(resp.cases);
 }
 
 export async function createCase(input: CaseCreateInput): Promise<CaseRecord> {
-  return apiRequest<CaseRecord>('/api/v1/cases', {
+  const response = await apiRequest<CaseRecord>('/api/v1/cases', {
     method: 'POST',
     body: JSON.stringify(input),
   });
+  return normalizeCaseRecord(response);
 }
 
 export async function getCase(caseId: string): Promise<CaseRecord> {
-  return apiRequest<CaseRecord>(`/api/v1/cases/${caseId}`);
+  const response = await apiRequest<CaseRecord>(`/api/v1/cases/${caseId}`);
+  return normalizeCaseRecord(response);
 }
 
 export async function updateCase(caseId: string, input: CaseUpdateInput): Promise<CaseRecord> {
-  return apiRequest<CaseRecord>(`/api/v1/cases/${caseId}`, {
+  const response = await apiRequest<CaseRecord>(`/api/v1/cases/${caseId}`, {
     method: 'PATCH',
     body: JSON.stringify(input),
   });
+  return normalizeCaseRecord(response);
 }
 
 export async function addAlertsToCase(caseId: string, alertIds: string[]): Promise<CaseRecord> {
-  return apiRequest<CaseRecord>(`/api/v1/cases/${caseId}/alerts`, {
+  const response = await apiRequest<CaseRecord>(`/api/v1/cases/${caseId}/alerts`, {
     method: 'POST',
     body: JSON.stringify({ alert_ids: alertIds }),
   });
+  return normalizeCaseRecord(response);
 }
 
 export async function getSlaBreaches(): Promise<CaseRecord[]> {
-  const resp = await apiRequest<{ breaches: CaseRecord[]; total: number }>('/api/v1/cases/sla-breaches');
-  return resp.breaches ?? [];
+  const resp = await apiRequest<{ breaches?: CaseRecord[]; total: number }>('/api/v1/cases/sla-breaches');
+  return normalizeCaseRecords(resp.breaches);
 }
 
 // ── Search ─────────────────────────────────────────────────────────────────

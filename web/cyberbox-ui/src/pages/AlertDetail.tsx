@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   acknowledgeAlert,
@@ -6,13 +6,14 @@ import {
   closeAlert,
   falsePositiveAlert,
   explainAlert,
-  getAllAlerts,
+  getAlert,
   createCase,
   getRules,
   runSearch,
 } from '../api/client';
 import type { AlertRecord, DetectionRule, ExplainAlertResult } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
+import { aggregateEventContexts, extractEventContext, formatNetworkFlow, limitValues } from '../lib/logContext';
 
 /* ── Helpers ──────────────────────────────────────── */
 
@@ -44,6 +45,39 @@ function fpLabel(likelihood: string): { text: string; cls: string } {
     case 'medium': return { text: 'MEDIUM', cls: 'ad-fp--medium' };
     default: return { text: 'LOW', cls: 'ad-fp--low' };
   }
+}
+
+function formatLoadError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLowerCase();
+  if (message.includes('API 404')) {
+    return 'Alert not found.';
+  }
+  if (message.includes('API 401') || normalized.includes('authentication failed')) {
+    return 'Your session expired or you are not authorized to load this alert. Please sign in again and retry.';
+  }
+  return message;
+}
+
+function mergeUnique(...groups: Array<Array<string | undefined> | undefined>): string[] {
+  const seen = new Set<string>();
+  const values: string[] = [];
+  groups.forEach((group) => {
+    group?.forEach((value) => {
+      if (!value) return;
+      if (seen.has(value)) return;
+      seen.add(value);
+      values.push(value);
+    });
+  });
+  return values;
+}
+
+function formatEvidenceTime(value?: string): string | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString();
 }
 
 type Resolution = 'true_positive' | 'false_positive';
@@ -142,11 +176,12 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
     setLoading(true);
     setError(null);
     try {
-      const all = await getAllAlerts({ limit: 200 });
-      const found = all.find((a: AlertRecord) => a.alert_id === alertId);
-      if (found) setAlert(found);
-      else setError('Alert not found.');
-    } catch (err) { setError(`Failed to load: ${String(err)}`); }
+      const found = await getAlert(alertId);
+      setAlert(found);
+    } catch (err) {
+      setAlert(null);
+      setError(formatLoadError(err));
+    }
     finally { setLoading(false); }
   }, [alertId]);
 
@@ -180,11 +215,11 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
     try {
       const refs = alert.evidence_refs.slice(0, 5);
       const ids = refs.map((r) => `'${r.replace(/^event:/, '').replace(/'/g, "''")}'`).join(',');
-      const likeClause = `event_id IN (${ids})`;
+      const filterClause = `event_id IN (${ids})`;
       const now = new Date();
       const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       const result = await runSearch({
-        sql: `SELECT * FROM events WHERE (${likeClause}) LIMIT 10`,
+        sql: filterClause,
         time_range: { start: weekAgo.toISOString(), end: now.toISOString() },
         pagination: { page: 1, page_size: 10 },
       });
@@ -192,6 +227,16 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
     } catch { /* ignore */ }
     finally { setEvidenceLoading(false); }
   }, [alert]);
+
+  useEffect(() => {
+    setEvidenceEvents([]);
+    setEvidenceOpen(false);
+  }, [alertId]);
+
+  useEffect(() => {
+    if (!alert || alert.evidence_refs.length === 0) return;
+    void fetchEvidence();
+  }, [alert, fetchEvidence]);
 
   /* ── Actions ─────────────────────────────────── */
 
@@ -240,6 +285,73 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
   };
 
   /* ── Loading/Error ───────────────────────────── */
+
+  const evidenceContexts = useMemo(
+    () => evidenceEvents.map((row) => extractEventContext(row)),
+    [evidenceEvents],
+  );
+  const evidenceAggregate = useMemo(
+    () => aggregateEventContexts(evidenceContexts),
+    [evidenceContexts],
+  );
+  const evidenceById = useMemo(() => {
+    const next = new Map<string, ReturnType<typeof extractEventContext>>();
+    evidenceContexts.forEach((context) => {
+      if (context.eventId) {
+        next.set(context.eventId, context);
+      }
+    });
+    return next;
+  }, [evidenceContexts]);
+  const observedHosts = useMemo(
+    () => limitValues(mergeUnique([alert?.agent_meta?.hostname as string | undefined], evidenceAggregate.hosts), 4),
+    [alert?.agent_meta, evidenceAggregate.hosts],
+  );
+  const observedUsers = useMemo(
+    () => limitValues(evidenceAggregate.users, 4),
+    [evidenceAggregate.users],
+  );
+  const observedProcesses = useMemo(
+    () => limitValues(
+      mergeUnique(
+        evidenceAggregate.processes,
+        [alert ? ((alert as any).process_name as string | undefined) : undefined],
+      ),
+      4,
+    ),
+    [alert, evidenceAggregate.processes],
+  );
+  const observedNetworks = useMemo(
+    () => limitValues(
+      mergeUnique(
+        evidenceAggregate.networkFlows,
+        [alert ? formatNetworkFlow({
+          sourceIp: (alert as any).src_ip as string | undefined,
+          destinationIp: (alert as any).dst_ip as string | undefined,
+          destinationHost: undefined,
+          destinationPort: (alert as any).dst_port ? String((alert as any).dst_port) : undefined,
+        }) : undefined],
+      ),
+      4,
+    ),
+    [alert, evidenceAggregate.networkFlows],
+  );
+  const observedArtifacts = useMemo(
+    () => limitValues(
+      mergeUnique(
+        evidenceAggregate.domains,
+        evidenceAggregate.files,
+        evidenceAggregate.registryPaths,
+        evidenceAggregate.services,
+      ),
+      6,
+    ),
+    [evidenceAggregate.domains, evidenceAggregate.files, evidenceAggregate.registryPaths, evidenceAggregate.services],
+  );
+  const messageHighlights = useMemo(
+    () => limitValues(evidenceAggregate.messages, 3),
+    [evidenceAggregate.messages],
+  );
 
   if (loading) return <div className="page"><p className="empty-state">Loading alert...</p></div>;
   if (error || !alert) return (
@@ -381,47 +493,177 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
             </div>
           </div>
 
+          {(evidenceAggregate.eventKinds.length > 0
+            || evidenceAggregate.sources.length > 0
+            || observedHosts.length > 0
+            || observedUsers.length > 0
+            || observedProcesses.length > 0
+            || observedNetworks.length > 0
+            || observedArtifacts.length > 0
+            || messageHighlights.length > 0) && (
+            <div className="cd-panel">
+              <div className="cd-panel-header">
+                <div className="cd-panel-title">{terminalIcon} <span>INVESTIGATION SNAPSHOT</span></div>
+              </div>
+              <div className="ad-field-grid">
+                {evidenceAggregate.eventKinds.length > 0 && (
+                  <div className="ad-field ad-field--full">
+                    <span className="ad-field-label">Event Types</span>
+                    <div className="ad-tags">
+                      {evidenceAggregate.eventKinds.map((value) => <span key={value} className="cd-tag">{value}</span>)}
+                    </div>
+                  </div>
+                )}
+                {evidenceAggregate.sources.length > 0 && (
+                  <div className="ad-field">
+                    <span className="ad-field-label">Log Sources</span>
+                    <div className="ad-tags">
+                      {evidenceAggregate.sources.map((value) => <span key={value} className="cd-tag">{value}</span>)}
+                    </div>
+                  </div>
+                )}
+                {observedHosts.length > 0 && (
+                  <div className="ad-field">
+                    <span className="ad-field-label">Observed Hosts</span>
+                    <div className="ad-tags">
+                      {observedHosts.map((value) => <span key={value} className="cd-tag">{value}</span>)}
+                    </div>
+                  </div>
+                )}
+                {observedUsers.length > 0 && (
+                  <div className="ad-field">
+                    <span className="ad-field-label">Users</span>
+                    <div className="ad-tags">
+                      {observedUsers.map((value) => <span key={value} className="cd-tag">{value}</span>)}
+                    </div>
+                  </div>
+                )}
+                {observedProcesses.length > 0 && (
+                  <div className="ad-field">
+                    <span className="ad-field-label">Processes</span>
+                    <div className="ad-tags">
+                      {observedProcesses.map((value) => <span key={value} className="cd-tag">{value}</span>)}
+                    </div>
+                  </div>
+                )}
+                {observedNetworks.length > 0 && (
+                  <div className="ad-field ad-field--full">
+                    <span className="ad-field-label">Network Paths</span>
+                    <div className="ad-observation-list">
+                      {observedNetworks.map((value) => <span key={value} className="ad-observation-pill">{value}</span>)}
+                    </div>
+                  </div>
+                )}
+                {observedArtifacts.length > 0 && (
+                  <div className="ad-field ad-field--full">
+                    <span className="ad-field-label">Artifacts</span>
+                    <div className="ad-observation-list">
+                      {observedArtifacts.map((value) => <span key={value} className="ad-observation-pill">{value}</span>)}
+                    </div>
+                  </div>
+                )}
+                {messageHighlights.length > 0 && (
+                  <div className="ad-field ad-field--full">
+                    <span className="ad-field-label">Message Highlights</span>
+                    <div className="ad-observation-list ad-observation-list--stacked">
+                      {messageHighlights.map((value) => <div key={value} className="ad-observation-note">{value}</div>)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Evidence References */}
           <div className="cd-panel">
             <div className="cd-panel-header">
               <div className="cd-panel-title">{fileIcon} <span>EVIDENCE</span> {evidenceRefs.length > 0 && <span className="cd-count-badge">{evidenceRefs.length}</span>}</div>
               {evidenceRefs.length > 0 && !evidenceOpen && (
                 <button type="button" className="cd-action-btn cd-action-btn--small" onClick={() => { setEvidenceOpen(true); fetchEvidence(); }}>
-                  View Events
+                  Show Evidence
                 </button>
               )}
             </div>
             {evidenceRefs.length === 0 ? <p className="empty-state">No evidence references.</p> : (
               <>
                 <div className="ad-evidence-list">
-                  {evidenceRefs.slice(0, 5).map((ref: string, i: number) => (
+                  {evidenceRefs.slice(0, 5).map((ref: string, i: number) => {
+                    const eventId = ref.replace(/^event:/, '');
+                    const context = evidenceById.get(eventId);
+                    const eventTime = formatEvidenceTime(context?.time);
+                    return (
                     <div key={i} className="ad-evidence-item">
-                      <code className="ad-evidence-ref">{ref}</code>
+                      <div className="ad-evidence-item-main">
+                        <code className="ad-evidence-ref">{ref}</code>
+                        {context && <div className="ad-evidence-summary">{context.summary}</div>}
+                        {eventTime && <div className="ad-evidence-meta">{eventTime}</div>}
+                      </div>
                       <button type="button" className="cd-action-btn cd-action-btn--small" onClick={() => {
-                        const eventId = ref.replace(/^event:/, '');
-                        navigate(`/search?q=${encodeURIComponent(`SELECT * FROM cyberbox.events_hot WHERE event_id = '${eventId}' LIMIT 1`)}`);
+                        const now = new Date();
+                        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                        const params = new URLSearchParams({
+                          q: `event_id = '${eventId.replace(/'/g, "''")}'`,
+                          from: weekAgo.toISOString(),
+                          to: now.toISOString(),
+                        });
+                        navigate(`/search?${params.toString()}`);
                       }}>
                         Search
                       </button>
                     </div>
-                  ))}
+                  );})}
                   {evidenceRefs.length > 5 && (
                     <div style={{ fontSize: 12, color: 'var(--text-tertiary)', padding: '4px 0' }}>
                       +{evidenceRefs.length - 5} more evidence references
                     </div>
                   )}
                 </div>
-                {/* Expanded raw events */}
+                {/* Expanded parsed events */}
                 {evidenceOpen && (
                   <div className="ad-raw-events">
                     <div className="ad-raw-events-header" onClick={() => setEvidenceOpen(false)}>
-                      {terminalIcon} <span>Raw Events</span>
+                      {terminalIcon} <span>Evidence Events</span>
                     </div>
                     {evidenceLoading && <p className="empty-state">Loading events...</p>}
-                    {!evidenceLoading && evidenceEvents.length === 0 && <p className="empty-state">No matching events found in the last 7 days.</p>}
-                    {evidenceEvents.map((ev, i) => (
-                      <pre key={i} className="ad-raw-event-block">{JSON.stringify(ev, null, 2)}</pre>
-                    ))}
+                    {!evidenceLoading && evidenceContexts.length === 0 && <p className="empty-state">No matching events found in the last 7 days.</p>}
+                    {evidenceContexts.map((context, i) => {
+                      const flow = formatNetworkFlow(context);
+                      const eventTime = formatEvidenceTime(context.time);
+                      const rawEvent = evidenceEvents[i];
+                      return (
+                        <div key={context.eventId ?? i} className="ad-evidence-card">
+                          <div className="ad-evidence-card-top">
+                            <div className="ad-evidence-card-headline">
+                              <div className="ad-evidence-card-title">{context.summary}</div>
+                              <div className="ad-evidence-card-chips">
+                                {context.eventName && <span className="ad-evidence-chip">{context.eventName}</span>}
+                                {context.source && <span className="ad-evidence-chip ad-evidence-chip--muted">{context.source}</span>}
+                                {context.host && <span className="ad-evidence-chip ad-evidence-chip--muted">{context.host}</span>}
+                              </div>
+                            </div>
+                            {eventTime && <span className="ad-evidence-card-time">{eventTime}</span>}
+                          </div>
+                          {context.message && <div className="ad-evidence-card-message">{context.message}</div>}
+                          <div className="ad-evidence-grid">
+                            {context.user && <div className="ad-evidence-detail"><span>User</span><strong>{context.user}</strong></div>}
+                            {context.process && <div className="ad-evidence-detail"><span>Process</span><strong>{context.process}</strong></div>}
+                            {context.parentProcess && <div className="ad-evidence-detail"><span>Parent</span><strong>{context.parentProcess}</strong></div>}
+                            {flow && <div className="ad-evidence-detail"><span>Network</span><strong>{flow}</strong></div>}
+                            {context.dnsQuery && <div className="ad-evidence-detail"><span>Query</span><strong>{context.dnsQuery}</strong></div>}
+                            {context.url && <div className="ad-evidence-detail"><span>URL</span><strong>{context.url}</strong></div>}
+                            {context.filePath && <div className="ad-evidence-detail"><span>File</span><strong>{context.filePath}</strong></div>}
+                            {context.registryPath && <div className="ad-evidence-detail"><span>Registry</span><strong>{context.registryPath}</strong></div>}
+                            {context.service && <div className="ad-evidence-detail"><span>Service</span><strong>{context.service}</strong></div>}
+                            {context.hashes && <div className="ad-evidence-detail"><span>Hashes</span><strong>{context.hashes}</strong></div>}
+                            {context.commandLine && <div className="ad-evidence-detail ad-evidence-detail--wide"><span>Command Line</span><strong>{context.commandLine}</strong></div>}
+                          </div>
+                          <details className="ad-evidence-raw-toggle">
+                            <summary>Raw JSON</summary>
+                            <pre className="ad-raw-event-block">{JSON.stringify(rawEvent, null, 2)}</pre>
+                          </details>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </>

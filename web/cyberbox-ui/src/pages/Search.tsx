@@ -105,12 +105,12 @@ const QUICK_RANGES = [
 ];
 
 const SAVED_QUERIES = [
-  { label: 'Failed Logins', sql: "SELECT * FROM events WHERE event_type = 'LoginAttempt' AND status = 'failed' ORDER BY _time DESC LIMIT 100" },
-  { label: 'Suspicious Processes', sql: "SELECT * FROM events WHERE process_name IN ('mimikatz.exe','certutil.exe','rundll32.exe','wmic.exe') ORDER BY _time DESC LIMIT 50" },
-  { label: 'Lateral Movement', sql: "SELECT * FROM events WHERE dst_port IN (445, 3389, 5985) AND src_ip != dst_ip ORDER BY _time DESC LIMIT 100" },
-  { label: 'DNS Exfiltration', sql: "SELECT * FROM events WHERE log_source = 'dns' AND LENGTH(query) > 60 ORDER BY _time DESC LIMIT 50" },
-  { label: 'Encoded PowerShell', sql: "SELECT * FROM events WHERE process_name = 'powershell.exe' AND command_line LIKE '%-enc%' ORDER BY _time DESC LIMIT 50" },
-  { label: 'High Severity Events', sql: "SELECT * FROM events WHERE severity IN ('high','critical') ORDER BY _time DESC LIMIT 100" },
+  { label: 'Failed Logins', sql: "raw_payload LIKE '%login%' AND raw_payload LIKE '%failed%'" },
+  { label: 'Suspicious Processes', sql: "raw_payload LIKE '%mimikatz%' OR raw_payload LIKE '%certutil%' OR raw_payload LIKE '%rundll32%' OR raw_payload LIKE '%wmic%'" },
+  { label: 'Lateral Movement', sql: "raw_payload LIKE '%445%' OR raw_payload LIKE '%3389%' OR raw_payload LIKE '%5985%'" },
+  { label: 'DNS Exfiltration', sql: "source = 'dns' AND raw_payload LIKE '%query%'" },
+  { label: 'Encoded PowerShell', sql: "raw_payload LIKE '%powershell%' AND raw_payload LIKE '%-enc%'" },
+  { label: 'High Severity Events', sql: "raw_payload LIKE '%critical%' OR raw_payload LIKE '%high%'" },
 ];
 
 /* ── Helpers ────────────────────────────────────── */
@@ -145,6 +145,33 @@ function defaultTimeRange(): { from: string; to: string } {
   const from = new Date(now.getTime() - 3_600_000);
   const fmt = (d: Date) => d.toISOString().slice(0, 16);
   return { from: fmt(from), to: fmt(now) };
+}
+
+function normalizeDateTimeLocal(value: string | null, fallback: string): string {
+  if (!value) return fallback;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return fallback;
+  }
+  return parsed.toISOString().slice(0, 16);
+}
+
+function parsePageCursor(cursor?: string): number {
+  if (!cursor) return 1;
+  const page = Number.parseInt(cursor, 10);
+  if (!Number.isFinite(page) || page < 1) {
+    return 1;
+  }
+  return page;
+}
+
+function formatSearchError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLowerCase();
+  if (message.includes('API 401') || normalized.includes('authentication failed')) {
+    return 'Your session expired or you are not authorized to search. Please sign in again and retry.';
+  }
+  return message;
 }
 
 function formatTimestamp(ts: string): string {
@@ -225,7 +252,7 @@ function CellValue({ value, col }: { value: unknown; col: string }) {
   if (col === 'severity' && typeof value === 'string') {
     return <span className={severityClass(value)}>{value}</span>;
   }
-  if (col === '_time' && typeof value === 'string') {
+  if ((col === '_time' || col === 'event_time') && typeof value === 'string') {
     return <span className="sq-time-val">{formatTimestamp(value)}</span>;
   }
   if (typeof value === 'object') {
@@ -237,13 +264,16 @@ function CellValue({ value, col }: { value: unknown; col: string }) {
 /* ── Component ──────────────────────────────────── */
 
 export function Search() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryParam = searchParams.get('q') ?? '';
+  const queryFromParam = searchParams.get('from');
+  const queryToParam = searchParams.get('to');
   const [mode, setMode] = useState<'sql' | 'nlq' | 'live'>('sql');
-  const [sqlText, setSqlText] = useState(searchParams.get('q') ?? '');
+  const [sqlText, setSqlText] = useState(queryParam);
   const [nlqText, setNlqText] = useState('');
-  const { from: defaultFrom, to: defaultTo } = useMemo(defaultTimeRange, []);
-  const [timeFrom, setTimeFrom] = useState(defaultFrom);
-  const [timeTo, setTimeTo] = useState(defaultTo);
+  const defaults = useMemo(defaultTimeRange, []);
+  const [timeFrom, setTimeFrom] = useState(() => normalizeDateTimeLocal(queryFromParam, defaults.from));
+  const [timeTo, setTimeTo] = useState(() => normalizeDateTimeLocal(queryToParam, defaults.to));
   const [activeQuickRange, setActiveQuickRange] = useState<string>('1h');
   const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -261,7 +291,6 @@ export function Search() {
   const [editorExpanded, setEditorExpanded] = useState(false);
   const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set());
   const [colPickerOpen, setColPickerOpen] = useState(false);
-  const [queryStartTime, setQueryStartTime] = useState<number | null>(null);
   const [queryDuration, setQueryDuration] = useState<number | null>(null);
   const [savedQueriesOpen, setSavedQueriesOpen] = useState(false);
 
@@ -274,6 +303,7 @@ export function Search() {
   const liveTailRows = useRef<Array<Record<string, unknown>>>([]);
   const sseRef = useRef<EventSource | null>(null);
   const epsWindow = useRef<number[]>([]);
+  const autoRunQueryRef = useRef<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -393,50 +423,92 @@ export function Search() {
     setActiveQuickRange(label);
   };
 
-  const executeSearch = useCallback(async (cursor?: string) => {
+  const executeSqlSearch = useCallback(async (
+    query: string,
+    page = 1,
+    append = false,
+    updateUrl = true,
+    timeRangeOverride?: TimeRange,
+  ) => {
+    const startedAt = Date.now();
+    const effectiveTimeRange = timeRangeOverride ?? buildTimeRange();
     setLoading(true);
     setError('');
-    if (!cursor) setQueryStartTime(Date.now());
     try {
-      if (mode === 'sql') {
-        const resp: SearchQueryResponse = await runSearch({
-          sql: sqlText,
-          time_range: buildTimeRange(),
-          pagination: { page: 1, page_size: 50, cursor },
-        });
-        if (cursor) {
-          setRows((prev) => [...prev, ...resp.rows]);
-        } else {
-          setRows(resp.rows);
-          pushHistory('sql', sqlText);
-        }
-        setHasMore(resp.has_more);
-        setNextCursor(resp.next_cursor);
-        setTotal(resp.total);
-        setGeneratedSql(null);
+      const resp: SearchQueryResponse = await runSearch({
+        sql: query,
+        time_range: effectiveTimeRange,
+        pagination: { page, page_size: 50 },
+      });
+      if (append) {
+        setRows((prev) => [...prev, ...resp.rows]);
       } else {
-        const resp: NlqResponse = await naturalLanguageQuery({
-          query: nlqText,
-          time_range: buildTimeRange(),
-        });
         setRows(resp.rows);
-        setGeneratedSql(resp.generated_sql);
-        setGenSqlOpen(true);
-        setHasMore(resp.has_more);
-        setNextCursor(undefined);
-        setTotal(resp.total);
-        pushHistory('nlq', nlqText);
+        pushHistory('sql', query);
+      }
+      setHasMore(resp.has_more);
+      setNextCursor(resp.next_cursor);
+      setTotal(resp.total);
+      setGeneratedSql(null);
+      if (updateUrl) {
+        if (query) {
+          setSearchParams(
+            {
+              q: query,
+              from: new Date(timeFrom).toISOString(),
+              to: new Date(timeTo).toISOString(),
+            },
+            { replace: true },
+          );
+        } else {
+          setSearchParams(new URLSearchParams(), { replace: true });
+        }
       }
     } catch (err) {
-      setError(String(err));
+      setError(formatSearchError(err));
     } finally {
       setLoading(false);
-      setQueryDuration(queryStartTime ? Date.now() - queryStartTime : null);
+      setQueryDuration(Date.now() - startedAt);
     }
-  }, [mode, sqlText, nlqText, buildTimeRange, pushHistory, queryStartTime]);
+  }, [buildTimeRange, pushHistory, setSearchParams, timeFrom, timeTo]);
 
-  const onSubmit = (e: FormEvent) => { e.preventDefault(); executeSearch(); };
-  const onLoadMore = () => { if (nextCursor) executeSearch(nextCursor); };
+  const executeNlqSearch = useCallback(async (query: string) => {
+    const startedAt = Date.now();
+    setLoading(true);
+    setError('');
+    try {
+      const resp: NlqResponse = await naturalLanguageQuery({
+        query,
+        time_range: buildTimeRange(),
+      });
+      setRows(resp.rows);
+      setGeneratedSql(resp.generated_where);
+      setGenSqlOpen(true);
+      setHasMore(false);
+      setNextCursor(undefined);
+      setTotal(resp.total);
+      pushHistory('nlq', query);
+      setSearchParams(new URLSearchParams(), { replace: true });
+    } catch (err) {
+      setError(formatSearchError(err));
+    } finally {
+      setLoading(false);
+      setQueryDuration(Date.now() - startedAt);
+    }
+  }, [buildTimeRange, pushHistory, setSearchParams]);
+
+  const executeSearch = useCallback(async (cursor?: string) => {
+    if (mode === 'sql') {
+      await executeSqlSearch(sqlText, parsePageCursor(cursor), Boolean(cursor));
+      return;
+    }
+    if (mode === 'nlq') {
+      await executeNlqSearch(nlqText);
+    }
+  }, [mode, sqlText, nlqText, executeSqlSearch, executeNlqSearch]);
+
+  const onSubmit = (e: FormEvent) => { e.preventDefault(); void executeSearch(); };
+  const onLoadMore = () => { if (nextCursor) { void executeSearch(nextCursor); } };
 
   const onHistorySelect = (entry: HistoryEntry) => {
     if (entry.mode === 'sql') { setMode('sql'); setSqlText(entry.query); }
@@ -447,17 +519,51 @@ export function Search() {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
-      executeSearch();
+      void executeSearch();
     }
   };
+
+  useEffect(() => {
+    if (!queryParam) {
+      autoRunQueryRef.current = null;
+      return;
+    }
+
+    if (queryParam === autoRunQueryRef.current) {
+      return;
+    }
+
+    autoRunQueryRef.current = queryParam;
+    const nextFrom = normalizeDateTimeLocal(queryFromParam, defaults.from);
+    const nextTo = normalizeDateTimeLocal(queryToParam, defaults.to);
+    setMode('sql');
+    setSqlText(queryParam);
+    setTimeFrom(nextFrom);
+    setTimeTo(nextTo);
+    setActiveQuickRange('');
+    void executeSqlSearch(queryParam, 1, false, false, {
+      start: new Date(nextFrom).toISOString(),
+      end: new Date(nextTo).toISOString(),
+    });
+  }, [
+    defaults.from,
+    defaults.to,
+    executeSqlSearch,
+    queryFromParam,
+    queryParam,
+    queryToParam,
+  ]);
 
   // Column discovery + sorting
   const columns = useMemo(() => {
     const keys = new Set<string>();
     rows.forEach((r) => Object.keys(r).forEach((k) => keys.add(k)));
-    // Put _time first, then sort the rest
-    const sorted = Array.from(keys).filter((k) => k !== '_time').sort();
+    // Put the primary timestamp first, then sort the rest.
+    const sorted = Array.from(keys)
+      .filter((k) => k !== '_time' && k !== 'event_time')
+      .sort();
     if (keys.has('_time')) sorted.unshift('_time');
+    else if (keys.has('event_time')) sorted.unshift('event_time');
     return sorted;
   }, [rows]);
 
@@ -494,7 +600,10 @@ export function Search() {
   }, [rows]);
   const uniqueSources = useMemo(() => {
     const s = new Set<string>();
-    rows.forEach((r) => { if (r.log_source) s.add(String(r.log_source)); });
+    rows.forEach((r) => {
+      const source = r.source ?? r.log_source;
+      if (source) s.add(String(source));
+    });
     return s.size;
   }, [rows]);
   const severityCounts = useMemo(() => {
@@ -622,7 +731,7 @@ export function Search() {
               onChange={(e) => setSqlText(e.target.value)}
               onKeyDown={handleKeyDown}
               rows={editorExpanded ? 12 : 4}
-              placeholder="Leave empty for all events, or: raw_payload LIKE '%failed%'"
+              placeholder="Leave empty for all events, or enter a filter like: raw_payload LIKE '%failed%'"
               spellCheck={false}
             />
           )}
@@ -748,7 +857,7 @@ export function Search() {
       {generatedSql !== null && (
         <div className="sq-gen-sql">
           <div className="sq-gen-sql-header" onClick={() => setGenSqlOpen((v) => !v)}>
-            <span>{sparkleIcon} Generated SQL</span>
+            <span>{sparkleIcon} Generated Filter</span>
             <span>{genSqlOpen ? chevronDown : chevronRight}</span>
           </div>
           {genSqlOpen && (

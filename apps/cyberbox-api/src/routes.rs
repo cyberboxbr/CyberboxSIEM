@@ -68,6 +68,7 @@ pub fn api_router() -> Router<AppState> {
         .route("/api/v1/replay/dlq/redrive", post(redrive_dlq_message))
         .route("/api/v1/search:query", post(search_query))
         .route("/api/v1/alerts", get(list_alerts))
+        .route("/api/v1/alerts/:id", get(get_alert))
         .route("/api/v1/alerts/*operation", post(alert_operation))
         .route("/api/v1/scheduler/tick", post(scheduler_tick))
         // LGPD (Lei 13.709/2018) compliance endpoints
@@ -1247,6 +1248,20 @@ pub async fn list_alerts(
         has_more,
         total,
     }))
+}
+
+pub async fn get_alert(
+    auth: AuthContext,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<AlertRecord>, CyberboxError> {
+    auth.require_any(&[Role::Admin, Role::Analyst, Role::Viewer])?;
+
+    let alert = find_alert_snapshot(&state, &auth.tenant_id, id)
+        .await?
+        .ok_or(CyberboxError::NotFound)?;
+
+    Ok(Json(alert))
 }
 
 /// Encode `(last_seen, alert_id)` as a cursor string: `{ts_micros_hex}.{uuid}`.

@@ -5,13 +5,15 @@ import {
   AlertRecord,
   CaseRecord,
   CaseStatus,
-  Severity,
+  getAlert,
   addAlertsToCase,
   getAlerts,
   getAuditLogs,
   getCase,
+  runSearch,
   updateCase,
 } from '../api/client';
+import { aggregateEventContexts, extractEventContext, formatNetworkFlow, limitValues } from '../lib/logContext';
 
 /* ── Helpers ──────────────────────────────────────── */
 
@@ -43,6 +45,62 @@ function slaCountdown(sla_due_at?: string): { label: string; color: string; pct:
   return { label, color, pct, breached: false };
 }
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+function formatLoadError(error: unknown): string {
+  const message = getErrorMessage(error);
+  const normalized = message.toLowerCase();
+  if (message.includes('API 401') || normalized.includes('authentication failed')) {
+    return 'Your session expired or you are not authorized to load this case. Please sign in again and retry.';
+  }
+  if (message.includes('API 404')) {
+    return 'Case not found.';
+  }
+  return message;
+}
+
+function appendError(current: string, next: string): string {
+  return current ? `${current} ${next}` : next;
+}
+
+function mergeUnique(...groups: Array<Array<string | undefined> | undefined>): string[] {
+  const seen = new Set<string>();
+  const values: string[] = [];
+  groups.forEach((group) => {
+    group?.forEach((value) => {
+      if (!value) return;
+      if (seen.has(value)) return;
+      seen.add(value);
+      values.push(value);
+    });
+  });
+  return values;
+}
+
+function stripEvidenceRef(ref: string): string {
+  return ref.replace(/^event:/, '');
+}
+
+function buildEvidenceWindow(alerts: AlertRecord[]): { start: string; end: string } {
+  const timestamps = alerts
+    .flatMap((alert) => [Date.parse(alert.first_seen), Date.parse(alert.last_seen)])
+    .filter((value) => Number.isFinite(value));
+  if (timestamps.length === 0) {
+    const now = new Date();
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    return { start: weekAgo.toISOString(), end: now.toISOString() };
+  }
+
+  const start = new Date(Math.min(...timestamps) - 12 * 60 * 60 * 1000);
+  const end = new Date(Math.max(...timestamps) + 12 * 60 * 60 * 1000);
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
 const RESOLUTION_LABELS: Record<string, { label: string; color: string }> = {
   tp_contained: { label: 'True Positive — Contained', color: '#00F4A3' },
   tp_not_contained: { label: 'True Positive — Not Contained', color: '#f45d5d' },
@@ -56,6 +114,7 @@ const RESOLUTION_OPTIONS = Object.entries(RESOLUTION_LABELS);
 const STATUS_TRANSITIONS: Record<CaseStatus, CaseStatus[]> = {
   open: ['in_progress'],
   in_progress: ['closed'],
+  resolved: ['closed'],
   closed: [],
 };
 
@@ -123,6 +182,7 @@ export function CaseDetail() {
   const [caseData, setCaseData] = useState<CaseRecord | null>(null);
   const [timeline, setTimeline] = useState<AuditLogRecord[]>([]);
   const [alerts, setAlerts] = useState<AlertRecord[]>([]);
+  const [evidenceEvents, setEvidenceEvents] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -143,31 +203,107 @@ export function CaseDetail() {
   const [sla, setSla] = useState(slaCountdown(undefined));
 
   const loadCase = useCallback(async () => {
-    if (!caseId) return;
+    if (!caseId) {
+      setCaseData(null);
+      setTimeline([]);
+      setAlerts([]);
+      setEvidenceEvents([]);
+      setError('Case not found.');
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
-      const [c, auditResp, alertsPage] = await Promise.all([
-        getCase(caseId),
-        getAuditLogs({ limit: 50 }),
-        getAlerts({ limit: 100 }),
-      ]);
+      setError('');
+      setTimeline([]);
+      setAlerts([]);
+      setEvidenceEvents([]);
+
+      const c = await getCase(caseId);
       setCaseData(c);
       setEditAssignee(c.assignee ?? '');
       setEditTags(c.tags.join(', '));
-      const caseTimeline = auditResp.entries.filter(
-        (e) => e.entity_id === caseId || e.entity_type === 'case',
-      );
-      setTimeline(caseTimeline);
-      // Match alert IDs to full alert data
-      const allAlerts = alertsPage.alerts;
-      const matched = c.alert_ids
-        .map((id) => allAlerts.find((a) => a.alert_id === id))
-        .filter(Boolean) as AlertRecord[];
-      setAlerts(matched);
       setSla(slaCountdown(c.sla_due_at));
-      setError('');
+
+      const [auditResult, alertsResult] = await Promise.allSettled([
+        getAuditLogs({ limit: 50 }),
+        c.alert_ids.length > 0 ? getAlerts({ limit: Math.min(500, Math.max(100, c.alert_ids.length * 2)) }) : Promise.resolve(null),
+      ]);
+
+      let nextError = '';
+      let resolvedAlerts: AlertRecord[] = [];
+
+      if (auditResult.status === 'fulfilled') {
+        const caseTimeline = auditResult.value.entries.filter(
+          (entry) => entry.entity_id === caseId || entry.entity_type === 'case',
+        );
+        setTimeline(caseTimeline);
+      } else {
+        nextError = appendError(
+          nextError,
+          `Activity timeline unavailable: ${formatLoadError(auditResult.reason)}`,
+        );
+      }
+
+      if (alertsResult.status === 'fulfilled') {
+        const alertsPage = alertsResult.value;
+        if (alertsPage) {
+          const allAlerts = alertsPage.alerts;
+          const matchedMap = new Map(allAlerts.map((alert) => [alert.alert_id, alert]));
+          resolvedAlerts = c.alert_ids
+            .map((id) => matchedMap.get(id))
+            .filter(Boolean) as AlertRecord[];
+
+          const missingAlertIds = c.alert_ids.filter((id) => !matchedMap.has(id));
+          if (missingAlertIds.length > 0) {
+            const missingResults = await Promise.allSettled(missingAlertIds.map((id) => getAlert(id)));
+            missingResults.forEach((result) => {
+              if (result.status === 'fulfilled') {
+                resolvedAlerts.push(result.value);
+              } else {
+                nextError = appendError(
+                  nextError,
+                  `Linked alert details unavailable for one or more alerts: ${formatLoadError(result.reason)}`,
+                );
+              }
+            });
+          }
+
+          setAlerts(resolvedAlerts);
+
+          const evidenceIds = mergeUnique(
+            resolvedAlerts.flatMap((alert) => (alert.evidence_refs ?? []).map((ref) => stripEvidenceRef(ref))),
+          ).slice(0, 75);
+          if (evidenceIds.length > 0) {
+            try {
+              const evidenceRows = await runSearch({
+                sql: `event_id IN (${evidenceIds.map((id) => `'${id.replace(/'/g, "''")}'`).join(',')})`,
+                time_range: buildEvidenceWindow(resolvedAlerts),
+                pagination: { page: 1, page_size: Math.min(100, Math.max(25, evidenceIds.length * 2)) },
+              });
+              setEvidenceEvents(evidenceRows.rows ?? []);
+            } catch (evidenceError) {
+              nextError = appendError(
+                nextError,
+                `Linked evidence unavailable: ${formatLoadError(evidenceError)}`,
+              );
+            }
+          }
+        }
+      } else {
+        nextError = appendError(
+          nextError,
+          `Linked alert details unavailable: ${formatLoadError(alertsResult.reason)}`,
+        );
+      }
+
+      setError(nextError);
     } catch (err) {
-      setError(String(err));
+      setCaseData(null);
+      setTimeline([]);
+      setAlerts([]);
+      setEvidenceEvents([]);
+      setError(formatLoadError(err));
     } finally {
       setLoading(false);
     }
@@ -239,7 +375,11 @@ export function CaseDetail() {
       (a.mitre_attack ?? []).forEach((m) => {
         if (!seen.has(m.technique_id)) {
           seen.add(m.technique_id);
-          result.push({ id: m.technique_id, name: m.technique_name, tactic: m.tactic });
+          result.push({
+            id: m.technique_id,
+            name: m.technique_name ?? 'Unknown technique',
+            tactic: m.tactic ?? 'unknown',
+          });
         }
       });
     });
@@ -257,11 +397,81 @@ export function CaseDetail() {
 
   /* ── Loading / Error ──────────────────────────── */
 
+  const evidenceContexts = useMemo(
+    () => evidenceEvents.map((row) => extractEventContext(row)),
+    [evidenceEvents],
+  );
+
+  const evidenceContextById = useMemo(() => {
+    const next = new Map<string, ReturnType<typeof extractEventContext>>();
+    evidenceContexts.forEach((context) => {
+      if (context.eventId) {
+        next.set(context.eventId, context);
+      }
+    });
+    return next;
+  }, [evidenceContexts]);
+
+  const caseEvidenceAggregate = useMemo(
+    () => aggregateEventContexts(evidenceContexts),
+    [evidenceContexts],
+  );
+
+  const alertInsights = useMemo(() => {
+    const insights = new Map<string, ReturnType<typeof aggregateEventContexts>>();
+    alerts.forEach((alert) => {
+      const contexts = (alert.evidence_refs ?? [])
+        .map((ref) => evidenceContextById.get(stripEvidenceRef(ref)))
+        .filter(Boolean);
+      insights.set(alert.alert_id, aggregateEventContexts(contexts as ReturnType<typeof extractEventContext>[]));
+    });
+    return insights;
+  }, [alerts, evidenceContextById]);
+
+  const caseSources = useMemo(
+    () => limitValues(caseEvidenceAggregate.sources, 6),
+    [caseEvidenceAggregate.sources],
+  );
+  const caseObservedHosts = useMemo(
+    () => limitValues(mergeUnique(affectedHosts.map(([hostname]) => hostname), caseEvidenceAggregate.hosts), 6),
+    [affectedHosts, caseEvidenceAggregate.hosts],
+  );
+  const caseObservedUsers = useMemo(
+    () => limitValues(caseEvidenceAggregate.users, 6),
+    [caseEvidenceAggregate.users],
+  );
+  const caseObservedProcesses = useMemo(
+    () => limitValues(caseEvidenceAggregate.processes, 6),
+    [caseEvidenceAggregate.processes],
+  );
+  const caseObservedNetworks = useMemo(
+    () => limitValues(caseEvidenceAggregate.networkFlows, 6),
+    [caseEvidenceAggregate.networkFlows],
+  );
+  const caseObservedArtifacts = useMemo(
+    () => limitValues(
+      mergeUnique(
+        caseEvidenceAggregate.domains,
+        caseEvidenceAggregate.files,
+        caseEvidenceAggregate.registryPaths,
+        caseEvidenceAggregate.services,
+      ),
+      8,
+    ),
+    [caseEvidenceAggregate.domains, caseEvidenceAggregate.files, caseEvidenceAggregate.registryPaths, caseEvidenceAggregate.services],
+  );
+  const caseMessageHighlights = useMemo(
+    () => limitValues(caseEvidenceAggregate.messages, 4),
+    [caseEvidenceAggregate.messages],
+  );
+
   if (loading) return <div className="page"><p className="empty-state">Loading case...</p></div>;
-  if (!caseData) return <div className="page"><p className="empty-state">Case not found. {error}</p></div>;
+  if (!caseData) return <div className="page"><p className="empty-state">{error || 'Case not found.'}</p></div>;
 
   const nextStatuses = STATUS_TRANSITIONS[caseData.status] ?? [];
   const c = caseData;
+  const caseAlertIds = c.alert_ids ?? [];
+  const caseTags = c.tags ?? [];
   const res = (c as any).resolution as string | undefined;
   const cNote = (c as any).close_note as string | undefined;
 
@@ -383,7 +593,7 @@ export function CaseDetail() {
             </div>
             <div className="cd-meta-item">
               <span className="cd-meta-label">Alerts</span>
-              <span className="cd-meta-value">{c.alert_ids.length}</span>
+              <span className="cd-meta-value">{caseAlertIds.length}</span>
             </div>
             <div className="cd-meta-item">
               <span className="cd-meta-label">Priority</span>
@@ -408,16 +618,92 @@ export function CaseDetail() {
       </div>
 
       {/* ── Tags ─────────────────────────────────── */}
-      {c.tags.length > 0 && (
+      {caseTags.length > 0 && (
         <div className="cd-tags-row">
           {tagIcon}
-          {c.tags.map((tag) => (
+          {caseTags.map((tag) => (
             <span key={tag} className="cd-tag">{tag}</span>
           ))}
         </div>
       )}
 
       {/* ── Two-column: Linked Alerts + MITRE ────── */}
+      {(caseSources.length > 0
+        || caseObservedHosts.length > 0
+        || caseObservedUsers.length > 0
+        || caseObservedProcesses.length > 0
+        || caseObservedNetworks.length > 0
+        || caseObservedArtifacts.length > 0
+        || caseMessageHighlights.length > 0) && (
+        <div className="cd-panel">
+          <div className="cd-panel-header">
+            <div className="cd-panel-title">
+              {historyIcon}
+              <span>INVESTIGATION SNAPSHOT</span>
+              {evidenceEvents.length > 0 && <span className="cd-count-badge">{evidenceEvents.length}</span>}
+            </div>
+          </div>
+          <div className="cd-insight-grid">
+            {caseSources.length > 0 && (
+              <div className="cd-insight-card">
+                <span className="cd-insight-label">Log Sources</span>
+                <div className="cd-insight-values">
+                  {caseSources.map((value) => <span key={value} className="cd-tag">{value}</span>)}
+                </div>
+              </div>
+            )}
+            {caseObservedHosts.length > 0 && (
+              <div className="cd-insight-card">
+                <span className="cd-insight-label">Observed Hosts</span>
+                <div className="cd-insight-values">
+                  {caseObservedHosts.map((value) => <span key={value} className="cd-tag">{value}</span>)}
+                </div>
+              </div>
+            )}
+            {caseObservedUsers.length > 0 && (
+              <div className="cd-insight-card">
+                <span className="cd-insight-label">Users</span>
+                <div className="cd-insight-values">
+                  {caseObservedUsers.map((value) => <span key={value} className="cd-tag">{value}</span>)}
+                </div>
+              </div>
+            )}
+            {caseObservedProcesses.length > 0 && (
+              <div className="cd-insight-card">
+                <span className="cd-insight-label">Processes</span>
+                <div className="cd-insight-values">
+                  {caseObservedProcesses.map((value) => <span key={value} className="cd-tag">{value}</span>)}
+                </div>
+              </div>
+            )}
+            {caseObservedNetworks.length > 0 && (
+              <div className="cd-insight-card cd-insight-card--wide">
+                <span className="cd-insight-label">Network Paths</span>
+                <div className="cd-insight-values">
+                  {caseObservedNetworks.map((value) => <span key={value} className="cd-insight-pill">{value}</span>)}
+                </div>
+              </div>
+            )}
+            {caseObservedArtifacts.length > 0 && (
+              <div className="cd-insight-card cd-insight-card--wide">
+                <span className="cd-insight-label">Artifacts</span>
+                <div className="cd-insight-values">
+                  {caseObservedArtifacts.map((value) => <span key={value} className="cd-insight-pill">{value}</span>)}
+                </div>
+              </div>
+            )}
+            {caseMessageHighlights.length > 0 && (
+              <div className="cd-insight-card cd-insight-card--wide">
+                <span className="cd-insight-label">Message Highlights</span>
+                <div className="cd-insight-notes">
+                  {caseMessageHighlights.map((value) => <div key={value} className="cd-insight-note">{value}</div>)}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="cd-two-col">
         {/* Linked Alerts */}
         <div className="cd-panel">
@@ -425,7 +711,7 @@ export function CaseDetail() {
             <div className="cd-panel-title">
               {alertIcon}
               <span>LINKED ALERTS</span>
-              {c.alert_ids.length > 0 && <span className="cd-count-badge">{c.alert_ids.length}</span>}
+              {caseAlertIds.length > 0 && <span className="cd-count-badge">{caseAlertIds.length}</span>}
             </div>
             <button type="button" className="cd-action-btn cd-action-btn--small" onClick={() => setShowAttach(!showAttach)}>
               {plusIcon} Attach
@@ -440,14 +726,26 @@ export function CaseDetail() {
             </div>
           )}
 
-          {alerts.length === 0 && c.alert_ids.length === 0 ? (
+          {alerts.length === 0 && caseAlertIds.length === 0 ? (
             <p className="empty-state">No linked alerts.</p>
           ) : (
             <div className="cd-alert-list">
               {alerts.map((a) => {
                 const sev = (a as any).severity as string ?? 'medium';
-                const title = (a as any).compiled_plan?.title ?? a.rule_id;
-                const host = a.agent_meta?.hostname ?? 'Unknown';
+                const title = a.rule_title || (a as any).compiled_plan?.title || a.rule_id;
+                const insight = alertInsights.get(a.alert_id);
+                const host = insight?.hosts[0] ?? a.agent_meta?.hostname ?? 'Unknown';
+                const process = insight?.processes[0] ?? ((a as any).process_name as string | undefined);
+                const user = insight?.users[0];
+                const source = insight?.sources[0];
+                const eventKind = insight?.eventKinds[0];
+                const message = insight?.messages[0];
+                const network = insight?.networkFlows[0] ?? formatNetworkFlow({
+                  sourceIp: (a as any).src_ip as string | undefined,
+                  destinationIp: (a as any).dst_ip as string | undefined,
+                  destinationHost: undefined,
+                  destinationPort: (a as any).dst_port ? String((a as any).dst_port) : undefined,
+                });
                 const mitre = a.mitre_attack?.[0];
                 return (
                   <div key={a.alert_id} className="cd-alert-card">
@@ -462,6 +760,11 @@ export function CaseDetail() {
                           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
                           {host}
                         </span>
+                        {process && <span className="cd-alert-detail">{process}</span>}
+                        {user && <span className="cd-alert-detail">{user}</span>}
+                        {network && <span className="cd-alert-detail">{network}</span>}
+                        {source && <span className="cd-alert-detail">{source}</span>}
+                        {eventKind && <span className="cd-alert-detail">{eventKind}</span>}
                         {(a as any).src_ip && (
                           <span className="cd-alert-detail">
                             {(a as any).src_ip}
@@ -470,6 +773,7 @@ export function CaseDetail() {
                         )}
                         {mitre && <span className="cd-mitre-pill">{mitre.technique_id}</span>}
                       </div>
+                      {message && <div className="cd-alert-note">{message}</div>}
                       <div className="cd-alert-footer">
                         <span className="cd-alert-hits">{a.hit_count} hits</span>
                         <span className="cd-alert-time">{timeAgo(a.last_seen)}</span>
@@ -479,7 +783,7 @@ export function CaseDetail() {
                 );
               })}
               {/* Show IDs for alerts we couldn't resolve */}
-              {c.alert_ids.filter((id) => !alerts.find((a) => a.alert_id === id)).map((id) => (
+              {caseAlertIds.filter((id) => !alerts.find((a) => a.alert_id === id)).map((id) => (
                 <div key={id} className="cd-alert-card cd-alert-card--unresolved">
                   <div className="cd-alert-sev-strip" />
                   <div className="cd-alert-body">
@@ -510,8 +814,8 @@ export function CaseDetail() {
                 {mitreTechniques.map((t) => (
                   <div key={t.id} className="cd-mitre-row">
                     <span className="cd-mitre-id">{t.id}</span>
-                    <span className="cd-mitre-name">{t.name}</span>
-                    <span className="cd-mitre-tactic">{t.tactic.replace(/-/g, ' ')}</span>
+                    <span className="cd-mitre-name">{t.name ?? 'Unknown technique'}</span>
+                    <span className="cd-mitre-tactic">{(t.tactic ?? 'unknown').replace(/-/g, ' ')}</span>
                   </div>
                 ))}
               </div>

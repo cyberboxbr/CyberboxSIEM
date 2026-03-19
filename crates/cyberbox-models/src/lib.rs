@@ -461,7 +461,7 @@ pub struct CaseRecord {
     pub status: CaseStatus,
     pub severity: Severity,
     /// Alert IDs attached to this case.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub alert_ids: Vec<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assignee: Option<String>,
@@ -475,7 +475,7 @@ pub struct CaseRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub closed_at: Option<DateTime<Utc>>,
     /// Analyst-defined labels for grouping / filtering.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub tags: Vec<String>,
 }
 
@@ -729,4 +729,36 @@ pub struct RuleVersion {
     pub compiled_plan: serde_json::Value,
     pub severity: Severity,
     pub created_at: DateTime<Utc>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use serde_json::json;
+
+    #[test]
+    fn case_record_serializes_empty_collections() {
+        let case = CaseRecord {
+            case_id: Uuid::nil(),
+            tenant_id: "tenant-a".to_string(),
+            title: "Test case".to_string(),
+            description: String::new(),
+            status: CaseStatus::Open,
+            severity: Severity::Medium,
+            alert_ids: vec![],
+            assignee: None,
+            created_by: "soc-admin".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            sla_due_at: None,
+            closed_at: None,
+            tags: vec![],
+        };
+
+        let value = serde_json::to_value(case).expect("case should serialize");
+
+        assert_eq!(value["alert_ids"], json!([]));
+        assert_eq!(value["tags"], json!([]));
+    }
 }

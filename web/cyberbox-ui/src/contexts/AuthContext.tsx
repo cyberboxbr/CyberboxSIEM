@@ -2,7 +2,6 @@ import { createContext, useContext, useCallback, useEffect, useMemo, ReactNode }
 import {
   useMsal,
   useIsAuthenticated,
-  useAccount,
 } from '@azure/msal-react';
 import type { AccountInfo } from '@azure/msal-browser';
 import { apiScopes, loginScopes } from '../auth/msalConfig';
@@ -47,9 +46,9 @@ const AuthContext = createContext<AuthState | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { instance, inProgress, accounts } = useMsal();
   const isAuthenticated = useIsAuthenticated();
-  const account = useAccount(accounts[0] ?? ({} as AccountInfo));
+  const account: AccountInfo | null = accounts[0] ?? null;
 
-  const isLoading = inProgress !== 'none';
+  const isLoading = inProgress !== 'none' || (isAuthenticated && !account);
 
   // Extract roles from idTokenClaims (Azure AD puts app roles here)
   const roles = useMemo(() => {
@@ -92,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (isAuthenticated && account) {
       setTokenProvider(getAccessToken);
-    } else {
+    } else if (!isAuthenticated) {
       setTokenProvider(null);
     }
   }, [isAuthenticated, account, getAccessToken]);
