@@ -85,14 +85,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, [instance]);
 
-  // Wire the token provider into the API client when authenticated
+  // Wire the token provider into the API client when authenticated.
+  // NOTE: do NOT clear tokenProvider on cleanup — page navigation causes
+  // React to unmount/remount, and clearing it mid-navigation causes 401s
+  // on the next API call.
   useEffect(() => {
     if (isAuthenticated && account) {
       setTokenProvider(getAccessToken);
     } else {
       setTokenProvider(null);
     }
-    return () => setTokenProvider(null);
   }, [isAuthenticated, account, getAccessToken]);
 
   const value: AuthState = useMemo(

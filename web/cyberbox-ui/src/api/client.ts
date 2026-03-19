@@ -56,8 +56,13 @@ async function apiRequest<T>(url: string, init: RequestInit = {}): Promise<T> {
 
   if (tokenProvider) {
     // Production: attach Azure AD access token
-    const token = await tokenProvider();
-    headers['Authorization'] = `Bearer ${token}`;
+    try {
+      const token = await tokenProvider();
+      headers['Authorization'] = `Bearer ${token}`;
+    } catch (e) {
+      console.warn('Token acquisition failed, falling back to identity headers', e);
+      Object.assign(headers, BASE_HEADERS);
+    }
   } else {
     // Dev mode: use plain identity headers (auth_disabled=true on backend)
     Object.assign(headers, BASE_HEADERS);

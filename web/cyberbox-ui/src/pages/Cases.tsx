@@ -318,12 +318,12 @@ export function Cases() {
                     {c.description && (
                       <span className="cs-case-desc">{c.description}</span>
                     )}
-                    {c.tags.length > 0 && (
+                    {(c.tags ?? []).length > 0 && (
                       <span className="cs-tag-row">
-                        {c.tags.slice(0, 3).map(t => (
+                        {(c.tags ?? []).slice(0, 3).map(t => (
                           <span key={t} className="aq-tag">{t}</span>
                         ))}
-                        {c.tags.length > 3 && <span className="aq-dim">+{c.tags.length - 3}</span>}
+                        {(c.tags ?? []).length > 3 && <span className="aq-dim">+{(c.tags ?? []).length - 3}</span>}
                       </span>
                     )}
                     {resLabel && (
@@ -352,7 +352,7 @@ export function Cases() {
 
                   {/* Alert count */}
                   <span className="cs-col-alerts">
-                    <span className="cs-alert-count">{c.alert_ids.length}</span>
+                    <span className="cs-alert-count">{(c.alert_ids ?? []).length}</span>
                   </span>
 
                   {/* SLA */}
