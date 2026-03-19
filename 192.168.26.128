@@ -1,0 +1,10 @@
+
+usage: aws [options] <command> <subcommand> [<subcommand> ...] [parameters]
+To see help text, you can run:
+
+  aws help
+  aws <command> help
+  aws <command> <subcommand> help
+
+Unknown options: quick, on, wg0, from, 10.10.0.0/24, to, any >> /tmp/rules.cur\"\nsudo sh -c \"echo pass, out, quick, on, wg0, from, any, to, 10.10.0.0/24 >> /tmp/rules.cur\"\nsudo sh -c \"echo pass, in, quick, on, wg1, from, 10.10.0.0/24, to, any >> /tmp/rules.cur\"\nsudo sh -c \"echo pass, out, quick, on, wg1, from, any, to, 10.10.0.0/24 >> /tmp/rules.cur\"\nsudo sh -c \"echo rdr, pass, on, wg1, proto, tcp, from, any, to, 10.10.0.1, port, 601, -, port, 601 >> /tmp/rules.cur\"\nsudo sh -c \"echo rdr, pass, on, wg1, proto, udp, from, any, to, 10.10.0.1, port, 514, -, port, 514 >> /tmp/rules.cur\"\nsudo sh -c \"echo rdr, pass, on, wg1, proto, tcp, from, any, to, 10.10.0.1, port, 514, -, port, 514 >> /tmp/rules.cur\"\nsudo pfctl -f /tmp/rules.cur && echo ALL_RULES_LOADED || echo LOAD_FAILED\nREMOTE"]}, in
+

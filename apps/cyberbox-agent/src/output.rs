@@ -71,10 +71,17 @@ enum Conn {
 
 impl Conn {
     async fn write_all(&mut self, data: &[u8]) -> std::io::Result<()> {
+        use tokio::io::AsyncWriteExt;
         match self {
-            Conn::Plain(s) => s.write_all(data).await,
+            Conn::Plain(s) => {
+                s.write_all(data).await?;
+                s.flush().await
+            }
             #[cfg(feature = "tls")]
-            Conn::Tls(s) => s.write_all(data).await,
+            Conn::Tls(s) => {
+                s.write_all(data).await?;
+                s.flush().await
+            }
         }
     }
 }
@@ -260,11 +267,30 @@ fn format_event(ev: &Value, cfg: &OutputConfig) -> String {
     match cfg.protocol.as_str() {
         "syslog" => {
             // RFC 3164: <14> = user.info
-            let ts = chrono::Utc::now().format("%-b %e %H:%M:%S");
+            let ts = chrono::Utc::now().format("%b %e %H:%M:%S");
             let msg = ev["raw_payload"]["message"]
                 .as_str()
-                .unwrap_or("(no message)");
-            format!("<14>{ts} {} {}: {msg}\n", cfg.hostname, cfg.app_name)
+                .or_else(|| ev["raw_payload"].as_str())
+                .unwrap_or_else(|| {
+                    // For wineventlog events, serialize the whole raw_payload as the message
+                    ""
+                });
+            let msg = if msg.is_empty() {
+                serde_json::to_string(&ev["raw_payload"]).unwrap_or_default()
+            } else {
+                msg.to_string()
+            };
+            let mut line = String::with_capacity(256);
+            line.push_str("<14>");
+            line.push_str(&ts.to_string());
+            line.push(' ');
+            line.push_str(&cfg.hostname);
+            line.push(' ');
+            line.push_str(&cfg.app_name);
+            line.push_str(": ");
+            line.push_str(&msg);
+            line.push('\n');
+            line
         }
         _ => {
             // NDJSON — inject tenant_id if missing

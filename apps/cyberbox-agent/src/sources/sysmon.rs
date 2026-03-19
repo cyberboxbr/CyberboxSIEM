@@ -44,6 +44,7 @@ use windows::{
         EvtClose, EvtNext, EvtRender, EvtRenderEventXml, EvtSubscribe, EvtSubscribeToFutureEvents,
         EVT_HANDLE,
     },
+    Win32::System::Threading::{CreateEventW, WaitForSingleObject},
 };
 
 const SYSMON_CHANNEL: &str = "Microsoft-Windows-Sysmon/Operational";
@@ -68,10 +69,20 @@ fn subscribe_sysmon(tenant_id: Arc<String>, hostname: Arc<String>, tx: mpsc::Sen
         .collect();
     let query_w: Vec<u16> = "*".encode_utf16().chain(std::iter::once(0)).collect();
 
+    let signal = unsafe {
+        match CreateEventW(None, false, false, None) {
+            Ok(h) => h,
+            Err(e) => {
+                error!(channel = SYSMON_CHANNEL, error = %e, "CreateEvent failed");
+                return;
+            }
+        }
+    };
+
     let subscription = unsafe {
         match EvtSubscribe(
             EVT_HANDLE::default(),
-            HANDLE::default(),
+            signal,
             PCWSTR(channel_w.as_ptr()),
             PCWSTR(query_w.as_ptr()),
             EVT_HANDLE::default(),
@@ -91,14 +102,14 @@ fn subscribe_sysmon(tenant_id: Arc<String>, hostname: Arc<String>, tx: mpsc::Sen
         }
     };
 
-    let mut event_raw = [0isize; 64];
+    let mut events = [0isize; 64];
     loop {
         let mut returned = 0u32;
-        let result = unsafe { EvtNext(subscription, &mut event_raw, 500, 0, &mut returned) };
+        let ok = unsafe { EvtNext(subscription, &mut events, u32::MAX, 0, &mut returned) };
 
         if returned > 0 {
-            for raw_handle in event_raw.iter().take(returned as usize) {
-                let h = EVT_HANDLE(*raw_handle);
+            for raw in events.iter().take(returned as usize) {
+                let h = EVT_HANDLE(*raw);
                 if let Some(xml) = render_to_xml(h) {
                     if let Some(ev) = parse_sysmon_xml(&xml, &tenant_id, &hostname) {
                         if tx.blocking_send(ev).is_err() {
@@ -113,12 +124,8 @@ fn subscribe_sysmon(tenant_id: Arc<String>, hostname: Arc<String>, tx: mpsc::Sen
                     let _ = EvtClose(h);
                 }
             }
-        } else if let Err(e) = result {
-            let code = e.code().0 as u32;
-            if code != ERROR_NO_MORE_ITEMS.0 {
-                warn!(channel = SYSMON_CHANNEL, error = %e, "EvtNext error");
-                std::thread::sleep(std::time::Duration::from_secs(1));
-            }
+        } else if ok.is_err() {
+            unsafe { WaitForSingleObject(signal, u32::MAX) };
         }
     }
 }
@@ -336,11 +343,13 @@ fn event_id_meta(id: u32) -> (&'static str, &'static str) {
 // ── XML helpers (mirrors wineventlog.rs) ─────────────────────────────────────
 
 fn xml_value(xml: &str, tag: &str) -> Option<String> {
-    let open = format!("<{tag}>");
+    let tag_start = xml.find(&format!("<{tag}"))?;
+    let after_tag = &xml[tag_start..];
+    let gt = after_tag.find('>')?;
+    let value_start = tag_start + gt + 1;
     let close = format!("</{tag}>");
-    let start = xml.find(&open)? + open.len();
-    let end = xml[start..].find(&close).map(|p| start + p)?;
-    Some(xml[start..end].to_string())
+    let end = xml[value_start..].find(&close).map(|p| value_start + p)?;
+    Some(xml[value_start..end].to_string())
 }
 
 fn xml_attr(xml: &str, tag: &str, attr: &str) -> Option<String> {
