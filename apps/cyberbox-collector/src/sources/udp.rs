@@ -69,7 +69,7 @@ async fn run_reader(
 
                 match parse_syslog(&buf[..len], &source_ip) {
                     Some(msg) => {
-                        registry.observe(&source_ip, &msg.hostname);
+                        registry.observe(&source_ip, &msg.hostname, &msg.app_name);
                         let ev = to_incoming_event(&msg, &tenant_id);
                         match tx.try_send(ev) {
                             Ok(_) => {
