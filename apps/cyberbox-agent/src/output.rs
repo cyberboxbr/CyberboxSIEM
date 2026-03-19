@@ -71,7 +71,6 @@ enum Conn {
 
 impl Conn {
     async fn write_all(&mut self, data: &[u8]) -> std::io::Result<()> {
-        use tokio::io::AsyncWriteExt;
         match self {
             Conn::Plain(s) => {
                 s.write_all(data).await?;
@@ -271,10 +270,7 @@ fn format_event(ev: &Value, cfg: &OutputConfig) -> String {
             let msg = ev["raw_payload"]["message"]
                 .as_str()
                 .or_else(|| ev["raw_payload"].as_str())
-                .unwrap_or_else(|| {
-                    // For wineventlog events, serialize the whole raw_payload as the message
-                    ""
-                });
+                .unwrap_or("");
             let msg = if msg.is_empty() {
                 serde_json::to_string(&ev["raw_payload"]).unwrap_or_default()
             } else {
