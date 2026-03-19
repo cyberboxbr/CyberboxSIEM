@@ -3549,7 +3549,7 @@ pub async fn register_agent(
 ) -> Result<Json<Value>, CyberboxError> {
     // Try enrollment-based auth first, fall back to API key for collector compatibility
     let record = match authenticate_agent_request(&state, &headers, Some(&body.agent_id)).await {
-        Ok(mut rec) => {
+        Ok(rec) => {
             if body.tenant_id != rec.tenant_id || body.agent_id != rec.agent_id {
                 return Err(CyberboxError::Forbidden);
             }
