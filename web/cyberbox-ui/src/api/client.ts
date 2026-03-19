@@ -772,7 +772,7 @@ export async function getAllAlerts(filters: Omit<AlertsQuery, 'after'> = {}): Pr
 }
 
 export async function acknowledgeAlert(alertId: string, actor = 'soc-admin'): Promise<AlertRecord> {
-  return apiRequest<AlertRecord>(`/api/v1/alerts/${alertId}:ack`, {
+  return apiRequest<AlertRecord>(`/api/v1/alerts/${alertId}/ack`, {
     method: 'POST',
     body: JSON.stringify({ actor }),
   });
@@ -783,7 +783,7 @@ export async function assignAlert(
   assignee: string,
   actor = 'soc-admin',
 ): Promise<AlertRecord> {
-  return apiRequest<AlertRecord>(`/api/v1/alerts/${alertId}:assign`, {
+  return apiRequest<AlertRecord>(`/api/v1/alerts/${alertId}/assign`, {
     method: 'POST',
     body: JSON.stringify({ actor, assignee }),
   });
@@ -795,7 +795,7 @@ export async function closeAlert(
   actor = 'soc-admin',
   note?: string,
 ): Promise<AlertRecord> {
-  return apiRequest<AlertRecord>(`/api/v1/alerts/${alertId}:close`, {
+  return apiRequest<AlertRecord>(`/api/v1/alerts/${alertId}/close`, {
     method: 'POST',
     body: JSON.stringify({ actor, resolution, note }),
   });
@@ -806,7 +806,7 @@ export async function falsePositiveAlert(
   actor = 'soc-admin',
   note?: string,
 ): Promise<AlertRecord> {
-  return apiRequest<AlertRecord>(`/api/v1/alerts/${alertId}:false-positive`, {
+  return apiRequest<AlertRecord>(`/api/v1/alerts/${alertId}/false-positive`, {
     method: 'POST',
     body: JSON.stringify({ actor, note }),
   });

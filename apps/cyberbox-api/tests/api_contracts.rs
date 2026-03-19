@@ -498,7 +498,7 @@ async fn operator_flow_produces_alert_actions_and_audit_entries() {
         .expect("alert_id should be present after ingest");
 
     let assign = auth_request(Request::builder())
-        .uri(format!("/api/v1/alerts/{alert_id}:assign"))
+        .uri(format!("/api/v1/alerts/{alert_id}/assign"))
         .method("POST")
         .body(axum::body::Body::from(
             json!({
@@ -516,7 +516,7 @@ async fn operator_flow_produces_alert_actions_and_audit_entries() {
     assert_eq!(assign_response.status(), StatusCode::OK);
 
     let ack = auth_request(Request::builder())
-        .uri(format!("/api/v1/alerts/{alert_id}:ack"))
+        .uri(format!("/api/v1/alerts/{alert_id}/ack"))
         .method("POST")
         .body(axum::body::Body::from(
             json!({
@@ -785,7 +785,7 @@ async fn alert_close_sets_resolution_and_audit_trail() {
         .clone()
         .oneshot(
             auth_request(Request::builder())
-                .uri(format!("/api/v1/alerts/{alert_id}:close"))
+                .uri(format!("/api/v1/alerts/{alert_id}/close"))
                 .method("POST")
                 .body(axum::body::Body::from(
                     json!({ "actor": "soc-admin", "resolution": "false_positive",

@@ -69,7 +69,7 @@ pub fn api_router() -> Router<AppState> {
         .route("/api/v1/search:query", post(search_query))
         .route("/api/v1/alerts", get(list_alerts))
         .route("/api/v1/alerts/:id", get(get_alert))
-        .route("/api/v1/alerts/*operation", post(alert_operation))
+        .route("/api/v1/alerts/:id/:action", post(alert_operation))
         .route("/api/v1/scheduler/tick", post(scheduler_tick))
         // LGPD (Lei 13.709/2018) compliance endpoints
         .route("/api/v1/lgpd/export", get(lgpd_export))
@@ -1281,14 +1281,19 @@ fn decode_alert_cursor(cursor: &str) -> Option<(DateTime<Utc>, Uuid)> {
 pub async fn alert_operation(
     auth: AuthContext,
     State(state): State<AppState>,
-    Path(operation): Path<String>,
+    Path((id_or_operation, action_opt)): Path<(String, String)>,
     Json(payload): Json<Value>,
 ) -> Result<Json<cyberbox_models::AlertRecord>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst])?;
 
-    let (alert_id_str, action) = operation
-        .split_once(':')
-        .ok_or_else(|| CyberboxError::BadRequest("expected /alerts/{id}:action".to_string()))?;
+    // Support both /alerts/:id/:action and legacy /alerts/{id}:{action}
+    let (alert_id_str, action) = if !action_opt.is_empty() {
+        (id_or_operation.as_str(), action_opt.as_str())
+    } else {
+        id_or_operation
+            .split_once(':')
+            .ok_or_else(|| CyberboxError::BadRequest("expected /alerts/{id}/{action}".to_string()))?
+    };
     let alert_id = Uuid::parse_str(alert_id_str)
         .map_err(|_| CyberboxError::BadRequest("invalid alert id".to_string()))?;
 
