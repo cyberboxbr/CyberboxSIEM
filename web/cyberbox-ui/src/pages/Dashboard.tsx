@@ -663,7 +663,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
                 <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>/ {stats?.total_agents ?? 0}</span>
               </div>
               <div style={{ marginTop: 12 }}>
-                {stats?.agents?.map(a => (
+                {stats?.agents?.slice(0, 3).map(a => (
                   <div key={a.agent_id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, fontSize: 13 }}>
                     {osIcons[osFromString(a.os, a.hostname)] ?? null}
                     <span style={{ color: 'var(--text-main)' }}>{a.hostname}</span>
@@ -677,6 +677,9 @@ export function Dashboard({ onRefresh }: DashboardProps) {
                     }}>{a.status}</span>
                   </div>
                 ))}
+                {(stats?.agents?.length ?? 0) > 3 && (
+                  <span style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 4, display: 'block' }}>+{(stats?.agents?.length ?? 0) - 3} more</span>
+                )}
               </div>
             </div>
             <div className="panel dash-kpi-card">
@@ -928,7 +931,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
                 </tr>
               </thead>
               <tbody>
-                {stats.agents.map(a => (
+                {stats.agents.slice(0, 3).map(a => (
                   <tr key={a.agent_id}>
                     <td style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       {osIcons[osFromString(a.os, a.hostname)] ?? null}
@@ -947,6 +950,9 @@ export function Dashboard({ onRefresh }: DashboardProps) {
                     </td>
                   </tr>
                 ))}
+                {stats.agents.length > 3 && (
+                  <tr><td colSpan={4} style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-dim)', padding: 8 }}>+{stats.agents.length - 3} more agents</td></tr>
+                )}
               </tbody>
             </table>
           ) : (
