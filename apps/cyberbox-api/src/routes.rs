@@ -3547,13 +3547,49 @@ pub async fn register_agent(
     addr: Option<ConnectInfo<std::net::SocketAddr>>,
     Json(body): Json<RegisterAgentRequest>,
 ) -> Result<Json<Value>, CyberboxError> {
-    let authenticated = authenticate_agent_request(&state, &headers, Some(&body.agent_id)).await?;
-    if body.tenant_id != authenticated.tenant_id || body.agent_id != authenticated.agent_id {
-        return Err(CyberboxError::Forbidden);
-    }
+    // Try enrollment-based auth first, fall back to API key for collector compatibility
+    let record = match authenticate_agent_request(&state, &headers, Some(&body.agent_id)).await {
+        Ok(mut rec) => {
+            if body.tenant_id != rec.tenant_id || body.agent_id != rec.agent_id {
+                return Err(CyberboxError::Forbidden);
+            }
+            rec
+        }
+        Err(_) => {
+            // Fallback: accept API key auth (collector registers agents this way)
+            let api_key = headers
+                .get("x-api-key")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string());
+            if api_key != state.ingest_api_key {
+                return Err(CyberboxError::Unauthorized);
+            }
+            AgentRecord {
+                agent_id: body.agent_id.clone(),
+                tenant_id: body.tenant_id.clone(),
+                hostname: String::new(),
+                os: String::new(),
+                version: String::new(),
+                ip: None,
+                registered_at: Utc::now(),
+                last_seen: Utc::now(),
+                group: None,
+                tags: vec![],
+                pending_config: None,
+                enrolled_at: None,
+                credential_version: 0,
+                credential_hash: None,
+                credential_rotated_at: None,
+                device_certificate_serial: None,
+                device_certificate_expires_at: None,
+                revoked_at: None,
+                revoked_reason: None,
+            }
+        }
+    };
 
     let now = Utc::now();
-    let mut record = authenticated;
+    let mut record = record;
     record.hostname = body.hostname;
     record.os = body.os;
     record.version = body.version;
@@ -3578,7 +3614,25 @@ pub async fn agent_heartbeat(
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<Value>, CyberboxError> {
-    let mut agent = authenticate_agent_request(&state, &headers, Some(&id)).await?;
+    let mut agent = match authenticate_agent_request(&state, &headers, Some(&id)).await {
+        Ok(rec) => rec,
+        Err(_) => {
+            // Fallback: API key auth for collector-registered agents
+            let api_key = headers
+                .get("x-api-key")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string());
+            if api_key != state.ingest_api_key {
+                return Err(CyberboxError::Unauthorized);
+            }
+            let tenant_id = headers
+                .get("x-tenant-id")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("default")
+                .to_string();
+            state.workflow_store.get_agent(&tenant_id, &id).await?
+        }
+    };
     agent.last_seen = Utc::now();
     let pending_config = agent.pending_config.take();
     let saved = state.workflow_store.upsert_agent(agent).await?;
