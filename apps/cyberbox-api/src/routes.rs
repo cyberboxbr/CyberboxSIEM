@@ -1290,9 +1290,9 @@ pub async fn alert_operation(
     let (alert_id_str, action) = if !action_opt.is_empty() {
         (id_or_operation.as_str(), action_opt.as_str())
     } else {
-        id_or_operation
-            .split_once(':')
-            .ok_or_else(|| CyberboxError::BadRequest("expected /alerts/{id}/{action}".to_string()))?
+        id_or_operation.split_once(':').ok_or_else(|| {
+            CyberboxError::BadRequest("expected /alerts/{id}/{action}".to_string())
+        })?
     };
     let alert_id = Uuid::parse_str(alert_id_str)
         .map_err(|_| CyberboxError::BadRequest("invalid alert id".to_string()))?;
