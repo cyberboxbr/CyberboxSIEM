@@ -401,10 +401,23 @@ where
                                 .map(ToOwned::to_owned)
                         })
                         .unwrap_or_else(|| "api-key".to_string());
+                    let roles = parts
+                        .headers
+                        .get("x-roles")
+                        .and_then(|v| v.to_str().ok())
+                        .map(|r| {
+                            r.split(',')
+                                .filter_map(|s| Role::parse(s.trim()))
+                                .collect::<Vec<_>>()
+                        })
+                        .filter(|r| !r.is_empty())
+                        .unwrap_or_else(|| {
+                            vec![Role::Admin, Role::Analyst, Role::Viewer, Role::Ingestor]
+                        });
                     AuthContext {
                         user_id,
                         tenant_id,
-                        roles: vec![Role::Ingestor],
+                        roles,
                     }
                 }
                 Some(_) => {
