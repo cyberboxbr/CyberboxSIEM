@@ -1,5 +1,5 @@
 title: Entra ID MFA Denied or Fraud Reported
-id: 0907f5d6-c2a5-4e3a-bf72-5e29
+id: 0907f5d6-c2a5-4e3a-bf72-5e2900000000
 status: stable
 description: |
   Detects when MFA is denied or a user reports MFA fraud in Entra ID.

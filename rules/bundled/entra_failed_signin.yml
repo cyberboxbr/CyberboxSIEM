@@ -1,5 +1,5 @@
 title: Entra ID Failed Sign-In (Multiple Attempts)
-id: 0907f5d6-c2a5-4e3a-bf72-5e28
+id: 0907f5d6-c2a5-4e3a-bf72-5e2800000000
 status: stable
 description: |
   Detects multiple failed sign-in attempts to Microsoft Entra ID from

@@ -1,5 +1,5 @@
 title: Office 365 eDiscovery Search Executed
-id: 0907f5d6-c2a5-4e3a-bf72-5e36
+id: 0907f5d6-c2a5-4e3a-bf72-5e3600000000
 status: stable
 description: |
   Detects when an eDiscovery (content search) is executed in Office 365.
