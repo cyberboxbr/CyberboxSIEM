@@ -1,0 +1,26 @@
+title: Windows Admin Group Membership Changed
+id: a1b2c3d4-e5f6-7890-abcd-100000000003
+status: stable
+description: |
+  Detects when a user is added to or removed from a privileged group
+  (Administrators, Domain Admins, Enterprise Admins). EventIDs 4728
+  (added to global group), 4732 (added to local group), 4756 (added
+  to universal group). Critical for detecting privilege escalation.
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    event_id:
+      - '4728'
+      - '4732'
+      - '4756'
+  condition: selection
+level: high
+tags:
+  - attack.privilege_escalation
+  - attack.t1078.002
+  - attack.persistence
+falsepositives:
+  - Legitimate admin role assignment
+  - IT onboarding process

@@ -1,0 +1,26 @@
+title: Windows New Service Installed
+id: a1b2c3d4-e5f6-7890-abcd-100000000004
+status: stable
+description: |
+  Detects installation of new Windows services (System EventID 7045 and
+  Security EventID 4697). Attackers install malicious services for persistence
+  and privilege escalation (runs as SYSTEM). Monitor for services with
+  suspicious paths (temp dirs, user profiles, encoded commands).
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    event_id:
+      - '7045'
+      - '4697'
+  condition: selection
+level: medium
+tags:
+  - attack.persistence
+  - attack.privilege_escalation
+  - attack.t1543.003
+falsepositives:
+  - Legitimate software installation
+  - Windows Update installing services
+  - IT deploying agents or monitoring tools

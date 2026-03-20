@@ -1,0 +1,21 @@
+title: Windows User Account Created
+id: a1b2c3d4-e5f6-7890-abcd-100000000002
+status: stable
+description: |
+  Detects creation of new user accounts (EventID 4720). Attackers create
+  accounts for persistence after initial compromise. Monitor for accounts
+  created outside business hours or by unexpected processes.
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    event_id: '4720'
+  condition: selection
+level: medium
+tags:
+  - attack.persistence
+  - attack.t1136.001
+falsepositives:
+  - Legitimate administrator creating accounts
+  - Automated provisioning systems

@@ -1,0 +1,22 @@
+title: Windows Audit Log Cleared
+id: a1b2c3d4-e5f6-7890-abcd-100000000011
+status: stable
+description: |
+  Detects when Windows event logs are cleared (Security EventID 1102,
+  System EventID 104). Attackers clear logs to cover their tracks after
+  compromising a system. This is always suspicious in production.
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    event_id:
+      - '1102'
+      - '104'
+  condition: selection
+level: critical
+tags:
+  - attack.defense_evasion
+  - attack.t1070.001
+falsepositives:
+  - Legitimate log rotation (very rare on Windows)

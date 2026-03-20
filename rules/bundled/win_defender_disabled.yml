@@ -1,0 +1,45 @@
+title: Windows Defender Disabled or Tampered
+id: a1b2c3d4-e5f6-7890-abcd-100000000009
+status: stable
+description: |
+  Detects attempts to disable Windows Defender via PowerShell, registry,
+  or service manipulation. Attackers disable AV before deploying malware.
+  Monitors process creation for known Defender disable commands.
+logsource:
+  product: windows
+  service: security
+detection:
+  selection_powershell:
+    event_id:
+      - '4688'
+      - '1'
+    message|contains:
+      - 'Set-MpPreference -DisableRealtimeMonitoring'
+      - 'Set-MpPreference -DisableBehaviorMonitoring'
+      - 'Set-MpPreference -DisableIOAVProtection'
+      - 'Set-MpPreference -DisableScriptScanning'
+      - 'Add-MpPreference -ExclusionPath'
+      - 'Add-MpPreference -ExclusionProcess'
+  selection_registry:
+    event_id:
+      - '4688'
+      - '1'
+    message|contains:
+      - 'DisableAntiSpyware'
+      - 'DisableAntiVirus'
+      - 'DisableRealtimeMonitoring'
+  selection_service:
+    event_id:
+      - '4688'
+      - '1'
+    message|contains:
+      - 'sc stop WinDefend'
+      - 'sc delete WinDefend'
+      - 'net stop WinDefend'
+  condition: selection_powershell or selection_registry or selection_service
+level: critical
+tags:
+  - attack.defense_evasion
+  - attack.t1562.001
+falsepositives:
+  - IT adding legitimate AV exclusions for software compatibility

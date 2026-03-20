@@ -1,0 +1,38 @@
+title: Suspicious Encoded PowerShell Command
+id: a1b2c3d4-e5f6-7890-abcd-100000000006
+status: stable
+description: |
+  Detects PowerShell execution with base64 encoded commands (-enc, -EncodedCommand).
+  Attackers frequently encode malicious PowerShell to evade detection. Also detects
+  common obfuscation flags like -nop, -w hidden, -noni, -ep bypass.
+logsource:
+  product: windows
+  service: sysmon
+detection:
+  selection_encoded:
+    event_id: '1'
+    message|contains:
+      - '-enc '
+      - '-EncodedCommand'
+      - '-encodedcommand'
+      - 'FromBase64String'
+  selection_obfuscation:
+    event_id: '1'
+    message|contains|all:
+      - 'powershell'
+      - '-w hidden'
+  selection_bypass:
+    event_id: '1'
+    message|contains|all:
+      - 'powershell'
+      - '-ep bypass'
+  condition: selection_encoded or selection_obfuscation or selection_bypass
+level: high
+tags:
+  - attack.execution
+  - attack.defense_evasion
+  - attack.t1059.001
+  - attack.t1140
+falsepositives:
+  - Legitimate admin scripts using encoded commands
+  - Configuration management tools (SCCM, Intune)

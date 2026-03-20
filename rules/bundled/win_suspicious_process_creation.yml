@@ -1,0 +1,62 @@
+title: Suspicious Process Execution via CMD or PowerShell
+id: a1b2c3d4-e5f6-7890-abcd-100000000008
+status: stable
+description: |
+  Detects execution of commonly abused Windows binaries (LOLBins) that
+  attackers use for downloading payloads, executing code, or bypassing
+  security controls. Monitors Security EventID 4688 and Sysmon EventID 1
+  for process creation with suspicious command lines.
+logsource:
+  product: windows
+  service: security
+detection:
+  selection_download:
+    event_id:
+      - '4688'
+      - '1'
+    message|contains:
+      - 'certutil -urlcache'
+      - 'certutil -split'
+      - 'bitsadmin /transfer'
+      - 'Invoke-WebRequest'
+      - 'wget '
+      - 'curl '
+      - 'DownloadFile'
+      - 'DownloadString'
+      - 'Net.WebClient'
+      - 'Start-BitsTransfer'
+  selection_exec:
+    event_id:
+      - '4688'
+      - '1'
+    message|contains:
+      - 'mshta '
+      - 'regsvr32 /s /n /u /i:'
+      - 'rundll32 javascript:'
+      - 'wmic process call create'
+      - 'msiexec /q /i http'
+  selection_recon:
+    event_id:
+      - '4688'
+      - '1'
+    message|contains:
+      - 'whoami /all'
+      - 'net user /domain'
+      - 'net group "domain admins"'
+      - 'nltest /dclist'
+      - 'dsquery'
+      - 'netstat -an'
+      - 'tasklist /v'
+      - 'systeminfo'
+  condition: selection_download or selection_exec or selection_recon
+level: high
+tags:
+  - attack.execution
+  - attack.t1059
+  - attack.defense_evasion
+  - attack.t1218
+  - attack.discovery
+  - attack.t1082
+falsepositives:
+  - Legitimate admin using certutil or bitsadmin
+  - IT automation scripts

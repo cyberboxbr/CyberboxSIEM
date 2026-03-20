@@ -1,0 +1,21 @@
+title: Windows Account Locked Out
+id: a1b2c3d4-e5f6-7890-abcd-100000000012
+status: stable
+description: |
+  Detects account lockout events (EventID 4740). Multiple lockouts in a short
+  period indicate an active brute force attack. Single lockouts may indicate
+  a user forgot their password or a misconfigured service.
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    event_id: '4740'
+  condition: selection
+level: medium
+tags:
+  - attack.credential_access
+  - attack.t1110
+falsepositives:
+  - Users forgetting passwords after vacation
+  - Stale cached credentials on mobile devices

@@ -1,0 +1,26 @@
+title: Windows RDP Logon Detected
+id: a1b2c3d4-e5f6-7890-abcd-100000000007
+status: stable
+description: |
+  Detects successful RDP logons (Security EventID 4624 with LogonType 10).
+  Remote Interactive logons should be monitored, especially from unexpected
+  source IPs or outside business hours. Also detects LogonType 3 (network)
+  which covers SMB and WinRM lateral movement.
+logsource:
+  product: windows
+  service: security
+detection:
+  selection_rdp:
+    event_id: '4624'
+    message|contains: '"LogonType":"10"'
+  selection_network:
+    event_id: '4624'
+    message|contains: '"LogonType":"3"'
+  condition: selection_rdp or selection_network
+level: low
+tags:
+  - attack.lateral_movement
+  - attack.t1021.001
+falsepositives:
+  - Legitimate remote administration
+  - File share access (LogonType 3)

@@ -1,0 +1,22 @@
+title: Windows Scheduled Task Created
+id: a1b2c3d4-e5f6-7890-abcd-100000000005
+status: stable
+description: |
+  Detects creation of scheduled tasks (Security EventID 4698). Attackers
+  create scheduled tasks for persistence, lateral movement, and execution.
+  The task XML content reveals what will execute and when.
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    event_id: '4698'
+  condition: selection
+level: medium
+tags:
+  - attack.persistence
+  - attack.execution
+  - attack.t1053.005
+falsepositives:
+  - Legitimate task creation by administrators
+  - Software installers creating update tasks
