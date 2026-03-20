@@ -726,57 +726,6 @@ export function Dashboard({ onRefresh }: DashboardProps) {
             </div>
           </div>
 
-          {/* Secondary metrics row */}
-          <div className="dash-kpis" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16, marginTop: 16 }}>
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">AVG EPS (24H)</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-                <span className="dash-big-number" style={{ color: '#06b6d4' }}>{avgEps24h.toFixed(1)}</span>
-                <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>events/s</span>
-              </div>
-              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
-                Peak: {stats?.eps_trend?.length ? Math.max(...stats.eps_trend.map(p => parseFloat(p.eps) || 0)).toFixed(1) : '0'} eps
-              </div>
-            </div>
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">EVENTS TODAY</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-                <span className="dash-big-number" style={{ color: '#8b5cf6' }}>{formatCompact(eventsToday)}</span>
-              </div>
-              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
-                {logSourceCount} log source{logSourceCount !== 1 ? 's' : ''} active
-              </div>
-            </div>
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">TOP LOG SOURCE</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-                <span className="dash-big-number" style={{ fontSize: 20, color: '#ec4899' }}>{topHost.hostname}</span>
-              </div>
-              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
-                {formatCompact(topHost.count)} events ({topHost.pct}% of total)
-              </div>
-            </div>
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">OPEN CASES</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-                <span className="dash-big-number" style={{ color: '#f97316' }}>{stats?.total_alerts ?? 0}</span>
-              </div>
-              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
-                MTTR: {stats?.mttr_seconds ? `${Math.round(stats.mttr_seconds / 60)}min` : 'N/A'}
-              </div>
-            </div>
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">DATA INGESTED (24H)</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-                <span className="dash-big-number" style={{ color: '#14b8a6' }}>{stats?.total_events ? formatCompact(Math.round(stats.total_events * 0.8 / 1024)) : '0'}</span>
-                <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>MB</span>
-              </div>
-              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
-                ~{stats?.total_events ? (stats.total_events * 0.8 / 1024 / 1024).toFixed(2) : '0'} GB/day
-              </div>
-            </div>
-          </div>
-
           {/* Charts row */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16 }}>
             {/* Event volume */}
@@ -936,6 +885,57 @@ export function Dashboard({ onRefresh }: DashboardProps) {
       {/* -- Trends tab */}
       {activeTab === 'trends' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Metrics cards */}
+          <div className="dash-kpis" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
+            <div className="panel dash-kpi-card">
+              <span className="kpi-label">AVG EPS (24H)</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                <span className="dash-big-number" style={{ color: '#06b6d4' }}>{avgEps24h.toFixed(1)}</span>
+                <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>events/s</span>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
+                Peak: {stats?.eps_trend?.length ? Math.max(...stats.eps_trend.map(p => parseFloat(p.eps) || 0)).toFixed(1) : '0'} eps
+              </div>
+            </div>
+            <div className="panel dash-kpi-card">
+              <span className="kpi-label">EVENTS TODAY</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                <span className="dash-big-number" style={{ color: '#8b5cf6' }}>{formatCompact(eventsToday)}</span>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
+                {logSourceCount} log source{logSourceCount !== 1 ? 's' : ''} active
+              </div>
+            </div>
+            <div className="panel dash-kpi-card">
+              <span className="kpi-label">TOP LOG SOURCE</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                <span className="dash-big-number" style={{ fontSize: 20, color: '#ec4899' }}>{topHost.hostname}</span>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
+                {formatCompact(topHost.count)} events ({topHost.pct}% of total)
+              </div>
+            </div>
+            <div className="panel dash-kpi-card">
+              <span className="kpi-label">OPEN CASES</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                <span className="dash-big-number" style={{ color: '#f97316' }}>{stats?.total_alerts ?? 0}</span>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
+                MTTR: {stats?.mttr_seconds ? `${Math.round(stats.mttr_seconds / 60)}min` : 'N/A'}
+              </div>
+            </div>
+            <div className="panel dash-kpi-card">
+              <span className="kpi-label">DATA INGESTED (24H)</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                <span className="dash-big-number" style={{ color: '#14b8a6' }}>{stats?.total_events ? formatCompact(Math.round(stats.total_events * 0.8 / 1024)) : '0'}</span>
+                <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>MB</span>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
+                ~{stats?.total_events ? (stats.total_events * 0.8 / 1024 / 1024).toFixed(2) : '0'} GB/day
+              </div>
+            </div>
+          </div>
+
           {/* Alert trend */}
           <div className="panel" style={{ padding: '16px 20px' }}>
             <h2 className="panel-title" style={{ marginBottom: 12 }}>Alert trend ({timeRangeLabel.toLowerCase()})</h2>
