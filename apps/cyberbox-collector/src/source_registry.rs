@@ -206,7 +206,7 @@ impl SourceRegistry {
         source_ip: &str,
         platform: &str,
         api_key: Option<&str>,
-    ) -> Result<(), reqwest::Error> {
+    ) -> Result<(), String> {
         let url = format!("{api_url}/api/v1/agents/register");
         let body = json!({
             "agent_id": agent_id,
@@ -227,18 +227,16 @@ impl SourceRegistry {
             req = req.header("X-Api-Key", key);
         }
 
-        let resp = req.json(&body).send().await?;
+        let resp = req.json(&body).send().await.map_err(|e| e.to_string())?;
 
         let status = resp.status();
         if status.is_success() || status.as_u16() == 409 {
             Ok(())
         } else {
             let body_text = resp.text().await.unwrap_or_default();
-            warn!(
-                %status, body = %body_text,
-                "unexpected status from agent register"
-            );
-            Ok(())
+            let msg = format!("register returned {status}: {body_text}");
+            warn!(agent_id, hostname, error = %msg, "agent register failed — will retry next tick");
+            Err(msg)
         }
     }
 
