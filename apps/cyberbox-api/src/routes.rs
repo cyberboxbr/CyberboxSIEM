@@ -3673,9 +3673,12 @@ pub async fn agent_heartbeat(
 pub struct PatchAgentRequest {
     pub group: Option<String>,
     pub tags: Option<Vec<String>>,
+    pub hostname: Option<String>,
+    pub os: Option<String>,
+    pub ip: Option<String>,
 }
 
-/// `PATCH /api/v1/agents/:id` — update group and/or tags.
+/// `PATCH /api/v1/agents/:id` — update agent metadata.
 pub async fn patch_agent(
     auth: AuthContext,
     State(state): State<AppState>,
@@ -3690,10 +3693,22 @@ pub async fn patch_agent(
     if let Some(tags) = body.tags {
         agent.tags = tags;
     }
+    if let Some(hostname) = body.hostname {
+        agent.hostname = hostname;
+    }
+    if let Some(os) = body.os {
+        agent.os = os;
+    }
+    if let Some(ip) = body.ip {
+        agent.ip = Some(ip);
+    }
     let saved = state.workflow_store.upsert_agent(agent).await?;
     state.agents.insert(saved.agent_id.clone(), saved.clone());
     Ok(Json(json!({
         "agent_id": saved.agent_id,
+        "hostname": saved.hostname,
+        "os": saved.os,
+        "ip": saved.ip,
         "group": saved.group,
         "tags": saved.tags,
     })))

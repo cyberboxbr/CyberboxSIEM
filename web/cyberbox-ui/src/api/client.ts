@@ -465,6 +465,9 @@ export interface AgentRecord {
 export interface AgentUpdateInput {
   group?: string;
   tags?: string[];
+  hostname?: string;
+  os?: string;
+  ip?: string;
 }
 
 export interface AgentRegisterInput {

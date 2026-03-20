@@ -178,6 +178,8 @@ export function AgentFleet() {
   const [configStatus, setConfigStatus] = useState('');
   const [editGroup, setEditGroup] = useState('');
   const [editTags, setEditTags] = useState('');
+  const [editHostname, setEditHostname] = useState('');
+  const [editOs, setEditOs] = useState('');
 
   const loadAgents = useCallback(async () => {
     setLoading(true);
@@ -229,6 +231,8 @@ export function AgentFleet() {
     setConfigStatus('');
     setEditGroup(agent.group || '');
     setEditTags((agent.tags || []).join(', '));
+    setEditHostname('');
+    setEditOs('');
   };
 
   const onPushConfig = async (agentId: string) => {
@@ -247,9 +251,11 @@ export function AgentFleet() {
       const body: AgentUpdateInput = {
         group: editGroup || undefined,
         tags: editTags ? editTags.split(',').map((t) => t.trim()).filter(Boolean) : [],
+        hostname: editHostname || undefined,
+        os: editOs || undefined,
       };
       await updateAgent(agentId, body);
-      setConfigStatus('Group/tags updated.');
+      setConfigStatus('Agent updated.');
       loadAgents();
     } catch (err) {
       setConfigStatus(`Error: ${String(err)}`);
@@ -434,11 +440,35 @@ export function AgentFleet() {
                             <div><strong style={{ color: s.dim }}>Group:</strong> {agent.group || '-'}</div>
                           </div>
 
-                          {/* Edit group / tags */}
+                          {/* Edit agent metadata */}
                           <form
                             onSubmit={(e) => onSaveGroupTags(e, agent.agent_id)}
-                            style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 10, alignItems: 'end' }}
+                            style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'end' }}
                           >
+                            <label style={{ fontSize: 12 }}>
+                              Hostname
+                              <input
+                                value={editHostname}
+                                onChange={(e) => setEditHostname(e.target.value)}
+                                placeholder={agent.hostname}
+                              />
+                            </label>
+                            <label style={{ fontSize: 12 }}>
+                              Platform
+                              <select
+                                value={editOs}
+                                onChange={(e) => setEditOs(e.target.value)}
+                                style={{ width: '100%', padding: '8px 10px' }}
+                              >
+                                <option value="">— keep current ({agent.os}) —</option>
+                                <option value="firewall">Firewall</option>
+                                <option value="windows">Windows</option>
+                                <option value="linux">Linux</option>
+                                <option value="router">Router</option>
+                                <option value="network">Network Device</option>
+                                <option value="syslog">Generic Syslog</option>
+                              </select>
+                            </label>
                             <label style={{ fontSize: 12 }}>
                               Group
                               <input
@@ -455,7 +485,7 @@ export function AgentFleet() {
                                 placeholder="linux, prod, us-east-1"
                               />
                             </label>
-                            <button type="submit" style={{ padding: '10px 16px' }}>Save</button>
+                            <button type="submit" style={{ padding: '10px 16px', gridColumn: 'span 2' }}>Save</button>
                           </form>
 
                           {/* Push config */}
