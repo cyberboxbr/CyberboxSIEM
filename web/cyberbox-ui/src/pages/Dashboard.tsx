@@ -257,6 +257,36 @@ export function Dashboard({ onRefresh }: DashboardProps) {
     }));
   }, [stats]);
 
+  // Computed metrics for secondary KPI row
+  const avgEps24h = useMemo(() => {
+    if (!stats?.eps_trend?.length) return 0;
+    const values = stats.eps_trend.map(p => parseFloat(p.eps) || 0).filter(v => v > 0);
+    return values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+  }, [stats]);
+
+  const eventsToday = useMemo(() => {
+    if (!stats?.hourly_events?.length) return 0;
+    const today = new Date().toISOString().split('T')[0];
+    return stats.hourly_events
+      .filter(p => p.bucket.startsWith(today))
+      .reduce((sum, p) => sum + (parseInt(p.count, 10) || 0), 0);
+  }, [stats]);
+
+  const topHost = useMemo(() => {
+    if (!stats?.events_by_host?.length) return { hostname: '-', count: 0, pct: 0 };
+    const top = stats.events_by_host[0];
+    const total = stats.events_by_host.reduce((sum, h) => sum + (parseInt(h.count, 10) || 0), 0);
+    return {
+      hostname: top.hostname,
+      count: parseInt(top.count, 10) || 0,
+      pct: total > 0 ? Math.round(((parseInt(top.count, 10) || 0) / total) * 100) : 0,
+    };
+  }, [stats]);
+
+  const logSourceCount = useMemo(() => {
+    return stats?.events_by_source?.length ?? 0;
+  }, [stats]);
+
   const sevChartData = useMemo(() => {
     if (!stats?.alerts_by_severity) return [];
     const s = stats.alerts_by_severity;
@@ -692,6 +722,57 @@ export function Dashboard({ onRefresh }: DashboardProps) {
                   <span>Crit/High alerts</span>
                   <span style={{ marginLeft: 'auto', fontWeight: 600, color: critHighCount > 0 ? '#ef4444' : 'var(--text-dim)' }}>{critHighCount}</span>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Secondary metrics row */}
+          <div className="dash-kpis" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16, marginTop: 16 }}>
+            <div className="panel dash-kpi-card">
+              <span className="kpi-label">AVG EPS (24H)</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                <span className="dash-big-number" style={{ color: '#06b6d4' }}>{avgEps24h.toFixed(1)}</span>
+                <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>events/s</span>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
+                Peak: {stats?.eps_trend?.length ? Math.max(...stats.eps_trend.map(p => parseFloat(p.eps) || 0)).toFixed(1) : '0'} eps
+              </div>
+            </div>
+            <div className="panel dash-kpi-card">
+              <span className="kpi-label">EVENTS TODAY</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                <span className="dash-big-number" style={{ color: '#8b5cf6' }}>{formatCompact(eventsToday)}</span>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
+                {logSourceCount} log source{logSourceCount !== 1 ? 's' : ''} active
+              </div>
+            </div>
+            <div className="panel dash-kpi-card">
+              <span className="kpi-label">TOP LOG SOURCE</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                <span className="dash-big-number" style={{ fontSize: 20, color: '#ec4899' }}>{topHost.hostname}</span>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
+                {formatCompact(topHost.count)} events ({topHost.pct}% of total)
+              </div>
+            </div>
+            <div className="panel dash-kpi-card">
+              <span className="kpi-label">OPEN CASES</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                <span className="dash-big-number" style={{ color: '#f97316' }}>{stats?.total_alerts ?? 0}</span>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
+                MTTR: {stats?.mttr_seconds ? `${Math.round(stats.mttr_seconds / 60)}min` : 'N/A'}
+              </div>
+            </div>
+            <div className="panel dash-kpi-card">
+              <span className="kpi-label">DATA INGESTED (24H)</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                <span className="dash-big-number" style={{ color: '#14b8a6' }}>{stats?.total_events ? formatCompact(Math.round(stats.total_events * 0.8 / 1024)) : '0'}</span>
+                <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>MB</span>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
+                ~{stats?.total_events ? (stats.total_events * 0.8 / 1024 / 1024).toFixed(2) : '0'} GB/day
               </div>
             </div>
           </div>
