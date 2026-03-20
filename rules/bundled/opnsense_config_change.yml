@@ -19,6 +19,16 @@ detection:
       - health.updaterrd
       - filter.update_tables
       - ping_hosts
+      - firmware
+      - template.reload
+      - interface.list
+      - route.show
+      - dns.diagnostics
+      - service.
+      - cron
+      - atrun
+      - updaterrd
+      - filter_update_tables
   condition: selection_configd and not filter_routine
 level: medium
 tags:
