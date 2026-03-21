@@ -31,7 +31,7 @@ function ruleTitle(alert: AlertRecord, ruleTitles: Record<string, string> = {}):
   return `Rule ${alert.rule_id.slice(0, 8)}`;
 }
 
-type StatusFilter = 'open' | 'acknowledged' | 'all';
+type StatusFilter = 'open' | 'acknowledged' | 'in_progress' | 'all';
 type SeverityFilter = 'all' | 'critical' | 'high' | 'medium' | 'low';
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -44,8 +44,8 @@ const SEVERITY_COLORS: Record<string, string> = {
 const STATUS_LABELS: Record<string, { bg: string; color: string }> = {
   open: { bg: 'rgba(244,93,93,0.15)', color: '#f45d5d' },
   acknowledged: { bg: 'rgba(74,158,218,0.15)', color: '#4a9eda' },
+  in_progress: { bg: 'rgba(245,166,35,0.15)', color: '#f5a623' },
   closed: { bg: 'rgba(88,214,141,0.15)', color: '#58d68d' },
-  false_positive: { bg: 'rgba(212,188,0,0.12)', color: '#d4bc00' },
 };
 
 interface ExplainResult {
@@ -146,12 +146,14 @@ export function AlertQueue() {
 
   const stats = useMemo(() => {
     const open = alerts.filter(a => a.status === 'open').length;
-    const critical = alerts.filter(a => (a as any).severity === 'critical' && a.status !== 'closed' && a.status !== 'false_positive').length;
-    const high = alerts.filter(a => (a as any).severity === 'high' && a.status !== 'closed' && a.status !== 'false_positive').length;
-    const medium = alerts.filter(a => (a as any).severity === 'medium' && a.status !== 'closed' && a.status !== 'false_positive').length;
-    const low = alerts.filter(a => (a as any).severity === 'low' && a.status !== 'closed' && a.status !== 'false_positive').length;
-    const unassigned = alerts.filter(a => !a.assignee && a.status === 'open').length;
-    return { open, critical, high, medium, low, unassigned };
+    const acknowledged = alerts.filter(a => a.status === 'acknowledged').length;
+    const inProgress = alerts.filter(a => a.status === 'in_progress').length;
+    const critical = alerts.filter(a => (a as any).severity === 'critical' && a.status !== 'closed').length;
+    const high = alerts.filter(a => (a as any).severity === 'high' && a.status !== 'closed').length;
+    const medium = alerts.filter(a => (a as any).severity === 'medium' && a.status !== 'closed').length;
+    const low = alerts.filter(a => (a as any).severity === 'low' && a.status !== 'closed').length;
+    const unassigned = alerts.filter(a => !a.assignee && a.status !== 'closed').length;
+    return { open, acknowledged, inProgress, critical, high, medium, low, unassigned };
   }, [alerts]);
 
   /* ── selection ─────────────────────────────────── */
@@ -223,7 +225,8 @@ export function AlertQueue() {
 
   const statusTabs: { key: StatusFilter; label: string; count?: number }[] = [
     { key: 'open', label: 'Open', count: stats.open },
-    { key: 'acknowledged', label: 'Acknowledged' },
+    { key: 'acknowledged', label: 'Acknowledged', count: stats.acknowledged },
+    { key: 'in_progress', label: 'In Progress', count: stats.inProgress },
     { key: 'all', label: 'All', count: alerts.length },
   ];
 
@@ -360,8 +363,9 @@ export function AlertQueue() {
               const dstIp = (alert as any).dst_ip || null;
               const dstPort = (alert as any).dst_port || null;
               const processName = (alert as any).process_name || null;
-              const caseId = (alert as any).case_id;
+              const caseId = alert.case_id;
               const statusStyle = STATUS_LABELS[alert.status] ?? STATUS_LABELS.open;
+              const isClosed = alert.status === 'closed';
 
               return (
                 <div key={alert.alert_id}>
@@ -444,7 +448,7 @@ export function AlertQueue() {
                         className="aq-status-badge"
                         style={{ background: statusStyle.bg, color: statusStyle.color }}
                       >
-                        {alert.status === 'false_positive' ? 'FP' : alert.status}
+                        {alert.status.replace('_', ' ')}
                       </span>
                     </span>
 
@@ -475,7 +479,9 @@ export function AlertQueue() {
 
                     {/* Actions */}
                     <span className="aq-col-actions" onClick={(e) => e.stopPropagation()}>
-                      <button className="aq-action-btn aq-action-btn--fp" onClick={() => handleSingleFP(alert.alert_id)} title="False Positive">FP</button>
+                      {!isClosed && (
+                        <button className="aq-action-btn aq-action-btn--fp" onClick={() => handleSingleFP(alert.alert_id)} title="False Positive">FP</button>
+                      )}
                       <button className="aq-action-btn aq-action-btn--ai" onClick={() => handleExplain(alert.alert_id)} title="AI Explain">AI</button>
                       <button className="aq-action-btn aq-action-btn--detail" onClick={() => navigate(`/alerts/${alert.alert_id}`)} title="Full Detail">
                         {linkIcon}
@@ -606,7 +612,9 @@ export function AlertQueue() {
 
                       {/* Action bar in expanded view */}
                       <div className="aq-expanded-actions">
-                        <button className="aq-action-btn aq-action-btn--fp" onClick={() => handleSingleFP(alert.alert_id)}>False Positive</button>
+                        {!isClosed && (
+                          <button className="aq-action-btn aq-action-btn--fp" onClick={() => handleSingleFP(alert.alert_id)}>False Positive</button>
+                        )}
                         <button className="aq-action-btn aq-action-btn--ai" onClick={() => handleExplain(alert.alert_id)}>AI Explain</button>
                         {caseId && (
                           <button className="aq-action-btn aq-action-btn--detail" onClick={() => { navigate(`/cases/${caseId}`); }}>

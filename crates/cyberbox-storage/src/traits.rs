@@ -1,4 +1,7 @@
+use std::collections::BTreeSet;
+
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use cyberbox_core::CyberboxError;
@@ -6,6 +9,91 @@ use cyberbox_models::{
     AlertRecord, AlertStatus, AssignAlertRequest, CaseRecord, CaseStatus, CloseAlertRequest,
     DetectionRule, EventEnvelope, SearchQueryRequest, SearchQueryResponse, UpdateCaseRequest,
 };
+
+pub(crate) fn unique_alert_ids(alert_ids: &[Uuid]) -> Vec<Uuid> {
+    let mut seen = BTreeSet::new();
+    alert_ids
+        .iter()
+        .copied()
+        .filter(|alert_id| seen.insert(*alert_id))
+        .collect()
+}
+
+pub(crate) fn alert_not_found_error(alert_id: Uuid) -> CyberboxError {
+    CyberboxError::BadRequest(format!("alert {alert_id} not found"))
+}
+
+pub(crate) fn alert_case_conflict_error(alert_id: Uuid, case_id: Uuid) -> CyberboxError {
+    CyberboxError::BadRequest(format!(
+        "alert {alert_id} is already linked to case {case_id}"
+    ))
+}
+
+pub(crate) fn closed_alert_assignment_error(alert_id: Uuid) -> CyberboxError {
+    CyberboxError::BadRequest(format!(
+        "alert {alert_id} is closed and cannot be reassigned"
+    ))
+}
+
+pub(crate) fn missing_alert_assignment_error() -> CyberboxError {
+    CyberboxError::BadRequest(
+        "assign endpoint requires assignee; use null to clear the current assignee".to_string(),
+    )
+}
+
+pub(crate) fn normalize_optional_string(value: Option<&String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+pub(crate) fn apply_case_patch(
+    case: &mut CaseRecord,
+    patch: &UpdateCaseRequest,
+    now: DateTime<Utc>,
+) {
+    if let Some(title) = &patch.title {
+        case.title = title.clone();
+    }
+    if let Some(description) = &patch.description {
+        case.description = description.clone();
+    }
+    if let Some(status) = &patch.status {
+        case.status = status.clone();
+    }
+    if let Some(severity) = &patch.severity {
+        case.severity = severity.clone();
+        case.sla_due_at = Some(crate::in_memory::sla_due_at(severity, case.created_at));
+    }
+    if let Some(assignee) = &patch.assignee {
+        case.assignee = normalize_optional_string(assignee.as_ref());
+    }
+    if let Some(tags) = &patch.tags {
+        case.tags = tags.clone();
+    }
+
+    match case.status {
+        CaseStatus::Open | CaseStatus::InProgress => {
+            case.closed_at = None;
+            case.resolution = None;
+            case.close_note = None;
+        }
+        CaseStatus::Resolved | CaseStatus::Closed => {
+            if case.closed_at.is_none() {
+                case.closed_at = Some(now);
+            }
+            if let Some(resolution) = &patch.resolution {
+                case.resolution = Some(resolution.clone());
+            }
+            if let Some(close_note) = &patch.close_note {
+                let note = close_note.trim();
+                case.close_note = (!note.is_empty()).then(|| note.to_string());
+            }
+        }
+    }
+
+    case.updated_at = now;
+}
 
 #[async_trait]
 pub trait EventStore: Send + Sync {

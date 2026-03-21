@@ -14,12 +14,14 @@ use cyberbox_core::CyberboxError;
 use cyberbox_models::{
     AgentEnrollRequest, AgentEnrollResponse, AgentEnrollmentTokenRecord,
     AgentEnrollmentTokenResponse, AgentRecord, AlertRecord, AlertStatus, AssignAlertRequest,
-    AuditLogRecord, CaseRecord, CaseStatus, CloseAlertRequest, CreateAgentEnrollmentTokenRequest,
+    AuditLogRecord, CaseRecord, CloseAlertRequest, CreateAgentEnrollmentTokenRequest,
     RotateAgentCredentialResponse, UpdateCaseRequest,
 };
 
-use crate::in_memory::sla_due_at;
-use crate::traits::{AlertStore, CaseStore};
+use crate::traits::{
+    alert_case_conflict_error, alert_not_found_error, apply_case_patch, unique_alert_ids,
+    AlertStore, CaseStore,
+};
 
 const SNAPSHOT_DIR: &str = "workflow";
 const SNAPSHOT_FILE: &str = "workflow_store.json";
@@ -116,6 +118,136 @@ impl FileWorkflowStore {
                     .collect::<Vec<_>>()
             })
             .await)
+    }
+
+    pub async fn create_case_with_alerts(
+        &self,
+        mut case: CaseRecord,
+    ) -> Result<CaseRecord, CyberboxError> {
+        case.alert_ids = unique_alert_ids(&case.alert_ids);
+        let case_id = case.case_id;
+        let tenant_id = case.tenant_id.clone();
+        self.mutate(move |snapshot| {
+            let tenant = tenant_state_mut(snapshot, &tenant_id);
+            for alert_id in &case.alert_ids {
+                let alert = tenant
+                    .alerts
+                    .get(&alert_id.to_string())
+                    .ok_or_else(|| alert_not_found_error(*alert_id))?;
+                if let Some(existing_case_id) = alert.case_id {
+                    if existing_case_id != case_id {
+                        return Err(alert_case_conflict_error(*alert_id, existing_case_id));
+                    }
+                }
+            }
+            for alert_id in &case.alert_ids {
+                if let Some(alert) = tenant.alerts.get_mut(&alert_id.to_string()) {
+                    alert.case_id = Some(case_id);
+                }
+            }
+            tenant.cases.insert(case_id.to_string(), case.clone());
+            Ok(case)
+        })
+        .await
+    }
+
+    pub async fn attach_alerts_to_case(
+        &self,
+        tenant_id: &str,
+        case_id: Uuid,
+        alert_ids: &[Uuid],
+        now: DateTime<Utc>,
+    ) -> Result<CaseRecord, CyberboxError> {
+        let tenant_id = tenant_id.to_string();
+        let alert_ids = unique_alert_ids(alert_ids);
+        self.mutate(move |snapshot| {
+            let tenant = tenant_state_mut(snapshot, &tenant_id);
+            let mut case = tenant
+                .cases
+                .get(&case_id.to_string())
+                .cloned()
+                .ok_or(CyberboxError::NotFound)?;
+            for alert_id in &alert_ids {
+                let alert = tenant
+                    .alerts
+                    .get(&alert_id.to_string())
+                    .ok_or_else(|| alert_not_found_error(*alert_id))?;
+                if let Some(existing_case_id) = alert.case_id {
+                    if existing_case_id != case_id {
+                        return Err(alert_case_conflict_error(*alert_id, existing_case_id));
+                    }
+                }
+            }
+            for alert_id in &alert_ids {
+                if !case.alert_ids.contains(alert_id) {
+                    case.alert_ids.push(*alert_id);
+                }
+                if let Some(alert) = tenant.alerts.get_mut(&alert_id.to_string()) {
+                    alert.case_id = Some(case_id);
+                }
+            }
+            case.alert_ids = unique_alert_ids(&case.alert_ids);
+            case.updated_at = now;
+            tenant.cases.insert(case_id.to_string(), case.clone());
+            Ok(case)
+        })
+        .await
+    }
+
+    pub async fn detach_alerts_from_case(
+        &self,
+        tenant_id: &str,
+        case_id: Uuid,
+        alert_ids: &[Uuid],
+        now: DateTime<Utc>,
+    ) -> Result<CaseRecord, CyberboxError> {
+        let tenant_id = tenant_id.to_string();
+        let alert_ids = unique_alert_ids(alert_ids);
+        self.mutate(move |snapshot| {
+            let tenant = tenant_state_mut(snapshot, &tenant_id);
+            let mut case = tenant
+                .cases
+                .get(&case_id.to_string())
+                .cloned()
+                .ok_or(CyberboxError::NotFound)?;
+            case.alert_ids
+                .retain(|alert_id| !alert_ids.contains(alert_id));
+            case.updated_at = now;
+            for alert_id in &alert_ids {
+                if let Some(alert) = tenant.alerts.get_mut(&alert_id.to_string()) {
+                    if alert.case_id == Some(case_id) {
+                        alert.case_id = None;
+                    }
+                }
+            }
+            tenant.cases.insert(case_id.to_string(), case.clone());
+            Ok(case)
+        })
+        .await
+    }
+
+    pub async fn delete_case_with_alerts(
+        &self,
+        tenant_id: &str,
+        case_id: Uuid,
+    ) -> Result<CaseRecord, CyberboxError> {
+        let tenant_id = tenant_id.to_string();
+        self.mutate(move |snapshot| {
+            let tenant = tenant_state_mut(snapshot, &tenant_id);
+            let case = tenant
+                .cases
+                .remove(&case_id.to_string())
+                .ok_or(CyberboxError::NotFound)?;
+            for alert_id in &case.alert_ids {
+                if let Some(alert) = tenant.alerts.get_mut(&alert_id.to_string()) {
+                    if alert.case_id == Some(case_id) {
+                        alert.case_id = None;
+                    }
+                }
+            }
+            Ok(case)
+        })
+        .await
     }
 
     pub async fn list_agents(&self, tenant_id: &str) -> Result<Vec<AgentRecord>, CyberboxError> {
@@ -471,11 +603,11 @@ impl FileWorkflowStore {
     where
         F: FnOnce(&mut WorkflowSnapshot) -> Result<T, CyberboxError>,
     {
-        let mut snapshot = self.inner.lock().await;
+        // Hold the owned guard through persistence so concurrent mutations
+        // cannot interleave clone/write/rename cycles and lose updates.
+        let mut snapshot = self.inner.clone().lock_owned().await;
         let result = f(&mut snapshot)?;
-        let persisted = snapshot.clone();
-        drop(snapshot);
-        persist_snapshot(self.path.as_ref(), &persisted).await?;
+        persist_snapshot(self.path.as_ref(), &snapshot).await?;
         Ok(result)
     }
 }
@@ -537,8 +669,21 @@ impl AlertStore for FileWorkflowStore {
                 .alerts
                 .get_mut(&alert_id.to_string())
                 .ok_or(CyberboxError::NotFound)?;
-            alert.assignee = Some(assignment.assignee);
-            alert.status = AlertStatus::InProgress;
+            if matches!(alert.status, AlertStatus::Closed) {
+                return Err(crate::traits::closed_alert_assignment_error(alert_id));
+            }
+            let Some(assignee_patch) = assignment.assignee.as_ref() else {
+                return Err(crate::traits::missing_alert_assignment_error());
+            };
+            let next_assignee = crate::traits::normalize_optional_string(assignee_patch.as_ref());
+            alert.assignee = next_assignee;
+            alert.status = if alert.assignee.is_some() {
+                AlertStatus::InProgress
+            } else if matches!(alert.status, AlertStatus::InProgress) {
+                AlertStatus::Acknowledged
+            } else {
+                alert.status.clone()
+            };
             alert.last_seen = Utc::now();
             Ok(alert.clone())
         })
@@ -645,31 +790,7 @@ impl CaseStore for FileWorkflowStore {
                 .cases
                 .get_mut(&case_id.to_string())
                 .ok_or(CyberboxError::NotFound)?;
-            if let Some(title) = patch.title {
-                case.title = title;
-            }
-            if let Some(description) = patch.description {
-                case.description = description;
-            }
-            if let Some(status) = patch.status {
-                if matches!(status, CaseStatus::Resolved | CaseStatus::Closed)
-                    && case.closed_at.is_none()
-                {
-                    case.closed_at = Some(now);
-                }
-                case.status = status;
-            }
-            if let Some(severity) = patch.severity {
-                case.severity = severity.clone();
-                case.sla_due_at = Some(sla_due_at(&severity, case.created_at));
-            }
-            if let Some(assignee) = patch.assignee {
-                case.assignee = Some(assignee);
-            }
-            if let Some(tags) = patch.tags {
-                case.tags = tags;
-            }
-            case.updated_at = now;
+            apply_case_patch(case, &patch, now);
             Ok(case.clone())
         })
         .await
@@ -714,7 +835,7 @@ async fn persist_snapshot(path: &Path, snapshot: &WorkflowSnapshot) -> Result<()
     }
     let bytes = serde_json::to_vec_pretty(snapshot)
         .map_err(|err| CyberboxError::Internal(format!("serialize workflow snapshot: {err}")))?;
-    let temp_path = path.with_extension("tmp");
+    let temp_path = path.with_extension(format!("{}.tmp", Uuid::new_v4()));
     fs::write(&temp_path, bytes)
         .await
         .map_err(|err| CyberboxError::Internal(format!("write workflow snapshot: {err}")))?;
@@ -743,6 +864,8 @@ fn hash_secret(secret: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use cyberbox_models::{AlertResolution, RoutingState, Severity};
 
@@ -768,11 +891,26 @@ mod tests {
                 suppression_until: None,
             },
             assignee: None,
+            case_id: None,
             hit_count: 1,
             mitre_attack: Vec::new(),
             resolution: None,
             close_note: None,
             agent_meta: None,
+        }
+    }
+
+    fn make_audit(action: &str) -> AuditLogRecord {
+        AuditLogRecord {
+            audit_id: Uuid::new_v4(),
+            tenant_id: "tenant-a".to_string(),
+            actor: "tester".to_string(),
+            action: action.to_string(),
+            entity_type: "alert".to_string(),
+            entity_id: Uuid::new_v4().to_string(),
+            timestamp: Utc::now(),
+            before: serde_json::Value::Null,
+            after: serde_json::Value::Null,
         }
     }
 
@@ -875,5 +1013,32 @@ mod tests {
 
         let created = store.suppress_or_create_alert(make_alert()).await.unwrap();
         assert_ne!(created.alert_id, alert.alert_id);
+    }
+
+    #[tokio::test]
+    async fn concurrent_audit_appends_persist_every_entry() {
+        let root = temp_root();
+        let store = Arc::new(FileWorkflowStore::open(&root).await.unwrap());
+
+        let tasks = (0..24).map(|idx| {
+            let store = Arc::clone(&store);
+            tokio::spawn(async move {
+                store
+                    .append_audit_log(make_audit(&format!("alert.assign.{idx}")))
+                    .await
+            })
+        });
+
+        for task in tasks {
+            task.await.unwrap().unwrap();
+        }
+
+        let reopened = FileWorkflowStore::open(&root).await.unwrap();
+        let audits = reopened
+            .list_audit_logs("tenant-a", None, None, None, None, None, None, 128)
+            .await
+            .unwrap();
+
+        assert_eq!(audits.len(), 24);
     }
 }

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   CaseCreateInput,
   CaseRecord,
+  CaseResolution,
   CaseStatus,
   Severity,
   createCase,
@@ -40,9 +41,9 @@ function slaInfo(sla_due_at?: string): { label: string; color: string; pct: numb
   return { label, color, pct };
 }
 
-type FilterTab = 'all' | 'open' | 'in_progress' | 'closed';
+type FilterTab = 'all' | 'open' | 'in_progress' | 'resolved' | 'closed';
 
-const RESOLUTION_LABELS: Record<string, { label: string; color: string }> = {
+const RESOLUTION_LABELS: Record<CaseResolution, { label: string; color: string }> = {
   tp_contained: { label: 'True Positive — Contained', color: '#58d68d' },
   tp_not_contained: { label: 'True Positive — Not Contained', color: '#f45d5d' },
   benign_tp: { label: 'Benign True Positive', color: '#4a9eda' },
@@ -95,7 +96,7 @@ export function Cases() {
 
   // Close case modal
   const [closeCaseId, setCloseCaseId] = useState<string | null>(null);
-  const [closeResolution, setCloseResolution] = useState('tp_contained');
+  const [closeResolution, setCloseResolution] = useState<CaseResolution>('tp_contained');
   const [closeNote, setCloseNote] = useState('');
 
   // Assign modal
@@ -133,10 +134,11 @@ export function Cases() {
   const stats = useMemo(() => {
     const open = cases.filter(c => c.status === 'open').length;
     const inProgress = cases.filter(c => c.status === 'in_progress').length;
+    const resolved = cases.filter(c => c.status === 'resolved').length;
     const closed = cases.filter(c => c.status === 'closed').length;
     const unassigned = cases.filter(c => !c.assignee && c.status !== 'closed').length;
     const breached = slaBreaches.length;
-    return { open, inProgress, closed, unassigned, breached };
+    return { open, inProgress, resolved, closed, unassigned, breached };
   }, [cases, slaBreaches]);
 
   /* ── actions ───────────────────────────────────── */
@@ -179,8 +181,13 @@ export function Cases() {
   const handleCloseCase = async () => {
     if (!closeCaseId) return;
     try {
-      await updateCase(closeCaseId, { status: 'closed' });
+      await updateCase(closeCaseId, {
+        status: 'closed',
+        resolution: closeResolution,
+        close_note: closeNote.trim() || null,
+      });
       setCloseCaseId(null);
+      setCloseResolution('tp_contained');
       setCloseNote('');
       await loadCases();
       setStatusText('Case closed.');
@@ -190,13 +197,18 @@ export function Cases() {
   };
 
   const handleAssign = async () => {
-    if (!assignCaseId || !assignName.trim()) return;
+    if (!assignCaseId) return;
+    const nextAssignee = assignName.trim();
+    const assignTarget = cases.find((c) => c.case_id === assignCaseId);
+    if (!nextAssignee && !assignTarget?.assignee) return;
     try {
-      await updateCase(assignCaseId, { assignee: assignName.trim() });
+      await updateCase(assignCaseId, { assignee: nextAssignee || null });
       setAssignCaseId(null);
       setAssignName('');
       await loadCases();
-      setStatusText(`Case assigned to ${assignName}.`);
+      setStatusText(
+        nextAssignee ? `Case assigned to ${nextAssignee}.` : 'Case unassigned.',
+      );
     } catch (err) {
       setError(String(err));
     }
@@ -208,8 +220,14 @@ export function Cases() {
     { key: 'all', label: 'All Cases', count: cases.length },
     { key: 'open', label: 'Open', count: stats.open },
     { key: 'in_progress', label: 'In Progress', count: stats.inProgress },
+    { key: 'resolved', label: 'Resolved', count: stats.resolved },
     { key: 'closed', label: 'Closed', count: stats.closed },
   ];
+  const assignTarget = assignCaseId
+    ? cases.find((c) => c.case_id === assignCaseId) ?? null
+    : null;
+  const canSubmitAssign = Boolean(assignCaseId)
+    && (assignName.trim().length > 0 || Boolean(assignTarget?.assignee));
 
   return (
     <div className="page">
@@ -290,25 +308,28 @@ export function Cases() {
         ) : (
           <div className="cs-table-body">
             {filteredCases.map((c) => {
+              const severity = c.severity ?? 'medium';
+              const status = c.status ?? 'open';
               const sla = slaInfo(c.sla_due_at);
-              const sevColor = SEVERITY_COLORS[c.severity] ?? '#4a9eda';
-              const resolution = (c as any).resolution;
-              const closeNoteText = (c as any).close_note;
+              const sevColor = SEVERITY_COLORS[severity] ?? '#4a9eda';
+              const resolution = c.resolution;
+              const closeNoteText = c.close_note;
               const resLabel = resolution ? RESOLUTION_LABELS[resolution] : null;
-              const isOpen = c.status === 'open';
-              const isInProgress = c.status === 'in_progress';
+              const isOpen = status === 'open';
+              const isInProgress = status === 'in_progress';
+              const isResolved = status === 'resolved';
 
               return (
                 <div
                   key={c.case_id}
                   className="cs-row"
-                  style={{ borderLeftColor: c.severity === 'critical' || c.severity === 'high' ? sevColor : 'transparent' }}
+                  style={{ borderLeftColor: severity === 'critical' || severity === 'high' ? sevColor : 'transparent' }}
                   onClick={() => navigate(`/cases/${c.case_id}`)}
                 >
                   {/* Severity */}
                   <span className="cs-col-sev">
-                    <span className={`dash-sev-badge dash-sev-badge--${c.severity}`}>
-                      {c.severity.toUpperCase()}
+                    <span className={`dash-sev-badge dash-sev-badge--${severity}`}>
+                      {severity.toUpperCase()}
                     </span>
                   </span>
 
@@ -336,8 +357,8 @@ export function Cases() {
 
                   {/* Status */}
                   <span className="cs-col-status">
-                    <span className={`cs-status-badge cs-status-badge--${c.status}`}>
-                      {(c.status ?? 'open').replace('_', ' ')}
+                    <span className={`cs-status-badge cs-status-badge--${status}`}>
+                      {status.replace('_', ' ')}
                     </span>
                   </span>
 
@@ -378,6 +399,12 @@ export function Cases() {
                     )}
                     {isInProgress && (
                       <>
+                        <button className="aq-action-btn aq-action-btn--ack" onClick={() => handleStatusChange(c.case_id, 'resolved')}>Resolve</button>
+                        <button className="aq-action-btn aq-action-btn--assign" onClick={() => { setAssignCaseId(c.case_id); setAssignName(c.assignee ?? ''); }}>Reassign</button>
+                      </>
+                    )}
+                    {isResolved && (
+                      <>
                         <button className="aq-action-btn aq-action-btn--close" onClick={() => { setCloseCaseId(c.case_id); setCloseResolution('tp_contained'); setCloseNote(''); }}>Close</button>
                         <button className="aq-action-btn aq-action-btn--assign" onClick={() => { setAssignCaseId(c.case_id); setAssignName(c.assignee ?? ''); }}>Reassign</button>
                       </>
@@ -398,7 +425,7 @@ export function Cases() {
             <div className="stack">
               <label>
                 Resolution
-                <select value={closeResolution} onChange={e => setCloseResolution(e.target.value)}>
+                <select value={closeResolution} onChange={e => setCloseResolution(e.target.value as CaseResolution)}>
                   <option value="tp_contained">True Positive — Contained</option>
                   <option value="tp_not_contained">True Positive — Not Contained</option>
                   <option value="benign_tp">Benign True Positive</option>
@@ -435,11 +462,11 @@ export function Cases() {
                 <button className="aq-action-btn" onClick={() => setAssignCaseId(null)}>Cancel</button>
                 <button
                   className="aq-action-btn aq-action-btn--assign"
-                  style={{ fontWeight: 700, opacity: assignName.trim() ? 1 : 0.4 }}
-                  disabled={!assignName.trim()}
+                  style={{ fontWeight: 700, opacity: canSubmitAssign ? 1 : 0.4 }}
+                  disabled={!canSubmitAssign}
                   onClick={handleAssign}
                 >
-                  Assign
+                  {assignName.trim() ? 'Assign' : 'Clear Assignment'}
                 </button>
               </div>
             </div>

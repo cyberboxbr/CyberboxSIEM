@@ -1,7 +1,17 @@
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
+
+fn deserialize_nullable_patch_field<'de, D, T>(
+    deserializer: D,
+) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Ok(Some(Option::<T>::deserialize(deserializer)?))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -181,6 +191,9 @@ pub struct AlertRecord {
     pub evidence_refs: Vec<String>,
     pub routing_state: RoutingState,
     pub assignee: Option<String>,
+    /// Linked case, if this alert has been attached to an investigation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub case_id: Option<Uuid>,
     #[serde(default = "default_one")]
     pub hit_count: u64,
     /// MITRE ATT&CK techniques referenced by the triggering rule.
@@ -282,7 +295,9 @@ pub struct AckAlertRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssignAlertRequest {
     pub actor: String,
-    pub assignee: String,
+    /// Tri-state patch: omitted = invalid request, null/empty = clear, string = set.
+    #[serde(default, deserialize_with = "deserialize_nullable_patch_field")]
+    pub assignee: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -447,6 +462,17 @@ pub enum CaseStatus {
     Closed,
 }
 
+/// Analyst-recorded outcome when a case is closed.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CaseResolution {
+    TpContained,
+    TpNotContained,
+    BenignTp,
+    FalsePositive,
+    Duplicate,
+}
+
 /// An incident case groups one or more alerts into a single investigation workflow.
 ///
 /// SLA deadlines are automatically computed from `severity` at creation time:
@@ -474,6 +500,12 @@ pub struct CaseRecord {
     /// Timestamp when the case transitioned to Resolved or Closed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub closed_at: Option<DateTime<Utc>>,
+    /// Analyst-recorded outcome when the case is closed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolution: Option<CaseResolution>,
+    /// Optional analyst note captured when the case is closed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub close_note: Option<String>,
     /// Analyst-defined labels for grouping / filtering.
     #[serde(default)]
     pub tags: Vec<String>,
@@ -501,7 +533,11 @@ pub struct UpdateCaseRequest {
     pub description: Option<String>,
     pub status: Option<CaseStatus>,
     pub severity: Option<Severity>,
-    pub assignee: Option<String>,
+    /// Tri-state patch: omitted = leave unchanged, null = clear, string = set.
+    #[serde(default, deserialize_with = "deserialize_nullable_patch_field")]
+    pub assignee: Option<Option<String>>,
+    pub resolution: Option<CaseResolution>,
+    pub close_note: Option<String>,
     pub tags: Option<Vec<String>>,
 }
 
@@ -753,6 +789,8 @@ mod tests {
             updated_at: Utc::now(),
             sla_due_at: None,
             closed_at: None,
+            resolution: None,
+            close_note: None,
             tags: vec![],
         };
 

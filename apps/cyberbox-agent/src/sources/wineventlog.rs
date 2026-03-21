@@ -1,6 +1,6 @@
 //! Windows Event Log source — polling mode using EvtQuery.
 //!
-//! Polls each channel every few seconds for new events using XPath time filters.
+//! Polls each channel every few seconds for new events using XPath record-id filters.
 //! Simple and reliable across all Windows Server versions.
 
 use std::sync::Arc;
@@ -8,7 +8,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use serde_json::{json, Map, Value};
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use windows::{
     core::PCWSTR,
@@ -46,22 +46,13 @@ fn poll_channel(
     tx: mpsc::Sender<Value>,
 ) {
     let channel_w: Vec<u16> = channel.encode_utf16().chain(std::iter::once(0)).collect();
-
-    // Start from now
-    let mut last_time = Utc::now();
-    info!(channel, time = %last_time, "polling from");
+    let mut last_record_id = latest_record_id(channel, &channel_w).unwrap_or(0);
+    info!(channel, last_record_id, "polling from latest record id");
 
     loop {
         std::thread::sleep(std::time::Duration::from_secs(2));
 
-        let now = Utc::now();
-        // XPath query: events created in the last 10 seconds
-        let diff_ms = (now - last_time).num_milliseconds().max(5000);
-        let query = format!(
-            "*[System[TimeCreated[timediff(@SystemTime) <= {}]]]",
-            diff_ms
-        );
-
+        let query = build_event_record_query(last_record_id);
         info!(channel, query = %query, "polling");
 
         let query_w: Vec<u16> = query.encode_utf16().chain(std::iter::once(0)).collect();
@@ -85,6 +76,7 @@ fn poll_channel(
 
         let mut events = [0isize; 64];
         let mut total = 0u32;
+        let mut max_record_id = last_record_id;
 
         loop {
             let mut returned = 0u32;
@@ -110,7 +102,11 @@ fn poll_channel(
                 }
                 if let Some(xml) = xml {
                     info!(channel, xml_len = xml.len(), "rendered event XML");
-                    let ev = parse_event_xml(&xml, channel, &tenant_id, &hostname);
+                    let record_id = extract_event_record_id(&xml);
+                    if let Some(record_id) = record_id {
+                        max_record_id = max_record_id.max(record_id);
+                    }
+                    let ev = parse_event_xml(&xml, channel, &tenant_id, &hostname, record_id);
                     if ev.is_none() {
                         warn!(
                             channel,
@@ -142,8 +138,7 @@ fn poll_channel(
         if total > 0 {
             info!(channel, events = total, "forwarded events");
         }
-
-        last_time = now;
+        last_record_id = max_record_id;
     }
 }
 
@@ -189,7 +184,13 @@ fn render_to_xml(event: EVT_HANDLE) -> Option<String> {
 
 // ── XML → event ───────────────────────────────────────────────────────────────
 
-fn parse_event_xml(xml: &str, channel: &str, tenant_id: &str, hostname: &str) -> Option<Value> {
+fn parse_event_xml(
+    xml: &str,
+    channel: &str,
+    tenant_id: &str,
+    hostname: &str,
+    record_id: Option<u64>,
+) -> Option<Value> {
     let event_id = xml_value(xml, "EventID")?;
     let time_created =
         xml_attr(xml, "TimeCreated", "SystemTime").unwrap_or_else(|| Utc::now().to_rfc3339());
@@ -208,6 +209,7 @@ fn parse_event_xml(xml: &str, channel: &str, tenant_id: &str, hostname: &str) ->
         "raw_payload": {
             "hostname":      computer,
             "event_id":      event_id,
+            "record_id":     record_id,
             "channel":       channel,
             "provider":      provider,
             "level":         level,
@@ -240,6 +242,66 @@ fn xml_attr(xml: &str, tag: &str, attr: &str) -> Option<String> {
     let end_char = *quote as char;
     let val_end = tag_slice[val_start..].find(end_char)?;
     Some(tag_slice[val_start..val_start + val_end].to_string())
+}
+
+fn extract_event_record_id(xml: &str) -> Option<u64> {
+    xml_value(xml, "EventRecordID")?.parse().ok()
+}
+
+fn build_event_record_query(last_record_id: u64) -> String {
+    format!("*[System[EventRecordID > {last_record_id}]]")
+}
+
+fn latest_record_id(channel: &str, channel_w: &[u16]) -> Option<u64> {
+    let query_w: Vec<u16> = "*".encode_utf16().chain(std::iter::once(0)).collect();
+    let result_set = unsafe {
+        EvtQuery(
+            EVT_HANDLE::default(),
+            PCWSTR(channel_w.as_ptr()),
+            PCWSTR(query_w.as_ptr()),
+            EvtQueryChannelPath.0 | EvtQueryReverseDirection.0,
+        )
+    };
+
+    let result_set = match result_set {
+        Ok(handle) => handle,
+        Err(err) => {
+            warn!(channel, error = %err, "failed to query latest event record id");
+            return None;
+        }
+    };
+
+    let mut events = [0isize; 1];
+    let mut returned = 0u32;
+    let next_result = unsafe { EvtNext(result_set, &mut events, 0, 0, &mut returned) };
+
+    let latest = if returned == 0 {
+        if let Err(err) = next_result {
+            let code = err.code().0 as u32;
+            if code != ERROR_NO_MORE_ITEMS.0 {
+                warn!(
+                    channel,
+                    error = %err,
+                    code = format!("0x{:08X}", code),
+                    "failed to fetch latest event record id"
+                );
+            }
+        }
+        Some(0)
+    } else {
+        let event = EVT_HANDLE(events[0]);
+        let xml = render_to_xml(event);
+        unsafe {
+            let _ = EvtClose(event);
+        }
+        xml.as_deref().and_then(extract_event_record_id)
+    };
+
+    unsafe {
+        let _ = EvtClose(result_set);
+    }
+
+    latest
 }
 
 fn extract_event_data(xml: &str, map: &mut Map<String, Value>) {
@@ -292,5 +354,33 @@ fn severity_name(s: u8) -> &'static str {
         6 => "info",
         7 => "debug",
         _ => "unknown",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_event_record_query, extract_event_record_id};
+
+    #[test]
+    fn record_query_uses_strict_greater_than_cursor() {
+        assert_eq!(
+            build_event_record_query(42),
+            "*[System[EventRecordID > 42]]"
+        );
+    }
+
+    #[test]
+    fn extract_event_record_id_parses_xml_value() {
+        let xml = r#"
+            <Event>
+              <System>
+                <Provider Name="Microsoft-Windows-Security-Auditing" />
+                <EventID>4624</EventID>
+                <EventRecordID>123456</EventRecordID>
+              </System>
+            </Event>
+        "#;
+
+        assert_eq!(extract_event_record_id(xml), Some(123456));
     }
 }

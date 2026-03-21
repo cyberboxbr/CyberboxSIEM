@@ -2156,6 +2156,7 @@ impl RuleExecutor {
                 suppression_until: Some(now + self.suppression_window),
             },
             assignee: None,
+            case_id: None,
             hit_count: 1,
             mitre_attack,
             resolution: None,

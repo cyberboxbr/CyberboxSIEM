@@ -45,8 +45,42 @@ async fn persist_alert(state: &AppState, alert: AlertRecord) -> Result<AlertReco
     Ok(saved)
 }
 
-async fn persist_case(state: &AppState, case: CaseRecord) -> Result<CaseRecord, CyberboxError> {
-    let saved = state.workflow_store.upsert_case(case).await?;
+async fn refresh_alert_cache(state: &AppState, tenant_id: &str, alert_ids: &[uuid::Uuid]) {
+    if alert_ids.is_empty() {
+        return;
+    }
+    let alerts = match state.workflow_store.list_alerts(tenant_id).await {
+        Ok(alerts) => alerts,
+        Err(err) => {
+            tracing::warn!(
+                tenant_id,
+                error = %err,
+                "failed to reload workflow alerts for cache refresh"
+            );
+            return;
+        }
+    };
+    for alert in alerts
+        .into_iter()
+        .filter(|alert| alert_ids.contains(&alert.alert_id))
+    {
+        if let Err(err) = state.storage.upsert_alert(alert.clone()).await {
+            tracing::warn!(
+                tenant_id,
+                alert_id = %alert.alert_id,
+                error = %err,
+                "failed to refresh in-memory alert cache after workflow link update"
+            );
+        }
+    }
+}
+
+async fn create_case_with_alerts(
+    state: &AppState,
+    case: CaseRecord,
+) -> Result<CaseRecord, CyberboxError> {
+    let alert_ids = case.alert_ids.clone();
+    let saved = state.workflow_store.create_case_with_alerts(case).await?;
     if let Err(err) = state.storage.upsert_case(saved.clone()).await {
         tracing::warn!(
             tenant_id = %saved.tenant_id,
@@ -55,6 +89,30 @@ async fn persist_case(state: &AppState, case: CaseRecord) -> Result<CaseRecord, 
             "failed to refresh in-memory case cache after workflow write"
         );
     }
+    refresh_alert_cache(state, &saved.tenant_id, &alert_ids).await;
+    Ok(saved)
+}
+
+async fn attach_alerts_to_case(
+    state: &AppState,
+    tenant_id: &str,
+    case_id: uuid::Uuid,
+    alert_ids: &[uuid::Uuid],
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<CaseRecord, CyberboxError> {
+    let saved = state
+        .workflow_store
+        .attach_alerts_to_case(tenant_id, case_id, alert_ids, now)
+        .await?;
+    if let Err(err) = state.storage.upsert_case(saved.clone()).await {
+        tracing::warn!(
+            tenant_id,
+            case_id = %saved.case_id,
+            error = %err,
+            "failed to refresh in-memory case cache after workflow attach"
+        );
+    }
+    refresh_alert_cache(state, tenant_id, alert_ids).await;
     Ok(saved)
 }
 
@@ -121,16 +179,26 @@ pub async fn run_tick(state: &AppState) -> Result<SchedulerTickResult, CyberboxE
                 event,
                 format!("event:{}", event.event_id),
             ) {
+                let candidate_alert_id = alert.alert_id;
                 if let Ok(saved) = persist_alert(state, alert).await {
                     alerts_emitted += 1;
                     // Broadcast to live alert stream
                     let _ = state.alert_tx.send(saved.clone());
-                    // Auto-correlate into cases
-                    let corr_state = state.clone();
-                    let corr_alert = saved;
-                    tokio::spawn(async move {
-                        crate::routes::auto_correlate_alert(corr_state, corr_alert).await;
-                    });
+                    if saved.alert_id == candidate_alert_id {
+                        // Auto-correlate only when a new alert was created; deduped
+                        // alerts should update the existing alert in place without
+                        // re-running case correlation.
+                        let corr_state = state.clone();
+                        let corr_alert = saved;
+                        tokio::spawn(async move {
+                            crate::routes::auto_correlate_alert(corr_state, corr_alert).await;
+                        });
+                    } else {
+                        tracing::debug!(
+                            alert_id = %saved.alert_id,
+                            "skipping auto_correlate_alert for deduped scheduler alert"
+                        );
+                    }
                 } else {
                     error_count = error_count.saturating_add(1);
                 }
@@ -284,18 +352,22 @@ pub async fn run_tick(state: &AppState) -> Result<SchedulerTickResult, CyberboxE
                     });
 
                 let now_utc = Utc::now();
-                if let Some(mut case) = existing_case {
+                if let Some(case) = existing_case {
                     // Merge newly seen alert IDs into existing case.
-                    let mut updated = false;
-                    for aid in &alert_ids {
-                        if !case.alert_ids.contains(aid) {
-                            case.alert_ids.push(*aid);
-                            updated = true;
-                        }
-                    }
-                    if updated {
-                        case.updated_at = now_utc;
-                        let _ = persist_case(state, case).await;
+                    let missing_alert_ids: Vec<_> = alert_ids
+                        .iter()
+                        .copied()
+                        .filter(|aid| !case.alert_ids.contains(aid))
+                        .collect();
+                    if !missing_alert_ids.is_empty() {
+                        let _ = attach_alerts_to_case(
+                            state,
+                            tenant_id,
+                            case.case_id,
+                            &missing_alert_ids,
+                            now_utc,
+                        )
+                        .await;
                     }
                 } else {
                     // Create a new auto-grouped case.
@@ -318,9 +390,11 @@ pub async fn run_tick(state: &AppState) -> Result<SchedulerTickResult, CyberboxE
                         updated_at: now_utc,
                         sla_due_at: Some(sla_due_at(&severity, now_utc)),
                         closed_at: None,
+                        resolution: None,
+                        close_note: None,
                         tags: vec![tag],
                     };
-                    let _ = persist_case(state, new_case).await;
+                    let _ = create_case_with_alerts(state, new_case).await;
                     tracing::info!(
                         tenant_id = %tenant_id,
                         rule_id = %rule_id,

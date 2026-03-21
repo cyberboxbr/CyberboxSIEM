@@ -4,6 +4,7 @@ import {
   AuditLogRecord,
   AlertRecord,
   CaseRecord,
+  CaseResolution,
   CaseStatus,
   getAlert,
   addAlertsToCase,
@@ -101,7 +102,7 @@ function buildEvidenceWindow(alerts: AlertRecord[]): { start: string; end: strin
   return { start: start.toISOString(), end: end.toISOString() };
 }
 
-const RESOLUTION_LABELS: Record<string, { label: string; color: string }> = {
+const RESOLUTION_LABELS: Record<CaseResolution, { label: string; color: string }> = {
   tp_contained: { label: 'True Positive — Contained', color: '#00F4A3' },
   tp_not_contained: { label: 'True Positive — Not Contained', color: '#f45d5d' },
   benign_tp: { label: 'Benign True Positive', color: '#d4bc00' },
@@ -109,11 +110,13 @@ const RESOLUTION_LABELS: Record<string, { label: string; color: string }> = {
   duplicate: { label: 'Duplicate', color: 'rgba(255,255,255,0.5)' },
 };
 
-const RESOLUTION_OPTIONS = Object.entries(RESOLUTION_LABELS);
+const RESOLUTION_OPTIONS = Object.entries(RESOLUTION_LABELS) as Array<
+  [CaseResolution, { label: string; color: string }]
+>;
 
 const STATUS_TRANSITIONS: Record<CaseStatus, CaseStatus[]> = {
   open: ['in_progress'],
-  in_progress: ['closed'],
+  in_progress: ['resolved'],
   resolved: ['closed'],
   closed: [],
 };
@@ -196,7 +199,7 @@ export function CaseDetail() {
 
   // Close modal
   const [showCloseModal, setShowCloseModal] = useState(false);
-  const [resolution, setResolution] = useState('tp_contained');
+  const [resolution, setResolution] = useState<CaseResolution>('tp_contained');
   const [closeNote, setCloseNote] = useState('');
 
   // SLA live countdown
@@ -220,14 +223,18 @@ export function CaseDetail() {
       setEvidenceEvents([]);
 
       const c = await getCase(caseId);
+      const caseTags = c.tags ?? [];
+      const caseAlertIds = c.alert_ids ?? [];
       setCaseData(c);
       setEditAssignee(c.assignee ?? '');
-      setEditTags(c.tags.join(', '));
+      setEditTags(caseTags.join(', '));
       setSla(slaCountdown(c.sla_due_at));
 
       const [auditResult, alertsResult] = await Promise.allSettled([
         getAuditLogs({ limit: 50 }),
-        c.alert_ids.length > 0 ? getAlerts({ limit: Math.min(500, Math.max(100, c.alert_ids.length * 2)) }) : Promise.resolve(null),
+        caseAlertIds.length > 0
+          ? getAlerts({ limit: Math.min(500, Math.max(100, caseAlertIds.length * 2)) })
+          : Promise.resolve(null),
       ]);
 
       let nextError = '';
@@ -250,11 +257,11 @@ export function CaseDetail() {
         if (alertsPage) {
           const allAlerts = alertsPage.alerts;
           const matchedMap = new Map(allAlerts.map((alert) => [alert.alert_id, alert]));
-          resolvedAlerts = c.alert_ids
+          resolvedAlerts = caseAlertIds
             .map((id) => matchedMap.get(id))
             .filter(Boolean) as AlertRecord[];
 
-          const missingAlertIds = c.alert_ids.filter((id) => !matchedMap.has(id));
+          const missingAlertIds = caseAlertIds.filter((id) => !matchedMap.has(id));
           if (missingAlertIds.length > 0) {
             const missingResults = await Promise.allSettled(missingAlertIds.map((id) => getAlert(id)));
             missingResults.forEach((result) => {
@@ -331,16 +338,24 @@ export function CaseDetail() {
   const handleClose = async () => {
     if (!caseId) return;
     try {
-      await updateCase(caseId, { status: 'closed' });
+      await updateCase(caseId, {
+        status: 'closed',
+        resolution,
+        close_note: closeNote.trim() || null,
+      });
       setShowCloseModal(false);
+      setResolution('tp_contained');
+      setCloseNote('');
       await loadCase();
     } catch (err) { setError(String(err)); }
   };
 
   const handleReassign = async () => {
-    if (!caseId || !editAssignee.trim()) return;
+    if (!caseId) return;
+    const nextAssignee = editAssignee.trim();
+    if (!nextAssignee && !caseData?.assignee) return;
     try {
-      await updateCase(caseId, { assignee: editAssignee.trim() });
+      await updateCase(caseId, { assignee: nextAssignee || null });
       setShowReassign(false);
       await loadCase();
     } catch (err) { setError(String(err)); }
@@ -468,12 +483,15 @@ export function CaseDetail() {
   if (loading) return <div className="page"><p className="empty-state">Loading case...</p></div>;
   if (!caseData) return <div className="page"><p className="empty-state">{error || 'Case not found.'}</p></div>;
 
-  const nextStatuses = STATUS_TRANSITIONS[caseData.status] ?? [];
+  const nextStatuses = STATUS_TRANSITIONS[caseData.status ?? 'open'] ?? [];
   const c = caseData;
+  const caseSeverity = c.severity ?? 'medium';
+  const caseStatus = c.status ?? 'open';
   const caseAlertIds = c.alert_ids ?? [];
   const caseTags = c.tags ?? [];
-  const res = (c as any).resolution as string | undefined;
-  const cNote = (c as any).close_note as string | undefined;
+  const res = c.resolution;
+  const cNote = c.close_note;
+  const canSubmitReassign = editAssignee.trim().length > 0 || Boolean(c.assignee);
 
   return (
     <div className="page cd-page">
@@ -491,15 +509,12 @@ export function CaseDetail() {
           <h1 className="cd-title">{c.title}</h1>
           {c.description && <p className="cd-description">{c.description}</p>}
           <div className="cd-header-badges">
-            <span className={`cd-sev-badge cd-sev-badge--${c.severity}`}>
-              {(c.severity ?? 'medium').toUpperCase()}
+            <span className={`cd-sev-badge cd-sev-badge--${caseSeverity}`}>
+              {caseSeverity.toUpperCase()}
             </span>
-            <span className={`cs-status-badge cs-status-badge--${c.status}`}>
-              {(c.status ?? 'open').replace('_', ' ')}
+            <span className={`cs-status-badge cs-status-badge--${caseStatus}`}>
+              {caseStatus.replace('_', ' ')}
             </span>
-            {c.priority && (
-              <span className="cd-priority-badge">P{c.priority}</span>
-            )}
           </div>
         </div>
         <div className="cd-header-actions">
@@ -510,7 +525,11 @@ export function CaseDetail() {
               className={`cd-action-btn ${s === 'closed' ? 'cd-action-btn--close' : 'cd-action-btn--primary'}`}
               onClick={() => handleStatusChange(s)}
             >
-              {s === 'in_progress' ? 'Start Investigation' : 'Close Case'}
+              {s === 'in_progress'
+                ? 'Start Investigation'
+                : s === 'resolved'
+                  ? 'Resolve Case'
+                  : 'Close Case'}
             </button>
           ))}
           <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={() => setShowReassign(!showReassign)}>
@@ -529,7 +548,9 @@ export function CaseDetail() {
         <div className="cd-inline-edit">
           <label className="cd-inline-label">Assign to</label>
           <input className="cd-inline-input" value={editAssignee} onChange={(e) => setEditAssignee(e.target.value)} placeholder="analyst-1" />
-          <button type="button" className="cd-action-btn cd-action-btn--primary" onClick={handleReassign}>Save</button>
+          <button type="button" className="cd-action-btn cd-action-btn--primary" onClick={handleReassign} disabled={!canSubmitReassign}>
+            {editAssignee.trim() ? 'Save' : 'Clear'}
+          </button>
           <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={() => setShowReassign(false)}>Cancel</button>
         </div>
       )}
@@ -594,10 +615,6 @@ export function CaseDetail() {
             <div className="cd-meta-item">
               <span className="cd-meta-label">Alerts</span>
               <span className="cd-meta-value">{caseAlertIds.length}</span>
-            </div>
-            <div className="cd-meta-item">
-              <span className="cd-meta-label">Priority</span>
-              <span className="cd-meta-value">P{c.priority ?? '-'}</span>
             </div>
           </div>
         </div>

@@ -12,7 +12,7 @@ use cyberbox_models::{
     Severity, UpdateCaseRequest,
 };
 
-use crate::traits::{AlertStore, CaseStore, EventStore, RuleStore};
+use crate::traits::{apply_case_patch, AlertStore, CaseStore, EventStore, RuleStore};
 
 #[derive(Clone)]
 pub struct ClickHouseEventStore {
@@ -430,6 +430,7 @@ impl ClickHouseEventStore {
                 evidence_refs String,
                 routing_state String,
                 assignee Nullable(String),
+                case_id Nullable(UUID),
                 hit_count UInt64,
                 mitre_attack String,
                 resolution Nullable(String),
@@ -449,6 +450,7 @@ impl ClickHouseEventStore {
         let alerts_migrations: &[(&str, &str)] = &[
             ("severity", "String DEFAULT 'medium'"),
             ("rule_title", "String DEFAULT ''"),
+            ("case_id", "Nullable(UUID)"),
         ];
         for (col, ty) in alerts_migrations {
             let stmt = format!(
@@ -619,6 +621,8 @@ impl ClickHouseEventStore {
                 updated_at  DateTime64(3, 'UTC'),
                 sla_due_at  Nullable(DateTime64(3, 'UTC')),
                 closed_at   Nullable(DateTime64(3, 'UTC')),
+                resolution  Nullable(String),
+                close_note  Nullable(String),
                 tags        String,
                 version     UInt64
             )
@@ -629,6 +633,17 @@ impl ClickHouseEventStore {
             self.database, self.cases_table, cases_engine
         );
         self.execute_sql(&cases_ddl).await?;
+        let case_migrations: &[(&str, &str)] = &[
+            ("resolution", "Nullable(String)"),
+            ("close_note", "Nullable(String)"),
+        ];
+        for (col, ty) in case_migrations {
+            let stmt = format!(
+                "ALTER TABLE {}.{} ADD COLUMN IF NOT EXISTS {} {}",
+                self.database, self.cases_table, col, ty
+            );
+            self.execute_sql(&stmt).await?;
+        }
 
         let agents_engine = self.replacing_merge_tree_engine(&self.agents_table, "version_col");
         let agents_ddl = format!(
@@ -1092,7 +1107,7 @@ impl ClickHouseEventStore {
     pub async fn list_alerts_all(&self) -> Result<Vec<AlertRecord>, CyberboxError> {
         let query = format!(
             "SELECT alert_id, tenant_id, rule_id, severity, rule_title, first_seen, last_seen, \
-             status, evidence_refs, routing_state, assignee, hit_count, mitre_attack, resolution, close_note \
+             status, evidence_refs, routing_state, assignee, case_id, hit_count, mitre_attack, resolution, close_note \
              FROM {}.{} FINAL \
              ORDER BY tenant_id, last_seen DESC \
              FORMAT JSON",
@@ -1515,6 +1530,7 @@ impl AlertStore for ClickHouseEventStore {
             "evidence_refs": serde_json::to_string(&alert.evidence_refs).map_err(|err| CyberboxError::Internal(format!("evidence_refs serialization failed: {err}")))?,
             "routing_state": serde_json::to_string(&alert.routing_state).map_err(|err| CyberboxError::Internal(format!("routing_state serialization failed: {err}")))?,
             "assignee": alert.assignee,
+            "case_id": alert.case_id.map(|case_id| case_id.to_string()),
             "hit_count": alert.hit_count,
             "mitre_attack": serde_json::to_string(&alert.mitre_attack).map_err(|err| CyberboxError::Internal(format!("mitre_attack serialization failed: {err}")))?,
             "resolution": alert.resolution.as_ref().and_then(|r| serde_json::to_string(r).ok()),
@@ -1524,7 +1540,7 @@ impl AlertStore for ClickHouseEventStore {
         });
 
         let query = format!(
-            "INSERT INTO {}.{} (alert_id, tenant_id, rule_id, severity, rule_title, first_seen, last_seen, status, evidence_refs, routing_state, assignee, hit_count, mitre_attack, resolution, close_note, updated_at, version) FORMAT JSONEachRow\n{}\n",
+            "INSERT INTO {}.{} (alert_id, tenant_id, rule_id, severity, rule_title, first_seen, last_seen, status, evidence_refs, routing_state, assignee, case_id, hit_count, mitre_attack, resolution, close_note, updated_at, version) FORMAT JSONEachRow\n{}\n",
             self.database,
             self.alerts_table,
             serde_json::to_string(&row)
@@ -1537,7 +1553,7 @@ impl AlertStore for ClickHouseEventStore {
 
     async fn list_alerts(&self, tenant_id: &str) -> Result<Vec<AlertRecord>, CyberboxError> {
         let query = format!(
-            "SELECT alert_id, tenant_id, rule_id, severity, rule_title, first_seen, last_seen, status, evidence_refs, routing_state, assignee, hit_count, mitre_attack, resolution, close_note \
+            "SELECT alert_id, tenant_id, rule_id, severity, rule_title, first_seen, last_seen, status, evidence_refs, routing_state, assignee, case_id, hit_count, mitre_attack, resolution, close_note \
              FROM {}.{} FINAL \
              WHERE tenant_id = '{}' \
              ORDER BY last_seen DESC \
@@ -1580,8 +1596,21 @@ impl AlertStore for ClickHouseEventStore {
             .fetch_alert(tenant_id, alert_id)
             .await?
             .ok_or(CyberboxError::NotFound)?;
-        alert.assignee = Some(assignment.assignee.clone());
-        alert.status = AlertStatus::InProgress;
+        if matches!(alert.status, AlertStatus::Closed) {
+            return Err(crate::traits::closed_alert_assignment_error(alert_id));
+        }
+        let Some(assignee_patch) = assignment.assignee.as_ref() else {
+            return Err(crate::traits::missing_alert_assignment_error());
+        };
+        let next_assignee = crate::traits::normalize_optional_string(assignee_patch.as_ref());
+        alert.assignee = next_assignee;
+        alert.status = if alert.assignee.is_some() {
+            AlertStatus::InProgress
+        } else if matches!(alert.status, AlertStatus::InProgress) {
+            AlertStatus::Acknowledged
+        } else {
+            alert.status.clone()
+        };
         alert.last_seen = Utc::now();
         self.upsert_alert(alert).await
     }
@@ -1623,11 +1652,13 @@ impl CaseStore for ClickHouseEventStore {
             "updated_at":  format_clickhouse_datetime(case.updated_at),
             "sla_due_at":  case.sla_due_at.map(format_clickhouse_datetime),
             "closed_at":   case.closed_at.map(format_clickhouse_datetime),
+            "resolution":  case.resolution.as_ref().and_then(|r| serde_json::to_string(r).ok()),
+            "close_note":  case.close_note,
             "tags":        serde_json::to_string(&case.tags).map_err(|e| CyberboxError::Internal(format!("tags: {e}")))?,
             "version":     version,
         });
         let query = format!(
-            "INSERT INTO {}.{} (case_id, tenant_id, title, description, status, severity, alert_ids, assignee, created_by, created_at, updated_at, sla_due_at, closed_at, tags, version) FORMAT JSONEachRow\n{}\n",
+            "INSERT INTO {}.{} (case_id, tenant_id, title, description, status, severity, alert_ids, assignee, created_by, created_at, updated_at, sla_due_at, closed_at, resolution, close_note, tags, version) FORMAT JSONEachRow\n{}\n",
             self.database, self.cases_table,
             serde_json::to_string(&row).map_err(|e| CyberboxError::Internal(format!("case row: {e}")))?
         );
@@ -1637,7 +1668,7 @@ impl CaseStore for ClickHouseEventStore {
 
     async fn get_case(&self, tenant_id: &str, case_id: Uuid) -> Result<CaseRecord, CyberboxError> {
         let query = format!(
-            "SELECT case_id, tenant_id, title, description, status, severity, alert_ids, assignee, created_by, created_at, updated_at, sla_due_at, closed_at, tags \
+            "SELECT case_id, tenant_id, title, description, status, severity, alert_ids, assignee, created_by, created_at, updated_at, sla_due_at, closed_at, resolution, close_note, tags \
              FROM {}.{} FINAL \
              WHERE tenant_id = '{}' AND case_id = '{}' \
              LIMIT 1 FORMAT JSON",
@@ -1653,7 +1684,7 @@ impl CaseStore for ClickHouseEventStore {
 
     async fn list_cases(&self, tenant_id: &str) -> Result<Vec<CaseRecord>, CyberboxError> {
         let query = format!(
-            "SELECT case_id, tenant_id, title, description, status, severity, alert_ids, assignee, created_by, created_at, updated_at, sla_due_at, closed_at, tags \
+            "SELECT case_id, tenant_id, title, description, status, severity, alert_ids, assignee, created_by, created_at, updated_at, sla_due_at, closed_at, resolution, close_note, tags \
              FROM {}.{} FINAL \
              WHERE tenant_id = '{}' \
              ORDER BY created_at DESC FORMAT JSON",
@@ -1674,30 +1705,7 @@ impl CaseStore for ClickHouseEventStore {
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<CaseRecord, CyberboxError> {
         let mut case = self.get_case(tenant_id, case_id).await?;
-        if let Some(t) = &patch.title {
-            case.title = t.clone();
-        }
-        if let Some(d) = &patch.description {
-            case.description = d.clone();
-        }
-        if let Some(s) = &patch.status {
-            case.status = s.clone();
-        }
-        if let Some(s) = &patch.severity {
-            case.severity = s.clone();
-        }
-        if let Some(a) = &patch.assignee {
-            case.assignee = Some(a.clone());
-        }
-        if let Some(t) = &patch.tags {
-            case.tags = t.clone();
-        }
-        case.updated_at = now;
-        if matches!(case.status, CaseStatus::Resolved | CaseStatus::Closed)
-            && case.closed_at.is_none()
-        {
-            case.closed_at = Some(now);
-        }
+        apply_case_patch(&mut case, patch, now);
         self.upsert_case(case).await
     }
 
@@ -1802,6 +1810,13 @@ fn parse_case_row(row: &Value) -> Result<CaseRecord, CyberboxError> {
         .get("closed_at")
         .and_then(|v| v.as_str())
         .and_then(|s| parse_clickhouse_datetime(s).ok());
+    let resolution = row
+        .get("resolution")
+        .and_then(|v| v.as_str())
+        .and_then(|s| serde_json::from_str(s).ok());
+    let close_note = row
+        .get("close_note")
+        .and_then(|v| v.as_str().map(ToOwned::to_owned));
     let tags: Vec<String> =
         serde_json::from_str(&parse_string_field(row, "tags")?).unwrap_or_default();
 
@@ -1819,6 +1834,8 @@ fn parse_case_row(row: &Value) -> Result<CaseRecord, CyberboxError> {
         updated_at,
         sla_due_at,
         closed_at,
+        resolution,
+        close_note,
         tags,
     })
 }
@@ -1830,7 +1847,7 @@ impl ClickHouseEventStore {
         alert_id: Uuid,
     ) -> Result<Option<AlertRecord>, CyberboxError> {
         let query = format!(
-            "SELECT alert_id, tenant_id, rule_id, severity, rule_title, first_seen, last_seen, status, evidence_refs, routing_state, assignee, hit_count, mitre_attack, resolution, close_note \
+            "SELECT alert_id, tenant_id, rule_id, severity, rule_title, first_seen, last_seen, status, evidence_refs, routing_state, assignee, case_id, hit_count, mitre_attack, resolution, close_note \
              FROM {}.{} FINAL \
              WHERE tenant_id = '{}' AND alert_id = '{}' \
              LIMIT 1 \
@@ -2128,6 +2145,10 @@ fn parse_alert_row(row: &Value) -> Result<AlertRecord, CyberboxError> {
     let assignee = row
         .get("assignee")
         .and_then(|value| value.as_str().map(ToOwned::to_owned));
+    let case_id = row
+        .get("case_id")
+        .and_then(|value| value.as_str())
+        .and_then(|value| Uuid::parse_str(value).ok());
     let hit_count = row.get("hit_count").and_then(|v| v.as_u64()).unwrap_or(1);
     let mitre_attack = row
         .get("mitre_attack")
@@ -2164,6 +2185,7 @@ fn parse_alert_row(row: &Value) -> Result<AlertRecord, CyberboxError> {
         evidence_refs,
         routing_state,
         assignee,
+        case_id,
         hit_count,
         mitre_attack,
         resolution,

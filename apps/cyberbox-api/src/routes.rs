@@ -421,17 +421,28 @@ pub async fn ingest_events(
                             }
                         }
                     }
+                    let candidate_alert_id = alert.alert_id;
                     if let Ok(saved) = suppress_or_create_alert_authoritatively(&state, alert).await
                     {
+                        let correlation_needed = saved.alert_id == candidate_alert_id;
                         counter!("cyberbox_alerts_fired_total", "tenant" => saved.tenant_id.clone())
                             .increment(1);
-                        // Auto-correlate: group into an existing or new case (background).
-                        let corr_state = state.clone();
-                        let corr_alert = saved.clone();
-                        tokio::spawn(async move {
-                            tracing::debug!(alert_id = %corr_alert.alert_id, "spawning auto_correlate_alert");
-                            auto_correlate_alert(corr_state, corr_alert).await;
-                        });
+                        if correlation_needed {
+                            // Auto-correlate: group a newly created alert into an existing or new
+                            // case in the background. Dedupe hits skip this to avoid re-running
+                            // correlation for the same alert on every ingest cycle.
+                            let corr_state = state.clone();
+                            let corr_alert = saved.clone();
+                            tokio::spawn(async move {
+                                tracing::debug!(alert_id = %corr_alert.alert_id, "spawning auto_correlate_alert");
+                                auto_correlate_alert(corr_state, corr_alert).await;
+                            });
+                        } else {
+                            tracing::debug!(
+                                alert_id = %saved.alert_id,
+                                "skipping auto_correlate_alert for deduped alert"
+                            );
+                        }
                         let _ = state.alert_tx.send(saved);
                     }
                 }
@@ -669,6 +680,36 @@ async fn suppress_or_create_alert_authoritatively(
     Ok(saved)
 }
 
+async fn refresh_alert_cache(state: &AppState, tenant_id: &str, alert_ids: &[Uuid]) {
+    if alert_ids.is_empty() {
+        return;
+    }
+    let alerts = match state.workflow_store.list_alerts(tenant_id).await {
+        Ok(alerts) => alerts,
+        Err(err) => {
+            tracing::warn!(
+                tenant_id,
+                error = %err,
+                "failed to reload workflow alerts for cache refresh"
+            );
+            return;
+        }
+    };
+    for alert in alerts
+        .into_iter()
+        .filter(|alert| alert_ids.contains(&alert.alert_id))
+    {
+        if let Err(err) = state.storage.upsert_alert(alert.clone()).await {
+            tracing::warn!(
+                tenant_id,
+                alert_id = %alert.alert_id,
+                error = %err,
+                "failed to refresh in-memory alert cache after workflow link update"
+            );
+        }
+    }
+}
+
 async fn list_case_snapshots(
     state: &AppState,
     tenant_id: &str,
@@ -684,11 +725,12 @@ async fn get_case_snapshot(
     state.workflow_store.get_case(tenant_id, case_id).await
 }
 
-async fn upsert_case_authoritatively(
+async fn create_case_with_alerts_authoritatively(
     state: &AppState,
     case: CaseRecord,
 ) -> Result<CaseRecord, CyberboxError> {
-    let saved = state.workflow_store.upsert_case(case).await?;
+    let alert_ids = case.alert_ids.clone();
+    let saved = state.workflow_store.create_case_with_alerts(case).await?;
     if let Err(err) = state.storage.upsert_case(saved.clone()).await {
         tracing::warn!(
             tenant_id = %saved.tenant_id,
@@ -697,6 +739,7 @@ async fn upsert_case_authoritatively(
             "failed to refresh in-memory case cache after workflow write"
         );
     }
+    refresh_alert_cache(state, &saved.tenant_id, &alert_ids).await;
     Ok(saved)
 }
 
@@ -722,12 +765,61 @@ async fn update_case_authoritatively(
     Ok(updated)
 }
 
+async fn attach_alerts_to_case_authoritatively(
+    state: &AppState,
+    tenant_id: &str,
+    case_id: Uuid,
+    alert_ids: &[Uuid],
+    now: DateTime<Utc>,
+) -> Result<CaseRecord, CyberboxError> {
+    let saved = state
+        .workflow_store
+        .attach_alerts_to_case(tenant_id, case_id, alert_ids, now)
+        .await?;
+    if let Err(err) = state.storage.upsert_case(saved.clone()).await {
+        tracing::warn!(
+            tenant_id,
+            case_id = %saved.case_id,
+            error = %err,
+            "failed to refresh in-memory case cache after workflow attach"
+        );
+    }
+    refresh_alert_cache(state, tenant_id, alert_ids).await;
+    Ok(saved)
+}
+
+async fn detach_alerts_from_case_authoritatively(
+    state: &AppState,
+    tenant_id: &str,
+    case_id: Uuid,
+    alert_ids: &[Uuid],
+    now: DateTime<Utc>,
+) -> Result<CaseRecord, CyberboxError> {
+    let saved = state
+        .workflow_store
+        .detach_alerts_from_case(tenant_id, case_id, alert_ids, now)
+        .await?;
+    if let Err(err) = state.storage.upsert_case(saved.clone()).await {
+        tracing::warn!(
+            tenant_id,
+            case_id = %saved.case_id,
+            error = %err,
+            "failed to refresh in-memory case cache after workflow detach"
+        );
+    }
+    refresh_alert_cache(state, tenant_id, alert_ids).await;
+    Ok(saved)
+}
+
 async fn delete_case_authoritatively(
     state: &AppState,
     tenant_id: &str,
     case_id: Uuid,
 ) -> Result<(), CyberboxError> {
-    state.workflow_store.delete_case(tenant_id, case_id).await?;
+    let deleted = state
+        .workflow_store
+        .delete_case_with_alerts(tenant_id, case_id)
+        .await?;
     if let Err(err) = state.storage.delete_case(tenant_id, case_id).await {
         tracing::warn!(
             tenant_id,
@@ -736,6 +828,7 @@ async fn delete_case_authoritatively(
             "failed to refresh in-memory case cache after workflow delete"
         );
     }
+    refresh_alert_cache(state, tenant_id, &deleted.alert_ids).await;
     Ok(())
 }
 
@@ -1339,18 +1432,37 @@ pub async fn alert_operation(
             if request.actor != auth.user_id {
                 return Err(CyberboxError::Forbidden);
             }
+            if request.assignee.is_none() {
+                return Err(CyberboxError::BadRequest(
+                    "assign endpoint requires assignee; use null to clear the current assignee"
+                        .to_string(),
+                ));
+            }
             let before = find_alert_snapshot(&state, &auth.tenant_id, alert_id).await?;
+            if before
+                .as_ref()
+                .is_some_and(|alert| matches!(alert.status, cyberbox_models::AlertStatus::Closed))
+            {
+                return Err(CyberboxError::BadRequest(format!(
+                    "alert {alert_id} is closed and cannot be reassigned"
+                )));
+            }
             let updated = state
                 .workflow_store
                 .assign(&auth.tenant_id, alert_id, &request)
                 .await?;
             let _ = state.storage.upsert_alert(updated.clone()).await;
+            let audit_action = if updated.assignee.is_some() {
+                "alert.assign"
+            } else {
+                "alert.unassign"
+            };
 
             append_audit_log(
                 &state,
                 &auth.tenant_id,
                 &request.actor,
-                "alert.assign",
+                audit_action,
                 "alert",
                 &alert_id.to_string(),
                 before
@@ -2244,9 +2356,11 @@ async fn create_case(
         updated_at: now,
         sla_due_at: Some(sla_due_at(&payload.severity, now)),
         closed_at: None,
+        resolution: None,
+        close_note: None,
         tags: payload.tags,
     };
-    let saved = upsert_case_authoritatively(&state, case).await?;
+    let saved = create_case_with_alerts_authoritatively(&state, case).await?;
     tracing::info!(actor = %auth.user_id, case_id = %saved.case_id, "case created");
     Ok(Json(saved))
 }
@@ -2347,14 +2461,9 @@ async fn attach_alerts_to_case(
 ) -> Result<Json<CaseRecord>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst])?;
     let now = Utc::now();
-    let mut case = get_case_snapshot(&state, &auth.tenant_id, id).await?;
-    for aid in payload.alert_ids {
-        if !case.alert_ids.contains(&aid) {
-            case.alert_ids.push(aid);
-        }
-    }
-    case.updated_at = now;
-    let saved = upsert_case_authoritatively(&state, case).await?;
+    let saved =
+        attach_alerts_to_case_authoritatively(&state, &auth.tenant_id, id, &payload.alert_ids, now)
+            .await?;
     Ok(Json(saved))
 }
 
@@ -2367,11 +2476,14 @@ async fn detach_alerts_from_case(
 ) -> Result<Json<CaseRecord>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst])?;
     let now = Utc::now();
-    let mut case = get_case_snapshot(&state, &auth.tenant_id, id).await?;
-    case.alert_ids
-        .retain(|aid| !payload.alert_ids.contains(aid));
-    case.updated_at = now;
-    let saved = upsert_case_authoritatively(&state, case).await?;
+    let saved = detach_alerts_from_case_authoritatively(
+        &state,
+        &auth.tenant_id,
+        id,
+        &payload.alert_ids,
+        now,
+    )
+    .await?;
     Ok(Json(saved))
 }
 
@@ -3027,17 +3139,22 @@ pub async fn auto_correlate_alert(state: AppState, alert: AlertRecord) {
             && c.created_at > cutoff
     });
 
-    if let Some(mut case) = existing {
+    if let Some(case) = existing {
         if !case.alert_ids.contains(&alert.alert_id) {
-            case.alert_ids.push(alert.alert_id);
-            case.updated_at = Utc::now();
             tracing::info!(
                 case_id = %case.case_id,
                 alert_id = %alert.alert_id,
-                alert_count = case.alert_ids.len(),
+                alert_count = case.alert_ids.len() + 1,
                 "auto-merged alert into existing case"
             );
-            let _ = upsert_case_authoritatively(&state, case).await;
+            let _ = attach_alerts_to_case_authoritatively(
+                &state,
+                &alert.tenant_id,
+                case.case_id,
+                &[alert.alert_id],
+                Utc::now(),
+            )
+            .await;
         }
     } else {
         let now = Utc::now();
@@ -3055,6 +3172,8 @@ pub async fn auto_correlate_alert(state: AppState, alert: AlertRecord) {
             updated_at: now,
             sla_due_at: Some(sla_due_at(&severity, now)),
             closed_at: None,
+            resolution: None,
+            close_note: None,
             tags: vec![correlation_tag],
         };
         tracing::info!(
@@ -3064,7 +3183,7 @@ pub async fn auto_correlate_alert(state: AppState, alert: AlertRecord) {
             severity = ?severity,
             "auto-created case from alert"
         );
-        let _ = upsert_case_authoritatively(&state, case).await;
+        let _ = create_case_with_alerts_authoritatively(&state, case).await;
     }
 }
 
@@ -3669,13 +3788,45 @@ pub async fn agent_heartbeat(
     Ok(Json(body))
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct PatchAgentRequest {
-    pub group: Option<String>,
-    pub tags: Option<Vec<String>>,
-    pub hostname: Option<String>,
-    pub os: Option<String>,
-    pub ip: Option<String>,
+#[derive(Debug)]
+enum AgentStringPatch {
+    Missing,
+    Clear,
+    Set(String),
+}
+
+fn parse_agent_string_patch(body: &Value, field: &str) -> Result<AgentStringPatch, CyberboxError> {
+    match body.get(field) {
+        None => Ok(AgentStringPatch::Missing),
+        Some(Value::Null) => Ok(AgentStringPatch::Clear),
+        Some(Value::String(value)) => Ok(AgentStringPatch::Set(value.trim().to_string())),
+        Some(_) => Err(CyberboxError::BadRequest(format!(
+            "{field} must be a string or null"
+        ))),
+    }
+}
+
+fn parse_agent_tags_patch(body: &Value) -> Result<Option<Vec<String>>, CyberboxError> {
+    match body.get("tags") {
+        None => Ok(None),
+        Some(Value::Null) => Ok(Some(Vec::new())),
+        Some(Value::Array(values)) => {
+            let mut tags = Vec::with_capacity(values.len());
+            for value in values {
+                let tag = value.as_str().ok_or_else(|| {
+                    CyberboxError::BadRequest("tags must be an array of strings".to_string())
+                })?;
+                let trimmed = tag.trim();
+                if !trimmed.is_empty() {
+                    tags.push(trimmed.to_string());
+                }
+            }
+            Ok(Some(tags))
+        }
+        Some(_) => Err(CyberboxError::BadRequest(
+            "tags must be an array of strings or null".to_string(),
+        )),
+    }
 }
 
 /// `PATCH /api/v1/agents/:id` — update agent metadata.
@@ -3683,24 +3834,41 @@ pub async fn patch_agent(
     auth: AuthContext,
     State(state): State<AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
-    Json(body): Json<PatchAgentRequest>,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst])?;
     let mut agent = state.workflow_store.get_agent(&auth.tenant_id, &id).await?;
-    if let Some(group) = body.group {
-        agent.group = Some(group);
+
+    match parse_agent_string_patch(&body, "group")? {
+        AgentStringPatch::Missing => {}
+        AgentStringPatch::Clear => agent.group = None,
+        AgentStringPatch::Set(group) => {
+            agent.group = if group.is_empty() { None } else { Some(group) };
+        }
     }
-    if let Some(tags) = body.tags {
+    if let Some(tags) = parse_agent_tags_patch(&body)? {
         agent.tags = tags;
     }
-    if let Some(hostname) = body.hostname {
-        agent.hostname = hostname;
+    match parse_agent_string_patch(&body, "hostname")? {
+        AgentStringPatch::Missing => {}
+        AgentStringPatch::Clear => agent.hostname.clear(),
+        AgentStringPatch::Set(hostname) => {
+            agent.hostname = hostname;
+        }
     }
-    if let Some(os) = body.os {
-        agent.os = os;
+    match parse_agent_string_patch(&body, "os")? {
+        AgentStringPatch::Missing => {}
+        AgentStringPatch::Clear => agent.os.clear(),
+        AgentStringPatch::Set(os) => {
+            agent.os = os;
+        }
     }
-    if let Some(ip) = body.ip {
-        agent.ip = Some(ip);
+    match parse_agent_string_patch(&body, "ip")? {
+        AgentStringPatch::Missing => {}
+        AgentStringPatch::Clear => agent.ip = None,
+        AgentStringPatch::Set(ip) => {
+            agent.ip = if ip.is_empty() { None } else { Some(ip) };
+        }
     }
     let saved = state.workflow_store.upsert_agent(agent).await?;
     state.agents.insert(saved.agent_id.clone(), saved.clone());

@@ -1292,6 +1292,7 @@ async fn run_scheduler_loop(
         if let Err(err) = run_scheduled_detection_tick(
             &config,
             &clickhouse_store,
+            workflow_store.as_deref(),
             &rule_executor,
             &teams_notifier,
             &dlq_producer,
@@ -1443,6 +1444,7 @@ async fn load_stream_rules_by_tenant(
 async fn run_scheduled_detection_tick(
     config: &AppConfig,
     clickhouse_store: &cyberbox_storage::ClickHouseEventStore,
+    workflow_store: Option<&cyberbox_storage::WorkflowStore>,
     rule_executor: &RuleExecutor,
     teams_notifier: &cyberbox_core::TeamsNotifier,
     dlq_producer: &rdkafka::producer::FutureProducer,
@@ -1615,7 +1617,7 @@ async fn run_scheduled_detection_tick(
                             };
                         alerts_emitted += 1;
                         // Also persist to WorkflowStore (authoritative)
-                        if let Some(ref wf) = workflow_store {
+                        if let Some(wf) = workflow_store {
                             if let Err(e) = wf.upsert_alert(saved_alert.clone()).await {
                                 tracing::warn!(
                                     rule_id = %rule.rule_id,

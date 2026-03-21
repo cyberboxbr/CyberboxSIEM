@@ -1637,6 +1637,7 @@ button:hover {
 }
 .cs-status-badge--open { background: var(--accent); color: #fff; }
 .cs-status-badge--in_progress { background: var(--accent); color: #fff; }
+.cs-status-badge--resolved { background: #d4bc00; color: #111; }
 .cs-status-badge--closed { background: #58d68d; color: #fff; }
 
 .cs-assignee {

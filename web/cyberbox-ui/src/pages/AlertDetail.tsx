@@ -11,7 +11,12 @@ import {
   getRules,
   runSearch,
 } from '../api/client';
-import type { AlertRecord, DetectionRule, ExplainAlertResult } from '../api/client';
+import type {
+  AlertRecord,
+  AlertResolution,
+  DetectionRule,
+  ExplainAlertResult,
+} from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { aggregateEventContexts, extractEventContext, formatNetworkFlow, limitValues } from '../lib/logContext';
 
@@ -79,8 +84,6 @@ function formatEvidenceTime(value?: string): string | null {
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleString();
 }
-
-type Resolution = 'true_positive' | 'false_positive';
 
 /* ── SVG Icons ────────────────────────────────────── */
 
@@ -150,7 +153,7 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
   const [statusText, setStatusText] = useState('');
 
   const [closeModalOpen, setCloseModalOpen] = useState(false);
-  const [closeResolution, setCloseResolution] = useState<Resolution>('true_positive');
+  const [closeResolution, setCloseResolution] = useState<AlertResolution>('true_positive');
   const [closeNote, setCloseNote] = useState('');
 
   const [assignModalOpen, setAssignModalOpen] = useState(false);
@@ -186,6 +189,16 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
   }, [alertId]);
 
   useEffect(() => { fetchAlert(); }, [fetchAlert]);
+
+  useEffect(() => {
+    setCloseModalOpen(false);
+    setCloseResolution('true_positive');
+    setCloseNote('');
+    setAssignModalOpen(false);
+    setAssignName('');
+    setCaseModalOpen(false);
+    setCaseName('');
+  }, [alertId]);
 
   // Fetch rule details
   useEffect(() => {
@@ -249,13 +262,26 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
 
   const handleClose = async () => {
     if (!alert) return;
-    try { const u = await closeAlert(alert.alert_id, closeResolution, actor, closeNote || undefined); setAlert(u); setCloseModalOpen(false); setCloseNote(''); setStatusText('Closed.'); }
+    try { const u = await closeAlert(alert.alert_id, closeResolution, actor, closeNote || undefined); setAlert(u); setCloseModalOpen(false); setCloseResolution('true_positive'); setCloseNote(''); setStatusText('Closed.'); }
     catch (e) { setStatusText(`Failed: ${e}`); }
   };
 
   const handleAssign = async () => {
-    if (!alert || !assignName.trim()) return;
-    try { const u = await assignAlert(alert.alert_id, assignName.trim(), actor); setAlert(u); setAssignModalOpen(false); setAssignName(''); setStatusText(`Assigned to ${assignName}.`); }
+    if (!alert) return;
+    if (alert.status === 'closed') {
+      setStatusText('Closed alerts cannot be reassigned.');
+      setAssignModalOpen(false);
+      return;
+    }
+    const nextAssignee = assignName.trim();
+    if (!nextAssignee && !alert.assignee) return;
+    try {
+      const u = await assignAlert(alert.alert_id, nextAssignee || null, actor);
+      setAlert(u);
+      setAssignModalOpen(false);
+      setAssignName('');
+      setStatusText(nextAssignee ? `Assigned to ${nextAssignee}.` : 'Assignment cleared.');
+    }
     catch (e) { setStatusText(`Failed: ${e}`); }
   };
 
@@ -263,6 +289,18 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
     if (!alert) return;
     try { const u = await falsePositiveAlert(alert.alert_id, actor); setAlert(u); setStatusText('Marked false positive.'); }
     catch (e) { setStatusText(`Failed: ${e}`); }
+  };
+
+  const openCloseModal = () => {
+    setCloseResolution('true_positive');
+    setCloseNote('');
+    setCloseModalOpen(true);
+  };
+
+  const openAssignModal = () => {
+    if (!alert || alert.status === 'closed') return;
+    setAssignName(alert.assignee ?? '');
+    setAssignModalOpen(true);
   };
 
   const handleCreateCase = async () => {
@@ -371,7 +409,7 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
   const evidenceRefs = alert.evidence_refs ?? [];
   const routingState = alert.routing_state;
   const hitCount = alert.hit_count ?? 1;
-  const linkedCase = (alert as any).case_id as string | undefined;
+  const linkedCase = alert.case_id;
   const compiledPlan = (alert as any).compiled_plan as Record<string, unknown> | undefined;
 
   return (
@@ -403,17 +441,25 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
           </div>
         </div>
         <div className="cd-header-actions">
-          {alert.status !== 'acknowledged' && alert.status !== 'closed' && (
+          {alert.status === 'open' && (
             <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={handleAck}>Acknowledge</button>
           )}
           {alert.status !== 'closed' && (
-            <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={() => setCloseModalOpen(true)}>Close</button>
+            <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={openCloseModal}>Close</button>
           )}
-          <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={() => setAssignModalOpen(true)}>Assign</button>
+          {alert.status !== 'closed' && (
+            <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={openAssignModal}>Assign</button>
+          )}
           {alert.status !== 'closed' && (
             <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={handleFP}>False Positive</button>
           )}
-          <button type="button" className="cd-action-btn cd-action-btn--primary" onClick={() => setCaseModalOpen(true)}>Create Case</button>
+          {linkedCase ? (
+            <button type="button" className="cd-action-btn cd-action-btn--primary" onClick={() => navigate(`/cases/${linkedCase}`)}>
+              View Case
+            </button>
+          ) : (
+            <button type="button" className="cd-action-btn cd-action-btn--primary" onClick={() => setCaseModalOpen(true)}>Create Case</button>
+          )}
         </div>
       </div>
 
@@ -442,8 +488,8 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
               </div>
               <div className="ad-field"><span className="ad-field-label">Duration</span><span className="ad-field-value">{duration(alert)}</span></div>
               {alert.assignee && <div className="ad-field"><span className="ad-field-label">Assignee</span><span className="ad-field-value">{alert.assignee}</span></div>}
-              {(alert as any).resolution && <div className="ad-field"><span className="ad-field-label">Resolution</span><span className="ad-field-value">{(alert as any).resolution}</span></div>}
-              {(alert as any).close_note && <div className="ad-field ad-field--full"><span className="ad-field-label">Close Note</span><span className="ad-field-value">{(alert as any).close_note}</span></div>}
+              {alert.resolution && <div className="ad-field"><span className="ad-field-label">Resolution</span><span className="ad-field-value">{alert.resolution}</span></div>}
+              {alert.close_note && <div className="ad-field ad-field--full"><span className="ad-field-label">Close Note</span><span className="ad-field-value">{alert.close_note}</span></div>}
             </div>
           </div>
 
@@ -794,7 +840,7 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
                   <div className="ad-timeline-dot ad-timeline-dot--gray" />
                   <div className="ad-timeline-content">
                     <span className="ad-timeline-time">Closed</span>
-                    <span className="ad-timeline-label">{(alert as any).resolution ?? 'No resolution'}</span>
+                    <span className="ad-timeline-label">{alert.resolution ?? 'No resolution'}</span>
                   </div>
                 </div>
               )}
@@ -810,7 +856,7 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
             <h3 className="cd-modal-title">Close Alert</h3>
             <div className="cd-modal-field">
               <label className="cd-modal-label">Resolution</label>
-              <select className="re-meta-select" value={closeResolution} onChange={(e) => setCloseResolution(e.target.value as Resolution)}>
+              <select className="re-meta-select" value={closeResolution} onChange={(e) => setCloseResolution(e.target.value as AlertResolution)}>
                 <option value="true_positive">True Positive</option>
                 <option value="false_positive">False Positive</option>
               </select>
@@ -838,7 +884,14 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
             </div>
             <div className="cd-modal-actions">
               <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={() => setAssignModalOpen(false)}>Cancel</button>
-              <button type="button" className="cd-action-btn cd-action-btn--primary" onClick={handleAssign} disabled={!assignName.trim()}>Assign</button>
+              <button
+                type="button"
+                className="cd-action-btn cd-action-btn--primary"
+                onClick={handleAssign}
+                disabled={!assignName.trim() && !alert?.assignee}
+              >
+                {assignName.trim() ? 'Assign' : 'Clear Assignment'}
+              </button>
             </div>
           </div>
         </div>

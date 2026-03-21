@@ -72,6 +72,69 @@ impl WorkflowStore {
         }
     }
 
+    pub async fn create_case_with_alerts(
+        &self,
+        case: CaseRecord,
+    ) -> Result<CaseRecord, CyberboxError> {
+        match self {
+            Self::File(store) => store.create_case_with_alerts(case).await,
+            Self::Postgres(store) => store.create_case_with_alerts(case).await,
+        }
+    }
+
+    pub async fn attach_alerts_to_case(
+        &self,
+        tenant_id: &str,
+        case_id: Uuid,
+        alert_ids: &[Uuid],
+        now: DateTime<Utc>,
+    ) -> Result<CaseRecord, CyberboxError> {
+        match self {
+            Self::File(store) => {
+                store
+                    .attach_alerts_to_case(tenant_id, case_id, alert_ids, now)
+                    .await
+            }
+            Self::Postgres(store) => {
+                store
+                    .attach_alerts_to_case(tenant_id, case_id, alert_ids, now)
+                    .await
+            }
+        }
+    }
+
+    pub async fn detach_alerts_from_case(
+        &self,
+        tenant_id: &str,
+        case_id: Uuid,
+        alert_ids: &[Uuid],
+        now: DateTime<Utc>,
+    ) -> Result<CaseRecord, CyberboxError> {
+        match self {
+            Self::File(store) => {
+                store
+                    .detach_alerts_from_case(tenant_id, case_id, alert_ids, now)
+                    .await
+            }
+            Self::Postgres(store) => {
+                store
+                    .detach_alerts_from_case(tenant_id, case_id, alert_ids, now)
+                    .await
+            }
+        }
+    }
+
+    pub async fn delete_case_with_alerts(
+        &self,
+        tenant_id: &str,
+        case_id: Uuid,
+    ) -> Result<CaseRecord, CyberboxError> {
+        match self {
+            Self::File(store) => store.delete_case_with_alerts(tenant_id, case_id).await,
+            Self::Postgres(store) => store.delete_case_with_alerts(tenant_id, case_id).await,
+        }
+    }
+
     pub async fn list_agents(&self, tenant_id: &str) -> Result<Vec<AgentRecord>, CyberboxError> {
         match self {
             Self::File(store) => store.list_agents(tenant_id).await,

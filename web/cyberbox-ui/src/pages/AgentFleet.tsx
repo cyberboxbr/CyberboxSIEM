@@ -180,6 +180,7 @@ export function AgentFleet() {
   const [editTags, setEditTags] = useState('');
   const [editHostname, setEditHostname] = useState('');
   const [editOs, setEditOs] = useState('');
+  const [editIp, setEditIp] = useState('');
 
   const loadAgents = useCallback(async () => {
     setLoading(true);
@@ -231,8 +232,9 @@ export function AgentFleet() {
     setConfigStatus('');
     setEditGroup(agent.group || '');
     setEditTags((agent.tags || []).join(', '));
-    setEditHostname('');
-    setEditOs('');
+    setEditHostname(agent.hostname || '');
+    setEditOs(agent.os || '');
+    setEditIp(agent.ip || '');
   };
 
   const onPushConfig = async (agentId: string) => {
@@ -249,10 +251,11 @@ export function AgentFleet() {
     e.preventDefault();
     try {
       const body: AgentUpdateInput = {
-        group: editGroup || undefined,
+        group: editGroup.trim() ? editGroup.trim() : null,
         tags: editTags ? editTags.split(',').map((t) => t.trim()).filter(Boolean) : [],
-        hostname: editHostname || undefined,
-        os: editOs || undefined,
+        hostname: editHostname.trim() ? editHostname.trim() : null,
+        os: editOs.trim() ? editOs.trim() : null,
+        ip: editIp.trim() ? editIp.trim() : null,
       };
       await updateAgent(agentId, body);
       setConfigStatus('Agent updated.');
@@ -367,6 +370,13 @@ export function AgentFleet() {
             <tbody>
               {filtered.map((agent) => {
                 const isExpanded = expandedId === agent.agent_id;
+                const platformOptions = Array.from(
+                  new Set(
+                    [agent.os, 'firewall', 'windows', 'linux', 'router', 'network', 'syslog']
+                      .map((value) => value?.trim())
+                      .filter(Boolean),
+                  ),
+                ) as string[];
                 return (
                   <tr key={agent.agent_id} style={{ cursor: 'pointer' }}>
                     <td colSpan={8} style={{ padding: 0, border: 'none' }}>
@@ -450,7 +460,7 @@ export function AgentFleet() {
                               <input
                                 value={editHostname}
                                 onChange={(e) => setEditHostname(e.target.value)}
-                                placeholder={agent.hostname}
+                                placeholder="hostname"
                               />
                             </label>
                             <label style={{ fontSize: 12 }}>
@@ -460,13 +470,12 @@ export function AgentFleet() {
                                 onChange={(e) => setEditOs(e.target.value)}
                                 style={{ width: '100%', padding: '8px 10px' }}
                               >
-                                <option value="">— keep current ({agent.os}) —</option>
-                                <option value="firewall">Firewall</option>
-                                <option value="windows">Windows</option>
-                                <option value="linux">Linux</option>
-                                <option value="router">Router</option>
-                                <option value="network">Network Device</option>
-                                <option value="syslog">Generic Syslog</option>
+                                <option value="">— clear platform —</option>
+                                {platformOptions.map((platform) => (
+                                  <option key={platform} value={platform}>
+                                    {platform}
+                                  </option>
+                                ))}
                               </select>
                             </label>
                             <label style={{ fontSize: 12 }}>
@@ -475,6 +484,14 @@ export function AgentFleet() {
                                 value={editGroup}
                                 onChange={(e) => setEditGroup(e.target.value)}
                                 placeholder="production"
+                              />
+                            </label>
+                            <label style={{ fontSize: 12 }}>
+                              IP Address
+                              <input
+                                value={editIp}
+                                onChange={(e) => setEditIp(e.target.value)}
+                                placeholder="10.0.0.5"
                               />
                             </label>
                             <label style={{ fontSize: 12 }}>

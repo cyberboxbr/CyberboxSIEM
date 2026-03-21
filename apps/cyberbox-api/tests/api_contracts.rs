@@ -4,6 +4,7 @@ use axum::http::{Request, StatusCode};
 use cyberbox_api::{build_router, install_metrics_exporter, state::AppState};
 use cyberbox_storage::WorkflowStore;
 use serde_json::{json, Value};
+use tokio::time::{sleep, Duration};
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -841,6 +842,700 @@ async fn alert_close_sets_resolution_and_audit_trail() {
     assert!(close_entry.is_some(), "alert.close audit entry must exist");
 }
 
+#[tokio::test]
+async fn case_close_metadata_persists_and_reopen_clears_closed_state() {
+    let app = test_router();
+
+    let create_response = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri("/api/v1/cases")
+                .method("POST")
+                .body(axum::body::Body::from(
+                    json!({
+                        "title": "Close metadata regression",
+                        "description": "Validate case closure fields",
+                        "severity": "high",
+                    })
+                    .to_string(),
+                ))
+                .expect("case create request should build"),
+        )
+        .await
+        .expect("case create response");
+    assert_eq!(create_response.status(), StatusCode::OK);
+    let create_body = axum::body::to_bytes(create_response.into_body(), 4096)
+        .await
+        .expect("body");
+    let created: Value = serde_json::from_slice(&create_body).expect("json");
+    let case_id = created["case_id"]
+        .as_str()
+        .expect("case_id should be present");
+
+    let close_response = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri(format!("/api/v1/cases/{case_id}"))
+                .method("PATCH")
+                .body(axum::body::Body::from(
+                    json!({
+                        "status": "closed",
+                        "resolution": "tp_contained",
+                        "close_note": "Contained malicious activity on the host",
+                    })
+                    .to_string(),
+                ))
+                .expect("case close request should build"),
+        )
+        .await
+        .expect("case close response");
+    assert_eq!(close_response.status(), StatusCode::OK);
+    let close_body = axum::body::to_bytes(close_response.into_body(), 4096)
+        .await
+        .expect("body");
+    let closed: Value = serde_json::from_slice(&close_body).expect("json");
+    assert_eq!(closed["status"].as_str(), Some("closed"));
+    assert_eq!(closed["resolution"].as_str(), Some("tp_contained"));
+    assert_eq!(
+        closed["close_note"].as_str(),
+        Some("Contained malicious activity on the host")
+    );
+    assert!(
+        closed["closed_at"].as_str().is_some(),
+        "closed_at should be populated when a case closes"
+    );
+
+    let get_closed_response = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri(format!("/api/v1/cases/{case_id}"))
+                .method("GET")
+                .body(axum::body::Body::empty())
+                .expect("case lookup request should build"),
+        )
+        .await
+        .expect("case lookup response");
+    assert_eq!(get_closed_response.status(), StatusCode::OK);
+    let get_closed_body = axum::body::to_bytes(get_closed_response.into_body(), 4096)
+        .await
+        .expect("body");
+    let persisted_closed: Value = serde_json::from_slice(&get_closed_body).expect("json");
+    assert_eq!(
+        persisted_closed["resolution"].as_str(),
+        Some("tp_contained")
+    );
+    assert_eq!(
+        persisted_closed["close_note"].as_str(),
+        Some("Contained malicious activity on the host")
+    );
+    assert!(
+        persisted_closed["closed_at"].as_str().is_some(),
+        "closed_at should remain visible when the case is fetched again"
+    );
+
+    let reopen_response = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri(format!("/api/v1/cases/{case_id}"))
+                .method("PATCH")
+                .body(axum::body::Body::from(
+                    json!({
+                        "status": "in_progress",
+                    })
+                    .to_string(),
+                ))
+                .expect("case reopen request should build"),
+        )
+        .await
+        .expect("case reopen response");
+    assert_eq!(reopen_response.status(), StatusCode::OK);
+    let reopen_body = axum::body::to_bytes(reopen_response.into_body(), 4096)
+        .await
+        .expect("body");
+    let reopened: Value = serde_json::from_slice(&reopen_body).expect("json");
+    assert_eq!(reopened["status"].as_str(), Some("in_progress"));
+    assert!(
+        reopened["closed_at"].is_null(),
+        "closed_at should clear when the case is reopened"
+    );
+    assert!(
+        reopened["resolution"].is_null(),
+        "resolution should clear when the case is reopened"
+    );
+    assert!(
+        reopened["close_note"].is_null(),
+        "close note should clear when the case is reopened"
+    );
+
+    let get_reopened_response = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri(format!("/api/v1/cases/{case_id}"))
+                .method("GET")
+                .body(axum::body::Body::empty())
+                .expect("case lookup request should build"),
+        )
+        .await
+        .expect("case lookup response");
+    assert_eq!(get_reopened_response.status(), StatusCode::OK);
+    let get_reopened_body = axum::body::to_bytes(get_reopened_response.into_body(), 4096)
+        .await
+        .expect("body");
+    let persisted_reopened: Value = serde_json::from_slice(&get_reopened_body).expect("json");
+    assert_eq!(persisted_reopened["status"].as_str(), Some("in_progress"));
+    assert!(persisted_reopened["closed_at"].is_null());
+    assert!(persisted_reopened["resolution"].is_null());
+    assert!(persisted_reopened["close_note"].is_null());
+}
+
+#[tokio::test]
+async fn closed_alert_cannot_be_reassigned() {
+    let app = test_router();
+
+    let create_rule = auth_request(Request::builder())
+        .uri("/api/v1/rules")
+        .method("POST")
+        .body(axum::body::Body::from(
+            json!({
+                "sigma_source": "title: closed-assign-guard\ndetection:\n  selection:\n    - closed-assign-hit\n  condition: selection",
+                "schedule_or_stream": "stream",
+                "severity": "medium",
+                "enabled": true
+            })
+            .to_string(),
+        ))
+        .expect("build");
+    app.clone()
+        .oneshot(create_rule)
+        .await
+        .expect("create rule response");
+
+    let ingest = auth_request(Request::builder())
+        .uri("/api/v1/events:ingest")
+        .method("POST")
+        .body(axum::body::Body::from(
+            json!({
+                "events": [{
+                    "tenant_id": "tenant-a",
+                    "source": "syslog",
+                    "event_time": "2026-01-01T00:00:00Z",
+                    "raw_payload": { "msg": "closed-assign-hit" }
+                }]
+            })
+            .to_string(),
+        ))
+        .expect("build");
+    app.clone().oneshot(ingest).await.expect("ingest");
+
+    let list_resp = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri("/api/v1/alerts")
+                .method("GET")
+                .body(axum::body::Body::empty())
+                .expect("build"),
+        )
+        .await
+        .expect("list alerts");
+    let body = axum::body::to_bytes(list_resp.into_body(), 1024 * 1024)
+        .await
+        .expect("body");
+    let page: Value = serde_json::from_slice(&body).expect("json");
+    let alerts = page["alerts"].as_array().expect("alerts array");
+    let alert_id = alerts[0]["alert_id"].as_str().expect("alert_id");
+
+    let close_resp = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri(format!("/api/v1/alerts/{alert_id}/close"))
+                .method("POST")
+                .body(axum::body::Body::from(
+                    json!({
+                        "actor": "soc-admin",
+                        "resolution": "false_positive",
+                        "note": "noise from test env"
+                    })
+                    .to_string(),
+                ))
+                .expect("build"),
+        )
+        .await
+        .expect("close response");
+    assert_eq!(close_resp.status(), StatusCode::OK);
+
+    let assign_resp = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri(format!("/api/v1/alerts/{alert_id}/assign"))
+                .method("POST")
+                .body(axum::body::Body::from(
+                    json!({
+                        "actor": "soc-admin",
+                        "assignee": "tier1-analyst"
+                    })
+                    .to_string(),
+                ))
+                .expect("build"),
+        )
+        .await
+        .expect("assign response");
+    assert_eq!(assign_resp.status(), StatusCode::BAD_REQUEST);
+
+    let get_resp = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri(format!("/api/v1/alerts/{alert_id}"))
+                .method("GET")
+                .body(axum::body::Body::empty())
+                .expect("build"),
+        )
+        .await
+        .expect("get alert response");
+    assert_eq!(get_resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(get_resp.into_body(), 1024 * 1024)
+        .await
+        .expect("body");
+    let alert: Value = serde_json::from_slice(&body).expect("json");
+    assert_eq!(alert["status"].as_str(), Some("closed"));
+    assert_eq!(alert["resolution"].as_str(), Some("false_positive"));
+    assert_eq!(alert["close_note"].as_str(), Some("noise from test env"));
+    assert!(alert["assignee"].is_null());
+}
+
+#[tokio::test]
+async fn alert_assignment_can_be_cleared_back_to_acknowledged() {
+    let app = test_router();
+
+    let create_rule = auth_request(Request::builder())
+        .uri("/api/v1/rules")
+        .method("POST")
+        .body(axum::body::Body::from(
+            json!({
+                "sigma_source": "title: alert-unassign-regression\ndetection:\n  selection:\n    - alert-unassign-hit\n  condition: selection",
+                "schedule_or_stream": "stream",
+                "severity": "medium",
+                "enabled": true
+            })
+            .to_string(),
+        ))
+        .expect("build");
+    app.clone()
+        .oneshot(create_rule)
+        .await
+        .expect("create rule response");
+
+    let ingest = auth_request(Request::builder())
+        .uri("/api/v1/events:ingest")
+        .method("POST")
+        .body(axum::body::Body::from(
+            json!({
+                "events": [{
+                    "tenant_id": "tenant-a",
+                    "source": "syslog",
+                    "event_time": "2026-01-01T00:00:00Z",
+                    "raw_payload": { "msg": "alert-unassign-hit" }
+                }]
+            })
+            .to_string(),
+        ))
+        .expect("build");
+    app.clone().oneshot(ingest).await.expect("ingest");
+
+    let list_resp = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri("/api/v1/alerts")
+                .method("GET")
+                .body(axum::body::Body::empty())
+                .expect("build"),
+        )
+        .await
+        .expect("list alerts");
+    let body = axum::body::to_bytes(list_resp.into_body(), 1024 * 1024)
+        .await
+        .expect("body");
+    let page: Value = serde_json::from_slice(&body).expect("json");
+    let alerts = page["alerts"].as_array().expect("alerts array");
+    let alert_id = alerts[0]["alert_id"].as_str().expect("alert_id");
+
+    let assign_resp = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri(format!("/api/v1/alerts/{alert_id}/assign"))
+                .method("POST")
+                .body(axum::body::Body::from(
+                    json!({
+                        "actor": "soc-admin",
+                        "assignee": "tier1-analyst"
+                    })
+                    .to_string(),
+                ))
+                .expect("build"),
+        )
+        .await
+        .expect("assign response");
+    assert_eq!(assign_resp.status(), StatusCode::OK);
+
+    let clear_resp = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri(format!("/api/v1/alerts/{alert_id}/assign"))
+                .method("POST")
+                .body(axum::body::Body::from(
+                    json!({
+                        "actor": "soc-admin",
+                        "assignee": null
+                    })
+                    .to_string(),
+                ))
+                .expect("build"),
+        )
+        .await
+        .expect("clear response");
+    assert_eq!(clear_resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(clear_resp.into_body(), 1024 * 1024)
+        .await
+        .expect("body");
+    let cleared: Value = serde_json::from_slice(&body).expect("json");
+    assert_eq!(cleared["status"].as_str(), Some("acknowledged"));
+    assert!(cleared["assignee"].is_null());
+
+    let audit_resp = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri("/api/v1/audit-logs?entity_type=alert&limit=20")
+                .method("GET")
+                .body(axum::body::Body::empty())
+                .expect("build"),
+        )
+        .await
+        .expect("audit response");
+    assert_eq!(audit_resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(audit_resp.into_body(), 1024 * 1024)
+        .await
+        .expect("body");
+    let audit: Value = serde_json::from_slice(&body).expect("json");
+    let entries = audit["entries"].as_array().expect("entries");
+    let unassign_entry = entries.iter().find(|entry| {
+        entry.get("action").and_then(Value::as_str) == Some("alert.unassign")
+            && entry.get("entity_id").and_then(Value::as_str) == Some(alert_id)
+    });
+    assert!(
+        unassign_entry.is_some(),
+        "alert.unassign audit entry must exist after clearing the assignee"
+    );
+}
+
+#[tokio::test]
+async fn case_assignee_can_be_cleared_with_null_patch() {
+    let app = test_router();
+
+    let create_response = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri("/api/v1/cases")
+                .method("POST")
+                .body(axum::body::Body::from(
+                    json!({
+                        "title": "Case assignee clear regression",
+                        "severity": "medium",
+                        "assignee": "tier1-analyst",
+                    })
+                    .to_string(),
+                ))
+                .expect("case create request should build"),
+        )
+        .await
+        .expect("case create response");
+    assert_eq!(create_response.status(), StatusCode::OK);
+    let create_body = axum::body::to_bytes(create_response.into_body(), 4096)
+        .await
+        .expect("body");
+    let created: Value = serde_json::from_slice(&create_body).expect("json");
+    let case_id = created["case_id"]
+        .as_str()
+        .expect("case_id should be present");
+    assert_eq!(created["assignee"].as_str(), Some("tier1-analyst"));
+
+    let clear_response = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri(format!("/api/v1/cases/{case_id}"))
+                .method("PATCH")
+                .body(axum::body::Body::from(
+                    json!({
+                        "assignee": null,
+                    })
+                    .to_string(),
+                ))
+                .expect("case clear request should build"),
+        )
+        .await
+        .expect("case clear response");
+    assert_eq!(clear_response.status(), StatusCode::OK);
+    let clear_body = axum::body::to_bytes(clear_response.into_body(), 4096)
+        .await
+        .expect("body");
+    let cleared: Value = serde_json::from_slice(&clear_body).expect("json");
+    assert!(cleared["assignee"].is_null());
+
+    let get_response = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri(format!("/api/v1/cases/{case_id}"))
+                .method("GET")
+                .body(axum::body::Body::empty())
+                .expect("case lookup request should build"),
+        )
+        .await
+        .expect("case lookup response");
+    assert_eq!(get_response.status(), StatusCode::OK);
+    let get_body = axum::body::to_bytes(get_response.into_body(), 4096)
+        .await
+        .expect("body");
+    let persisted: Value = serde_json::from_slice(&get_body).expect("json");
+    assert!(persisted["assignee"].is_null());
+}
+
+#[tokio::test]
+async fn alerts_expose_case_link_and_reject_duplicate_case_attachment() {
+    let app = test_router();
+
+    let create_rule = auth_request(Request::builder())
+        .uri("/api/v1/rules")
+        .method("POST")
+        .body(axum::body::Body::from(
+            json!({
+                "sigma_source": "title: case-link-conflict\ndetection:\n  selection:\n    - case-link-hit\n  condition: selection",
+                "schedule_or_stream": "stream",
+                "severity": "high",
+                "enabled": true
+            })
+            .to_string(),
+        ))
+        .expect("rule create request should build");
+    let create_rule_response = app
+        .clone()
+        .oneshot(create_rule)
+        .await
+        .expect("rule create response");
+    assert_eq!(create_rule_response.status(), StatusCode::OK);
+
+    let ingest = auth_request(Request::builder())
+        .uri("/api/v1/events:ingest")
+        .method("POST")
+        .body(axum::body::Body::from(
+            json!({
+                "events": [{
+                    "tenant_id": "tenant-a",
+                    "source": "windows_sysmon",
+                    "event_time": "2026-02-01T00:00:00Z",
+                    "raw_payload": { "cmdline": "powershell -enc case-link-hit" }
+                }]
+            })
+            .to_string(),
+        ))
+        .expect("ingest request should build");
+    let ingest_response = app.clone().oneshot(ingest).await.expect("ingest response");
+    assert_eq!(ingest_response.status(), StatusCode::OK);
+
+    let list_alerts_response = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri("/api/v1/alerts?limit=50")
+                .method("GET")
+                .body(axum::body::Body::empty())
+                .expect("alerts list request should build"),
+        )
+        .await
+        .expect("alerts list response");
+    assert_eq!(list_alerts_response.status(), StatusCode::OK);
+    let list_alerts_body = axum::body::to_bytes(list_alerts_response.into_body(), 4096)
+        .await
+        .expect("body");
+    let alerts_page: Value = serde_json::from_slice(&list_alerts_body).expect("json");
+    let alerts = alerts_page["alerts"].as_array().expect("alerts array");
+    assert!(!alerts.is_empty(), "expected at least one alert");
+    let alert_id = alerts[0]["alert_id"]
+        .as_str()
+        .expect("alert_id should be present");
+
+    let linked_case_id = wait_for_alert_case_id(&app, alert_id).await;
+
+    let alert_detail_response = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri(format!("/api/v1/alerts/{alert_id}"))
+                .method("GET")
+                .body(axum::body::Body::empty())
+                .expect("alert detail request should build"),
+        )
+        .await
+        .expect("alert detail response");
+    assert_eq!(alert_detail_response.status(), StatusCode::OK);
+    let alert_detail_body = axum::body::to_bytes(alert_detail_response.into_body(), 4096)
+        .await
+        .expect("body");
+    let alert_detail: Value = serde_json::from_slice(&alert_detail_body).expect("json");
+    assert_eq!(
+        alert_detail["case_id"].as_str(),
+        Some(linked_case_id.as_str()),
+        "alert detail should expose the linked case"
+    );
+
+    let refreshed_list_response = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri("/api/v1/alerts?limit=50")
+                .method("GET")
+                .body(axum::body::Body::empty())
+                .expect("refreshed alerts list request should build"),
+        )
+        .await
+        .expect("refreshed alerts list response");
+    assert_eq!(refreshed_list_response.status(), StatusCode::OK);
+    let refreshed_list_body = axum::body::to_bytes(refreshed_list_response.into_body(), 4096)
+        .await
+        .expect("body");
+    let refreshed_page: Value = serde_json::from_slice(&refreshed_list_body).expect("json");
+    let listed_alert = refreshed_page["alerts"]
+        .as_array()
+        .expect("alerts array")
+        .iter()
+        .find(|entry| entry["alert_id"].as_str() == Some(alert_id))
+        .expect("listed alert should still be present");
+    assert_eq!(
+        listed_alert["case_id"].as_str(),
+        Some(linked_case_id.as_str()),
+        "alert list should expose the linked case"
+    );
+
+    let linked_case_response = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri(format!("/api/v1/cases/{linked_case_id}"))
+                .method("GET")
+                .body(axum::body::Body::empty())
+                .expect("linked case request should build"),
+        )
+        .await
+        .expect("linked case response");
+    assert_eq!(linked_case_response.status(), StatusCode::OK);
+    let linked_case_body = axum::body::to_bytes(linked_case_response.into_body(), 4096)
+        .await
+        .expect("body");
+    let linked_case: Value = serde_json::from_slice(&linked_case_body).expect("json");
+    assert!(
+        linked_case["alert_ids"]
+            .as_array()
+            .expect("alert_ids should be present")
+            .iter()
+            .any(|value| value.as_str() == Some(alert_id)),
+        "the linked case should retain the alert id"
+    );
+
+    let secondary_case_response = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri("/api/v1/cases")
+                .method("POST")
+                .body(axum::body::Body::from(
+                    json!({
+                        "title": "Secondary investigation",
+                        "severity": "medium",
+                    })
+                    .to_string(),
+                ))
+                .expect("secondary case request should build"),
+        )
+        .await
+        .expect("secondary case response");
+    assert_eq!(secondary_case_response.status(), StatusCode::OK);
+    let secondary_case_body = axum::body::to_bytes(secondary_case_response.into_body(), 4096)
+        .await
+        .expect("body");
+    let secondary_case: Value = serde_json::from_slice(&secondary_case_body).expect("json");
+    let secondary_case_id = secondary_case["case_id"]
+        .as_str()
+        .expect("secondary case_id should be present");
+
+    let duplicate_create_response = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri("/api/v1/cases")
+                .method("POST")
+                .body(axum::body::Body::from(
+                    json!({
+                        "title": "Conflicting manual case",
+                        "severity": "medium",
+                        "alert_ids": [alert_id],
+                    })
+                    .to_string(),
+                ))
+                .expect("duplicate case create request should build"),
+        )
+        .await
+        .expect("duplicate case create response");
+    assert_eq!(duplicate_create_response.status(), StatusCode::BAD_REQUEST);
+    let duplicate_create_body = axum::body::to_bytes(duplicate_create_response.into_body(), 4096)
+        .await
+        .expect("body");
+    let duplicate_create_text =
+        String::from_utf8(duplicate_create_body.to_vec()).expect("utf8 error body");
+    assert!(
+        duplicate_create_text.contains("already linked to case"),
+        "duplicate create should explain the alert-case conflict: {duplicate_create_text}"
+    );
+
+    let attach_response = app
+        .clone()
+        .oneshot(
+            auth_request(Request::builder())
+                .uri(format!("/api/v1/cases/{secondary_case_id}/alerts"))
+                .method("POST")
+                .body(axum::body::Body::from(
+                    json!({
+                        "alert_ids": [alert_id],
+                    })
+                    .to_string(),
+                ))
+                .expect("attach request should build"),
+        )
+        .await
+        .expect("attach response");
+    assert_eq!(attach_response.status(), StatusCode::BAD_REQUEST);
+    let attach_body = axum::body::to_bytes(attach_response.into_body(), 4096)
+        .await
+        .expect("body");
+    let attach_text = String::from_utf8(attach_body.to_vec()).expect("utf8 error body");
+    assert!(
+        attach_text.contains("already linked to case"),
+        "attach should reject duplicate case linkage: {attach_text}"
+    );
+}
+
 // ─── Detection Engineering Endpoints ─────────────────────────────────────────
 
 #[tokio::test]
@@ -1313,6 +2008,33 @@ async fn register_test_agent(
     (body, identity)
 }
 
+async fn wait_for_alert_case_id(app: &axum::Router, alert_id: &str) -> String {
+    for _ in 0..20 {
+        let response = app
+            .clone()
+            .oneshot(
+                auth_request(Request::builder())
+                    .uri(format!("/api/v1/alerts/{alert_id}"))
+                    .method("GET")
+                    .body(axum::body::Body::empty())
+                    .expect("alert lookup request should build"),
+            )
+            .await
+            .expect("alert lookup response should be available");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .expect("alert lookup body should decode");
+        let alert: Value = serde_json::from_slice(&body).expect("alert lookup json should parse");
+        if let Some(case_id) = alert["case_id"].as_str() {
+            return case_id.to_string();
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+
+    panic!("alert {alert_id} was not linked to a case in time");
+}
+
 #[tokio::test]
 async fn agent_register_returns_id() {
     let app = test_router();
@@ -1448,6 +2170,9 @@ async fn agent_patch_group_and_tags() {
             json!({
                 "group": "prod-web",
                 "tags": ["linux", "critical"],
+                "hostname": "sf-edge-01",
+                "os": "firewall",
+                "ip": "10.0.0.5",
             })
             .to_string(),
         ))
@@ -1460,6 +2185,35 @@ async fn agent_patch_group_and_tags() {
     let body: Value = serde_json::from_slice(&bytes).expect("json");
     assert_eq!(body["group"].as_str(), Some("prod-web"));
     assert_eq!(body["tags"], json!(["linux", "critical"]));
+    assert_eq!(body["hostname"].as_str(), Some("sf-edge-01"));
+    assert_eq!(body["os"].as_str(), Some("firewall"));
+    assert_eq!(body["ip"].as_str(), Some("10.0.0.5"));
+
+    let clear_patch = auth_request(Request::builder())
+        .uri("/api/v1/agents/patch-agent")
+        .method("PATCH")
+        .body(axum::body::Body::from(
+            json!({
+                "group": null,
+                "tags": null,
+                "hostname": null,
+                "os": null,
+                "ip": null,
+            })
+            .to_string(),
+        ))
+        .expect("clear patch request should build");
+    let clear_response = app.clone().oneshot(clear_patch).await.expect("response");
+    assert_eq!(clear_response.status(), StatusCode::OK);
+    let clear_bytes = axum::body::to_bytes(clear_response.into_body(), 4096)
+        .await
+        .expect("body");
+    let cleared: Value = serde_json::from_slice(&clear_bytes).expect("json");
+    assert!(cleared["group"].is_null(), "group should clear to null");
+    assert_eq!(cleared["tags"], json!([]));
+    assert_eq!(cleared["hostname"].as_str(), Some(""));
+    assert_eq!(cleared["os"].as_str(), Some(""));
+    assert!(cleared["ip"].is_null(), "ip should clear to null");
 }
 
 #[tokio::test]

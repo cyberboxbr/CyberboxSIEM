@@ -6,8 +6,15 @@
 
 export type Severity = 'low' | 'medium' | 'high' | 'critical';
 export type DetectionMode = 'stream' | 'scheduled';
-export type AlertStatus = 'open' | 'acknowledged' | 'closed' | 'false_positive';
+export type AlertStatus = 'open' | 'acknowledged' | 'in_progress' | 'closed';
+export type AlertResolution = 'true_positive' | 'false_positive' | 'informational';
 export type CaseStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
+export type CaseResolution =
+  | 'tp_contained'
+  | 'tp_not_contained'
+  | 'benign_tp'
+  | 'false_positive'
+  | 'duplicate';
 export type AgentStatus = 'active' | 'stale' | 'offline';
 export type FeedType = 'taxii' | 'stix' | 'csv' | 'json';
 
@@ -294,9 +301,10 @@ export interface AlertRecord {
   hit_count: number;
   evidence_refs: string[];
   assignee?: string;
+  case_id?: string;
   mitre_attack: MitreAttack[];
   routing_state: RoutingState;
-  resolution?: string;
+  resolution?: AlertResolution;
   close_note?: string;
   agent_meta?: AgentMeta;
 }
@@ -331,11 +339,29 @@ export interface CaseRecord {
   assignee?: string;
   alert_ids: string[];
   sla_due_at?: string;
+  closed_at?: string;
+  resolution?: CaseResolution;
+  close_note?: string;
   tags: string[];
-  priority?: number;
   created_at: string;
   updated_at: string;
 }
+
+type ApiCaseRecord = Omit<
+  CaseRecord,
+  'description' | 'status' | 'severity' | 'assignee' | 'alert_ids' | 'sla_due_at' | 'closed_at' | 'resolution' | 'close_note' | 'tags'
+> & {
+  description?: string | null;
+  status?: CaseStatus | null;
+  severity?: Severity | null;
+  assignee?: string | null;
+  alert_ids?: string[] | null;
+  sla_due_at?: string | null;
+  closed_at?: string | null;
+  resolution?: CaseResolution | null;
+  close_note?: string | null;
+  tags?: string[] | null;
+};
 
 export interface CaseCreateInput {
   title: string;
@@ -351,21 +377,29 @@ export interface CaseUpdateInput {
   description?: string;
   status?: CaseStatus;
   severity?: Severity;
-  assignee?: string;
+  assignee?: string | null;
+  resolution?: CaseResolution | null;
+  close_note?: string | null;
   tags?: string[];
-  priority?: number;
 }
 
-function normalizeCaseRecord(record: CaseRecord): CaseRecord {
+function normalizeCaseRecord(record: ApiCaseRecord): CaseRecord {
   return {
     ...record,
     description: record.description ?? '',
-    alert_ids: record.alert_ids ?? [],
-    tags: record.tags ?? [],
+    status: record.status ?? 'open',
+    severity: record.severity ?? 'medium',
+    assignee: record.assignee ?? undefined,
+    alert_ids: Array.isArray(record.alert_ids) ? record.alert_ids : [],
+    sla_due_at: record.sla_due_at ?? undefined,
+    closed_at: record.closed_at ?? undefined,
+    resolution: record.resolution ?? undefined,
+    close_note: record.close_note ?? undefined,
+    tags: Array.isArray(record.tags) ? record.tags : [],
   };
 }
 
-function normalizeCaseRecords(records: CaseRecord[] | null | undefined): CaseRecord[] {
+function normalizeCaseRecords(records: ApiCaseRecord[] | null | undefined): CaseRecord[] {
   return (records ?? []).map(normalizeCaseRecord);
 }
 
@@ -463,11 +497,11 @@ export interface AgentRecord {
 }
 
 export interface AgentUpdateInput {
-  group?: string;
+  group?: string | null;
   tags?: string[];
-  hostname?: string;
-  os?: string;
-  ip?: string;
+  hostname?: string | null;
+  os?: string | null;
+  ip?: string | null;
 }
 
 export interface AgentRegisterInput {
@@ -798,7 +832,7 @@ export async function acknowledgeAlert(alertId: string, actor = 'soc-admin'): Pr
 
 export async function assignAlert(
   alertId: string,
-  assignee: string,
+  assignee: string | null,
   actor = 'soc-admin',
 ): Promise<AlertRecord> {
   return apiRequest<AlertRecord>(`/api/v1/alerts/${alertId}/assign`, {
@@ -809,7 +843,7 @@ export async function assignAlert(
 
 export async function closeAlert(
   alertId: string,
-  resolution: string,
+  resolution: AlertResolution,
   actor = 'soc-admin',
   note?: string,
 ): Promise<AlertRecord> {
@@ -824,10 +858,7 @@ export async function falsePositiveAlert(
   actor = 'soc-admin',
   note?: string,
 ): Promise<AlertRecord> {
-  return apiRequest<AlertRecord>(`/api/v1/alerts/${alertId}/false-positive`, {
-    method: 'POST',
-    body: JSON.stringify({ actor, note }),
-  });
+  return closeAlert(alertId, 'false_positive', actor, note);
 }
 
 export async function getWsToken(): Promise<WsTokenResponse> {
@@ -865,12 +896,12 @@ export async function connectEventSSE(): Promise<EventSource> {
 // ── Cases ──────────────────────────────────────────────────────────────────
 
 export async function getCases(): Promise<CaseRecord[]> {
-  const resp = await apiRequest<{ cases?: CaseRecord[]; total: number }>('/api/v1/cases');
+  const resp = await apiRequest<{ cases?: ApiCaseRecord[]; total: number }>('/api/v1/cases');
   return normalizeCaseRecords(resp.cases);
 }
 
 export async function createCase(input: CaseCreateInput): Promise<CaseRecord> {
-  const response = await apiRequest<CaseRecord>('/api/v1/cases', {
+  const response = await apiRequest<ApiCaseRecord>('/api/v1/cases', {
     method: 'POST',
     body: JSON.stringify(input),
   });
@@ -878,12 +909,12 @@ export async function createCase(input: CaseCreateInput): Promise<CaseRecord> {
 }
 
 export async function getCase(caseId: string): Promise<CaseRecord> {
-  const response = await apiRequest<CaseRecord>(`/api/v1/cases/${caseId}`);
+  const response = await apiRequest<ApiCaseRecord>(`/api/v1/cases/${caseId}`);
   return normalizeCaseRecord(response);
 }
 
 export async function updateCase(caseId: string, input: CaseUpdateInput): Promise<CaseRecord> {
-  const response = await apiRequest<CaseRecord>(`/api/v1/cases/${caseId}`, {
+  const response = await apiRequest<ApiCaseRecord>(`/api/v1/cases/${caseId}`, {
     method: 'PATCH',
     body: JSON.stringify(input),
   });
@@ -891,7 +922,7 @@ export async function updateCase(caseId: string, input: CaseUpdateInput): Promis
 }
 
 export async function addAlertsToCase(caseId: string, alertIds: string[]): Promise<CaseRecord> {
-  const response = await apiRequest<CaseRecord>(`/api/v1/cases/${caseId}/alerts`, {
+  const response = await apiRequest<ApiCaseRecord>(`/api/v1/cases/${caseId}/alerts`, {
     method: 'POST',
     body: JSON.stringify({ alert_ids: alertIds }),
   });
@@ -899,7 +930,7 @@ export async function addAlertsToCase(caseId: string, alertIds: string[]): Promi
 }
 
 export async function getSlaBreaches(): Promise<CaseRecord[]> {
-  const resp = await apiRequest<{ breaches?: CaseRecord[]; total: number }>('/api/v1/cases/sla-breaches');
+  const resp = await apiRequest<{ breaches?: ApiCaseRecord[]; total: number }>('/api/v1/cases/sla-breaches');
   return normalizeCaseRecords(resp.breaches);
 }
 

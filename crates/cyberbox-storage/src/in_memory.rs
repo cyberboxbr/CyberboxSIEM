@@ -9,12 +9,12 @@ use uuid::Uuid;
 
 use cyberbox_core::CyberboxError;
 use cyberbox_models::{
-    AlertRecord, AlertStatus, AssignAlertRequest, AuditLogRecord, CaseRecord, CaseStatus,
-    CloseAlertRequest, DetectionMode, DetectionRule, EventEnvelope, RuleSchedulerHealth,
-    RuleVersion, SearchQueryRequest, SearchQueryResponse, Severity, UpdateCaseRequest,
+    AlertRecord, AlertStatus, AssignAlertRequest, AuditLogRecord, CaseRecord, CloseAlertRequest,
+    DetectionMode, DetectionRule, EventEnvelope, RuleSchedulerHealth, RuleVersion,
+    SearchQueryRequest, SearchQueryResponse, Severity, UpdateCaseRequest,
 };
 
-use crate::traits::{AlertStore, CaseStore, EventStore, RuleStore};
+use crate::traits::{apply_case_patch, AlertStore, CaseStore, EventStore, RuleStore};
 
 /// Maximum events retained per tenant. Oldest entries are evicted automatically
 /// on each `insert_events` call to prevent unbounded in-memory growth.
@@ -448,8 +448,21 @@ impl AlertStore for InMemoryStore {
     ) -> Result<AlertRecord, CyberboxError> {
         let key = (tenant_id.to_string(), alert_id);
         let mut entry = self.alerts.get_mut(&key).ok_or(CyberboxError::NotFound)?;
-        entry.assignee = Some(assignment.assignee.clone());
-        entry.status = AlertStatus::InProgress;
+        if matches!(entry.status, AlertStatus::Closed) {
+            return Err(crate::traits::closed_alert_assignment_error(alert_id));
+        }
+        let Some(assignee_patch) = assignment.assignee.as_ref() else {
+            return Err(crate::traits::missing_alert_assignment_error());
+        };
+        let next_assignee = crate::traits::normalize_optional_string(assignee_patch.as_ref());
+        entry.assignee = next_assignee;
+        entry.status = if entry.assignee.is_some() {
+            AlertStatus::InProgress
+        } else if matches!(entry.status, AlertStatus::InProgress) {
+            AlertStatus::Acknowledged
+        } else {
+            entry.status.clone()
+        };
         entry.last_seen = Utc::now();
 
         Ok(entry.clone())
@@ -562,29 +575,7 @@ impl CaseStore for InMemoryStore {
     ) -> Result<CaseRecord, CyberboxError> {
         let key = (tenant_id.to_string(), case_id);
         let mut entry = self.cases.get_mut(&key).ok_or(CyberboxError::NotFound)?;
-        if let Some(t) = &patch.title {
-            entry.title = t.clone();
-        }
-        if let Some(d) = &patch.description {
-            entry.description = d.clone();
-        }
-        if let Some(s) = &patch.status {
-            if matches!(s, CaseStatus::Resolved | CaseStatus::Closed) && entry.closed_at.is_none() {
-                entry.closed_at = Some(now);
-            }
-            entry.status = s.clone();
-        }
-        if let Some(sev) = &patch.severity {
-            entry.severity = sev.clone();
-            entry.sla_due_at = Some(sla_due_at(sev, entry.created_at));
-        }
-        if let Some(a) = &patch.assignee {
-            entry.assignee = Some(a.clone());
-        }
-        if let Some(tags) = &patch.tags {
-            entry.tags = tags.clone();
-        }
-        entry.updated_at = now;
+        apply_case_patch(&mut entry, patch, now);
         Ok(entry.clone())
     }
 

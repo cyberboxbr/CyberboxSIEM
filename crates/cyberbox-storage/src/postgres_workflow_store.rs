@@ -18,8 +18,10 @@ use cyberbox_models::{
     RotateAgentCredentialResponse, UpdateCaseRequest,
 };
 
-use crate::in_memory::sla_due_at;
-use crate::traits::{AlertStore, CaseStore};
+use crate::traits::{
+    alert_case_conflict_error, alert_not_found_error, apply_case_patch, unique_alert_ids,
+    AlertStore, CaseStore,
+};
 
 const ENROLLMENT_TOKEN_PREFIX: &str = "cbe_";
 const AGENT_SECRET_PREFIX: &str = "cbs_";
@@ -115,6 +117,154 @@ impl PostgresWorkflowStore {
     pub async fn list_cases_all(&self) -> Result<Vec<CaseRecord>, CyberboxError> {
         let store = self.clone();
         run_blocking(move || store.list_cases_all_blocking()).await
+    }
+
+    pub async fn create_case_with_alerts(
+        &self,
+        mut case: CaseRecord,
+    ) -> Result<CaseRecord, CyberboxError> {
+        case.alert_ids = unique_alert_ids(&case.alert_ids);
+        let store = self.clone();
+        run_blocking(move || {
+            store.with_client(|client, schema| {
+                let mut tx = client
+                    .transaction()
+                    .map_err(pg_err("begin create workflow case transaction"))?;
+                for alert_id in &case.alert_ids {
+                    let mut alert =
+                        load_alert_for_update(&mut tx, schema, &case.tenant_id, *alert_id)?;
+                    if let Some(existing_case_id) = alert.case_id {
+                        if existing_case_id != case.case_id {
+                            return Err(alert_case_conflict_error(*alert_id, existing_case_id));
+                        }
+                    }
+                    alert.case_id = Some(case.case_id);
+                    upsert_alert_row_tx(&mut tx, schema, &alert)?;
+                }
+                upsert_case_row_tx(&mut tx, schema, &case)?;
+                tx.commit()
+                    .map_err(pg_err("commit create workflow case transaction"))?;
+                Ok(case)
+            })
+        })
+        .await
+    }
+
+    pub async fn attach_alerts_to_case(
+        &self,
+        tenant_id: &str,
+        case_id: Uuid,
+        alert_ids: &[Uuid],
+        now: DateTime<Utc>,
+    ) -> Result<CaseRecord, CyberboxError> {
+        let store = self.clone();
+        let tenant_id = tenant_id.to_string();
+        let alert_ids = unique_alert_ids(alert_ids);
+        run_blocking(move || {
+            store.with_client(|client, schema| {
+                let mut tx = client
+                    .transaction()
+                    .map_err(pg_err("begin attach workflow alerts transaction"))?;
+                let mut case = load_case_for_update(&mut tx, schema, &tenant_id, case_id)?;
+                for alert_id in &alert_ids {
+                    let mut alert = load_alert_for_update(&mut tx, schema, &tenant_id, *alert_id)?;
+                    if let Some(existing_case_id) = alert.case_id {
+                        if existing_case_id != case_id {
+                            return Err(alert_case_conflict_error(*alert_id, existing_case_id));
+                        }
+                    }
+                    alert.case_id = Some(case_id);
+                    upsert_alert_row_tx(&mut tx, schema, &alert)?;
+                    if !case.alert_ids.contains(alert_id) {
+                        case.alert_ids.push(*alert_id);
+                    }
+                }
+                case.alert_ids = unique_alert_ids(&case.alert_ids);
+                case.updated_at = now;
+                upsert_case_row_tx(&mut tx, schema, &case)?;
+                tx.commit()
+                    .map_err(pg_err("commit attach workflow alerts transaction"))?;
+                Ok(case)
+            })
+        })
+        .await
+    }
+
+    pub async fn detach_alerts_from_case(
+        &self,
+        tenant_id: &str,
+        case_id: Uuid,
+        alert_ids: &[Uuid],
+        now: DateTime<Utc>,
+    ) -> Result<CaseRecord, CyberboxError> {
+        let store = self.clone();
+        let tenant_id = tenant_id.to_string();
+        let alert_ids = unique_alert_ids(alert_ids);
+        run_blocking(move || {
+            store.with_client(|client, schema| {
+                let mut tx = client
+                    .transaction()
+                    .map_err(pg_err("begin detach workflow alerts transaction"))?;
+                let mut case = load_case_for_update(&mut tx, schema, &tenant_id, case_id)?;
+                case.alert_ids
+                    .retain(|alert_id| !alert_ids.contains(alert_id));
+                case.updated_at = now;
+                for alert_id in &alert_ids {
+                    if let Some(mut alert) =
+                        try_load_alert_for_update(&mut tx, schema, &tenant_id, *alert_id)?
+                    {
+                        if alert.case_id == Some(case_id) {
+                            alert.case_id = None;
+                            upsert_alert_row_tx(&mut tx, schema, &alert)?;
+                        }
+                    }
+                }
+                upsert_case_row_tx(&mut tx, schema, &case)?;
+                tx.commit()
+                    .map_err(pg_err("commit detach workflow alerts transaction"))?;
+                Ok(case)
+            })
+        })
+        .await
+    }
+
+    pub async fn delete_case_with_alerts(
+        &self,
+        tenant_id: &str,
+        case_id: Uuid,
+    ) -> Result<CaseRecord, CyberboxError> {
+        let store = self.clone();
+        let tenant_id = tenant_id.to_string();
+        run_blocking(move || {
+            store.with_client(|client, schema| {
+                let mut tx = client
+                    .transaction()
+                    .map_err(pg_err("begin delete workflow case transaction"))?;
+                let case = load_case_for_update(&mut tx, schema, &tenant_id, case_id)?;
+                for alert_id in &case.alert_ids {
+                    if let Some(mut alert) =
+                        try_load_alert_for_update(&mut tx, schema, &tenant_id, *alert_id)?
+                    {
+                        if alert.case_id == Some(case_id) {
+                            alert.case_id = None;
+                            upsert_alert_row_tx(&mut tx, schema, &alert)?;
+                        }
+                    }
+                }
+                tx.execute(
+                    &format!(
+                        "DELETE FROM {schema}.workflow_cases \
+                         WHERE tenant_id = $1 AND case_id = $2"
+                    ),
+                    &[&tenant_id, &case_id],
+                )
+                .map_err(pg_err("delete workflow case"))?;
+                tx.commit()
+                    .map_err(pg_err("commit delete workflow case transaction"))?;
+                Ok(case)
+            })
+        })
+        .await
     }
 
     pub async fn list_agents(&self, tenant_id: &str) -> Result<Vec<AgentRecord>, CyberboxError> {
@@ -618,6 +768,7 @@ impl AlertStore for PostgresWorkflowStore {
         update_alert_status(self.clone(), tenant_id, alert_id, |alert| {
             alert.status = AlertStatus::Acknowledged;
             alert.last_seen = Utc::now();
+            Ok(())
         })
         .await
     }
@@ -630,9 +781,23 @@ impl AlertStore for PostgresWorkflowStore {
     ) -> Result<AlertRecord, CyberboxError> {
         let assignment = assignment.clone();
         update_alert_status(self.clone(), tenant_id, alert_id, move |alert| {
-            alert.assignee = Some(assignment.assignee.clone());
-            alert.status = AlertStatus::InProgress;
+            if matches!(alert.status, AlertStatus::Closed) {
+                return Err(crate::traits::closed_alert_assignment_error(alert.alert_id));
+            }
+            let Some(assignee_patch) = assignment.assignee.as_ref() else {
+                return Err(crate::traits::missing_alert_assignment_error());
+            };
+            let next_assignee = crate::traits::normalize_optional_string(assignee_patch.as_ref());
+            alert.assignee = next_assignee;
+            alert.status = if alert.assignee.is_some() {
+                AlertStatus::InProgress
+            } else if matches!(alert.status, AlertStatus::InProgress) {
+                AlertStatus::Acknowledged
+            } else {
+                alert.status.clone()
+            };
             alert.last_seen = Utc::now();
+            Ok(())
         })
         .await
     }
@@ -649,6 +814,7 @@ impl AlertStore for PostgresWorkflowStore {
             alert.resolution = Some(request.resolution.clone());
             alert.close_note = request.note.clone();
             alert.last_seen = Utc::now();
+            Ok(())
         })
         .await
     }
@@ -780,31 +946,7 @@ impl CaseStore for PostgresWorkflowStore {
                     .map_err(pg_err("select workflow case for update"))?
                     .ok_or(CyberboxError::NotFound)?;
                 let mut case: CaseRecord = row_to_model(row)?;
-                if let Some(title) = patch.title {
-                    case.title = title;
-                }
-                if let Some(description) = patch.description {
-                    case.description = description;
-                }
-                if let Some(status) = patch.status {
-                    if matches!(status, CaseStatus::Resolved | CaseStatus::Closed)
-                        && case.closed_at.is_none()
-                    {
-                        case.closed_at = Some(now);
-                    }
-                    case.status = status;
-                }
-                if let Some(severity) = patch.severity {
-                    case.severity = severity.clone();
-                    case.sla_due_at = Some(sla_due_at(&severity, case.created_at));
-                }
-                if let Some(assignee) = patch.assignee {
-                    case.assignee = Some(assignee);
-                }
-                if let Some(tags) = patch.tags {
-                    case.tags = tags;
-                }
-                case.updated_at = now;
+                apply_case_patch(&mut case, &patch, now);
                 upsert_case_row_tx(&mut tx, schema, &case)?;
                 tx.commit()
                     .map_err(pg_err("commit update workflow case transaction"))?;
@@ -845,7 +987,7 @@ async fn update_alert_status<F>(
     update: F,
 ) -> Result<AlertRecord, CyberboxError>
 where
-    F: FnOnce(&mut AlertRecord) + Send + 'static,
+    F: FnOnce(&mut AlertRecord) -> Result<(), CyberboxError> + Send + 'static,
 {
     let tenant_id = tenant_id.to_string();
     run_blocking(move || {
@@ -864,7 +1006,7 @@ where
                 .map_err(pg_err("select workflow alert for update"))?
                 .ok_or(CyberboxError::NotFound)?;
             let mut alert: AlertRecord = row_to_model(row)?;
-            update(&mut alert);
+            update(&mut alert)?;
             upsert_alert_row_tx(&mut tx, schema, &alert)?;
             tx.commit()
                 .map_err(pg_err("commit workflow alert update transaction"))?;
@@ -1062,6 +1204,55 @@ fn upsert_case_row_tx(
     case: &CaseRecord,
 ) -> Result<(), CyberboxError> {
     upsert_case_row(client, schema, case)
+}
+
+fn load_alert_for_update(
+    client: &mut postgres::Transaction<'_>,
+    schema: &str,
+    tenant_id: &str,
+    alert_id: Uuid,
+) -> Result<AlertRecord, CyberboxError> {
+    try_load_alert_for_update(client, schema, tenant_id, alert_id)?
+        .ok_or_else(|| alert_not_found_error(alert_id))
+}
+
+fn try_load_alert_for_update(
+    client: &mut postgres::Transaction<'_>,
+    schema: &str,
+    tenant_id: &str,
+    alert_id: Uuid,
+) -> Result<Option<AlertRecord>, CyberboxError> {
+    client
+        .query_opt(
+            &format!(
+                "SELECT record FROM {schema}.workflow_alerts \
+                 WHERE tenant_id = $1 AND alert_id = $2 FOR UPDATE"
+            ),
+            &[&tenant_id, &alert_id],
+        )
+        .map_err(pg_err("select workflow alert for update"))?
+        .map(row_to_model::<AlertRecord>)
+        .transpose()
+}
+
+fn load_case_for_update(
+    client: &mut postgres::Transaction<'_>,
+    schema: &str,
+    tenant_id: &str,
+    case_id: Uuid,
+) -> Result<CaseRecord, CyberboxError> {
+    client
+        .query_opt(
+            &format!(
+                "SELECT record FROM {schema}.workflow_cases \
+                 WHERE tenant_id = $1 AND case_id = $2 FOR UPDATE"
+            ),
+            &[&tenant_id, &case_id],
+        )
+        .map_err(pg_err("select workflow case for update"))?
+        .map(row_to_model::<CaseRecord>)
+        .transpose()?
+        .ok_or(CyberboxError::NotFound)
 }
 
 fn upsert_audit_row<C>(
