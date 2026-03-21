@@ -56,6 +56,8 @@ services:
   # ── CyberboxSIEM API ────────────────────────────────────────────────────
   cyberbox-api:
     image: ${ECR_REGISTRY}/cyberbox-api:${IMAGE_TAG:-latest}
+    volumes:
+      - ${CYBERBOX_DATA_DIR:-./data}:/data
     depends_on:
       redpanda:
         condition: service_healthy
@@ -98,6 +100,7 @@ services:
       CYBERBOX__EPS_LIMIT_PER_TENANT: "50000"
       # State persistence
       CYBERBOX__STATE_DIR: /data
+      CYBERBOX__TENANT_ID_OVERRIDE: ${TENANT_ID_OVERRIDE:-}
     volumes:
       - api-data:/data
     networks:
