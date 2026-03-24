@@ -61,7 +61,7 @@ describe('AuthenticatedApp bypass shell', () => {
     window.localStorage.clear();
   });
 
-  it('surfaces bypass status and lets the command palette drive the dev identity workflow', async () => {
+  it('surfaces bypass status banner with identity details', async () => {
     window.localStorage.setItem(
       BYPASS_IDENTITY_STORAGE_KEY,
       JSON.stringify({
@@ -74,36 +74,9 @@ describe('AuthenticatedApp bypass shell', () => {
     renderAuthenticatedShell();
 
     expect(await screen.findByText('Dashboard smoke view')).toBeInTheDocument();
-    expect(screen.getByText(/development bypass active/i)).toBeInTheDocument();
-    expect(screen.getByText(/development session/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/tenant tenant-z/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/bypass/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/tenant-z/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText('qa-investigator').length).toBeGreaterThan(0);
-
-    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
-
-    const resetAction = await screen.findByRole('button', { name: /reset development identity/i });
-    const user = userEvent.setup();
-    await user.click(resetAction);
-
-    const defaultIdentity = getDefaultFallbackIdentity();
-
-    await waitFor(() => {
-      expect(screen.getAllByText(new RegExp(`Tenant ${defaultIdentity.tenantId}`, 'i')).length).toBeGreaterThan(0);
-      expect(screen.getAllByText(defaultIdentity.userId).length).toBeGreaterThan(0);
-    });
-
-    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
-
-    const editAction = await screen.findByRole('button', { name: /edit development identity/i });
-    await user.click(editAction);
-
-    const tenantInput = await screen.findByLabelText(/^tenant$/i);
-    const userInput = screen.getByLabelText(/user id/i);
-    const rolesInput = screen.getByLabelText(/roles/i);
-
-    expect(tenantInput).toHaveValue(defaultIdentity.tenantId);
-    expect(userInput).toHaveValue(defaultIdentity.userId);
-    expect(rolesInput).toHaveValue(defaultIdentity.roles.join(', '));
   });
 
   it('blocks viewer-only identities from analyst routes', async () => {

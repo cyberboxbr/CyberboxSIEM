@@ -5,7 +5,6 @@ import { Button } from './components/ui/button';
 
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Sidebar } from './components/Sidebar';
-import { TopBar } from './components/TopBar';
 import { useAuth } from './contexts/AuthContext';
 import { useIdleTimeout } from './hooks/useIdleTimeout';
 
@@ -84,7 +83,6 @@ export function AuthenticatedApp() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [sessionWarning, setSessionWarning] = useState(false);
-  const [openBypassEditorSignal, setOpenBypassEditorSignal] = useState(0);
   const sessionTimeoutEnabled = authMode === 'microsoft';
   const activeBypassIdentity = authMode === 'bypass' ? bypassIdentity : null;
 
@@ -124,10 +122,10 @@ export function AuthenticatedApp() {
 
       {sessionTimeoutEnabled && sessionWarning && (
         <div
-          className="fixed inset-x-4 top-4 z-[90] rounded-2xl border border-primary/20 bg-card/85 px-5 py-3 text-sm text-foreground shadow-card backdrop-blur-xl sm:inset-x-auto sm:right-6 sm:w-auto"
+          className="fixed inset-x-4 top-4 z-[90] rounded-lg border border-primary/20 bg-card/85 px-4 py-2.5 text-sm text-foreground shadow-card backdrop-blur-xl sm:inset-x-auto sm:right-6 sm:w-auto"
           onClick={() => setSessionWarning(false)}
         >
-          Session expires in 1 minute due to inactivity. Move your mouse to stay signed in.
+          Session expires in 1 minute. Move your mouse to stay signed in.
         </div>
       )}
 
@@ -136,85 +134,28 @@ export function AuthenticatedApp() {
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
         mobileOpen={mobileSidebarOpen}
         onMobileClose={() => setMobileSidebarOpen(false)}
+        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+        onSignOut={() => void signOut()}
       />
 
       <div className={`relative z-10 min-h-screen transition-[padding] duration-300 ${sidebarCollapsed ? 'lg:pl-[5rem]' : 'lg:pl-[15rem]'}`}>
-        <TopBar
-          onOpenSidebar={() => setMobileSidebarOpen(true)}
-          onOpenCommandPalette={() => setCommandPaletteOpen(true)}
-          openBypassEditorSignal={openBypassEditorSignal}
-        />
-
-        <div className="px-3 pt-14 sm:px-4 lg:px-6">
+        <div className="px-3 py-4 sm:px-4 lg:px-6">
           {activeBypassIdentity ? (
-            <div className="mb-4 rounded-xl border border-amber-300/20 bg-[linear-gradient(145deg,rgba(245,158,11,0.18),rgba(15,23,42,0.78))] p-4 shadow-card backdrop-blur-2xl sm:p-5">
-              <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge
-                      variant="warning"
-                      className="border-amber-300/20 bg-amber-300/12 text-amber-50"
-                    >
-                      Development Bypass Active
-                    </Badge>
-                    <Badge
-                      variant="outline"
-                      className="border-amber-300/20 bg-slate-950/30 text-amber-50/85"
-                    >
-                      Header-based identity
-                    </Badge>
-                  </div>
-                  <p className="mt-3 max-w-3xl text-sm leading-6 text-amber-50/90">
-                    This browser is sending local bypass headers instead of a Microsoft access token. Use it for development against an <code>auth_disabled=true</code> backend, not as a normal tenant session.
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                    <span className="rounded-full border border-amber-300/20 bg-slate-950/25 px-3 py-1 text-amber-50/90">
-                      Tenant {activeBypassIdentity.tenantId}
-                    </span>
-                    <span className="rounded-full border border-amber-300/20 bg-slate-950/25 px-3 py-1 text-amber-50/90">
-                      {activeBypassIdentity.userId}
-                    </span>
-                    {activeBypassIdentity.roles.length > 0 ? (
-                      activeBypassIdentity.roles.map((role) => (
-                        <span
-                          key={role}
-                          className="rounded-full border border-amber-300/15 bg-amber-300/10 px-3 py-1 uppercase tracking-[0.2em] text-amber-50/85"
-                        >
-                          {role}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="rounded-full border border-amber-300/15 bg-slate-950/25 px-3 py-1 text-amber-50/75">
-                        No assigned roles
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-2 xl:justify-end">
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="bg-amber-300/90 text-slate-950 hover:bg-amber-200"
-                    onClick={() => setOpenBypassEditorSignal((current) => current + 1)}
-                  >
-                    Edit identity
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="border-amber-300/20 bg-slate-950/25 text-amber-50 hover:bg-slate-950/40"
-                    onClick={resetBypassIdentity}
-                  >
-                    Reset default
-                  </Button>
-                </div>
-              </div>
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-50/90">
+              <Badge variant="warning" className="border-amber-300/20 bg-amber-300/12 text-amber-50">Bypass</Badge>
+              <span>{activeBypassIdentity.userId}</span>
+              <span className="text-amber-100/60">·</span>
+              <span>Tenant {activeBypassIdentity.tenantId}</span>
+              {activeBypassIdentity.roles.map((role) => (
+                <Badge key={role} variant="outline" className="border-amber-300/15 text-amber-50/80">{role}</Badge>
+              ))}
+              <Button type="button" size="sm" variant="ghost" className="ml-auto text-amber-50/70 hover:text-amber-50" onClick={resetBypassIdentity}>
+                Reset
+              </Button>
             </div>
           ) : null}
 
-          <div className="pb-8 pt-4">
+          <div className="pb-6">
             <ErrorBoundary>
               <Suspense fallback={<RouteLoading />}>
                 <Routes>
@@ -245,7 +186,7 @@ export function AuthenticatedApp() {
           <CommandPalette
             open={commandPaletteOpen}
             onClose={() => setCommandPaletteOpen(false)}
-            onOpenBypassEditor={() => setOpenBypassEditorSignal((current) => current + 1)}
+            onOpenBypassEditor={() => {}}
           />
         </Suspense>
       ) : null}

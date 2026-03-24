@@ -7,18 +7,22 @@ import {
   ChevronRight,
   Globe2,
   LayoutGrid,
+  LogOut,
+  Moon,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
   ServerCog,
   Shield,
   ShieldCheck,
+  SunMedium,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTheme } from '@/contexts/ThemeContext';
 
 type Gate = 'admin' | 'analyst';
 
@@ -74,6 +78,8 @@ interface SidebarProps {
   onToggle: () => void;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
+  onOpenCommandPalette?: () => void;
+  onSignOut?: () => void;
 }
 
 function groupIsActive(pathname: string, item: NavItem) {
@@ -88,9 +94,12 @@ export function Sidebar({
   onToggle,
   mobileOpen = false,
   onMobileClose,
+  onOpenCommandPalette,
+  onSignOut,
 }: SidebarProps) {
   const location = useLocation();
-  const { authMode, bypassIdentity, isAdmin, isAnalyst } = useAuth();
+  const { authMode, displayName, userId, roles, bypassIdentity, isAdmin, isAnalyst } = useAuth();
+  const { isDark, toggleTheme } = useTheme();
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [flyoutLabel, setFlyoutLabel] = useState<string | null>(null);
   const activeBypassIdentity = authMode === 'bypass' ? bypassIdentity : null;
@@ -293,55 +302,60 @@ export function Sidebar({
           ))}
         </div>
 
-        <div className="border-t border-sidebar-border/80 p-3">
-          {activeBypassIdentity ? (
-            <div
-              className={cn(
-                'mb-3 rounded-lg border border-amber-300/20 bg-[linear-gradient(145deg,rgba(245,158,11,0.16),rgba(15,23,42,0.72))] p-3 text-xs text-amber-50/90',
-                desktopCollapsed && 'hidden',
-              )}
+        <div className="border-t border-sidebar-border/80 p-2">
+          {!desktopCollapsed && (
+            <button
+              type="button"
+              onClick={onOpenCommandPalette}
+              className="mb-2 flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-sidebar-foreground/50 transition-colors hover:bg-white/6 hover:text-sidebar-foreground"
             >
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <Badge
-                  variant="warning"
-                  className="border-amber-300/20 bg-amber-300/12 text-amber-50"
-                >
-                  Bypass
-                </Badge>
-                <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-100/80">
-                  Header identity
-                </span>
+              <Search className="h-3.5 w-3.5" />
+              <span>Search</span>
+              <kbd className="ml-auto rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px]">⌘K</kbd>
+            </button>
+          )}
+
+          {desktopCollapsed && onOpenCommandPalette && (
+            <Button type="button" variant="ghost" size="icon" className="mb-1 h-8 w-full rounded-lg text-sidebar-foreground/50 hover:bg-white/6 hover:text-sidebar-foreground" onClick={onOpenCommandPalette}>
+              <Search className="h-3.5 w-3.5" />
+            </Button>
+          )}
+
+          <div className={cn('flex items-center gap-1', desktopCollapsed ? 'flex-col' : 'mb-2')}>
+            <Button type="button" variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-sidebar-foreground/50 hover:bg-white/6 hover:text-sidebar-foreground" onClick={toggleTheme}>
+              {isDark ? <SunMedium className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+            </Button>
+            <Button type="button" variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-sidebar-foreground/50 hover:bg-white/6 hover:text-sidebar-foreground" onClick={mobileOpen ? onMobileClose : onToggle}>
+              {desktopCollapsed ? <PanelLeftOpen className="h-3.5 w-3.5" /> : <PanelLeftClose className="h-3.5 w-3.5" />}
+            </Button>
+            {onSignOut && (
+              <Button type="button" variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-sidebar-foreground/50 hover:bg-white/6 hover:text-destructive" onClick={onSignOut}>
+                <LogOut className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
+
+          {!desktopCollapsed && (
+            <div className="flex items-center gap-2 rounded-lg bg-white/5 px-2.5 py-2">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-xs font-semibold text-primary">
+                {(displayName || userId || 'U').split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map((s) => s[0]?.toUpperCase() ?? '').join('').slice(0, 2) || 'U'}
               </div>
-              <div className="font-semibold uppercase tracking-[0.22em] text-amber-100/80">
-                Development session
-              </div>
-              <div className="mt-2 text-sm text-sidebar-foreground">
-                {activeBypassIdentity.userId}
-              </div>
-              <div className="mt-1 text-amber-100/75">
-                Tenant {activeBypassIdentity.tenantId}
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-xs font-medium text-sidebar-foreground">{displayName || userId || 'SOC User'}</div>
+                <div className="truncate text-[10px] text-sidebar-foreground/50">
+                  {roles.includes('admin') ? 'Admin' : roles.includes('analyst') ? 'Analyst' : roles.includes('viewer') ? 'Viewer' : 'User'}
+                </div>
               </div>
             </div>
-          ) : null}
+          )}
 
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className={cn(
-              'w-full justify-center rounded-lg border-white/10 text-sidebar-foreground/60 hover:bg-white/6 hover:text-sidebar-foreground',
-              desktopCollapsed && 'px-0',
-            )}
-            onClick={mobileOpen ? onMobileClose : onToggle}
-          >
-            {mobileOpen ? (
-              <><ChevronRight className="h-3.5 w-3.5 rotate-180" />{!desktopCollapsed && <span>Close</span>}</>
-            ) : desktopCollapsed ? (
-              <PanelLeftOpen className="h-3.5 w-3.5" />
-            ) : (
-              <><PanelLeftClose className="h-3.5 w-3.5" /><span>Collapse</span></>
-            )}
-          </Button>
+          {desktopCollapsed && (
+            <div className="flex justify-center pt-1">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/15 text-xs font-semibold text-primary">
+                {(displayName || userId || 'U').split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map((s) => s[0]?.toUpperCase() ?? '').join('').slice(0, 2) || 'U'}
+              </div>
+            </div>
+          )}
         </div>
       </aside>
     </>
