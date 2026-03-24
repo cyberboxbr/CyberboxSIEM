@@ -97,7 +97,7 @@ services:
       CYBERBOX__EPS_LIMIT_PER_TENANT: "50000"
       # State persistence
       CYBERBOX__STATE_DIR: /data
-      CYBERBOX__TENANT_ID_OVERRIDE: ${TENANT_ID_OVERRIDE:-}
+      CYBERBOX__TENANT_ID_OVERRIDE: ${TENANT_ID_OVERRIDE:-safebox}
     volumes:
       - ${CYBERBOX_DATA_DIR:-./data}:/data
     networks:

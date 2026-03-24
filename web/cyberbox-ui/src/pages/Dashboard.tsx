@@ -5,8 +5,9 @@ import {
   AlertTriangle,
   ArrowRight,
   BellRing,
+  CheckCircle2,
+  Circle,
   RefreshCcw,
-  Search,
   ServerCog,
   Shield,
 } from 'lucide-react';
@@ -53,11 +54,11 @@ function formatCompact(value: number): string {
 }
 
 function formatDuration(seconds: number | null): string {
-  if (seconds == null || Number.isNaN(seconds)) return 'Unmeasured';
-  if (seconds < 60) return `${Math.round(seconds)} sec`;
-  if (seconds < 3600) return `${Math.round(seconds / 60)} min`;
-  if (seconds < 86_400) return `${(seconds / 3600).toFixed(1).replace(/\.0$/, '')} hr`;
-  return `${(seconds / 86_400).toFixed(1).replace(/\.0$/, '')} d`;
+  if (seconds == null || Number.isNaN(seconds)) return '--';
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  if (seconds < 86_400) return `${(seconds / 3600).toFixed(1).replace(/\.0$/, '')}h`;
+  return `${(seconds / 86_400).toFixed(1).replace(/\.0$/, '')}d`;
 }
 
 function formatRelative(timestamp: string): string {
@@ -85,6 +86,12 @@ function severityVariant(severity: Severity): 'destructive' | 'warning' | 'info'
 function prettySource(source: string): string {
   if (!source) return 'Other';
   return SOURCE_LABELS[source.toLowerCase()] ?? source;
+}
+
+interface OnboardingStep {
+  label: string;
+  done: boolean;
+  to: string;
 }
 
 export function Dashboard({ onRefresh }: DashboardProps) {
@@ -178,101 +185,85 @@ export function Dashboard({ onRefresh }: DashboardProps) {
   const topAgents = useMemo(() => (stats?.agents ?? []).slice(0, 5), [stats]);
   const activeCoverage = stats?.total_agents ? Math.round((stats.active_agents / stats.total_agents) * 100) : 0;
 
+  const hasData = (stats?.total_events ?? 0) > 0 || alerts.length > 0 || topSources.length > 0 || topAgents.length > 0;
+
+  const onboardingSteps: OnboardingStep[] = useMemo(() => [
+    { label: 'Enroll at least one collector or agent', done: (stats?.total_agents ?? 0) > 0, to: '/agents' },
+    { label: 'Ingest the first events', done: (stats?.total_events ?? 0) > 0, to: '/search' },
+    { label: 'Enable detection rules', done: (stats?.active_rules ?? 0) > 0, to: '/rules' },
+    { label: 'Configure threat intel feeds', done: false, to: '/threat-intel' },
+    { label: 'Set up RBAC roles for your team', done: false, to: '/admin/rbac' },
+  ], [stats]);
+
+  // ── Severity breakdown bar ──────────────────────────────────────────────
+  const sevCounts = stats?.alerts_by_severity ?? { critical: 0, high: 0, medium: 0, low: 0 };
+  const sevTotal = sevCounts.critical + sevCounts.high + sevCounts.medium + sevCounts.low;
+
   return (
-    <div className="flex flex-col gap-4">
-      <section className="grid gap-3 xl:grid-cols-[minmax(0,1.55fr)_minmax(280px,0.95fr)]">
-        <Card className="overflow-hidden border-primary/15 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.16),transparent_38%),linear-gradient(145deg,hsl(var(--card)),hsl(var(--card)/0.82))]">
-          <CardContent className="grid gap-5 p-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(200px,0.8fr)]">
-            <div>
-              <div className="mb-3 flex flex-wrap gap-1.5">
-                <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">Live SOC workspace</Badge>
-                <Badge variant="secondary" className="bg-background/55">Auto refresh every 15s</Badge>
-              </div>
-              <div className="max-w-2xl font-display text-2xl font-semibold leading-[0.96] tracking-[-0.04em] text-foreground sm:text-3xl">
-                A sharper shell for the Cyberbox command center.
-              </div>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                The new dashboard leans into a shadcn-style block layout so the highest-signal telemetry is easier to scan, refresh, and act on.
-              </p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Button asChild size="sm">
-                  <Link to="/alerts">Open alert queue <ArrowRight className="h-3.5 w-3.5" /></Link>
-                </Button>
-                <Button asChild variant="outline" size="sm">
-                  <Link to="/search">Hunt in search <Search className="h-3.5 w-3.5" /></Link>
-                </Button>
-              </div>
-            </div>
-            <div className="grid gap-2 rounded-lg border border-border/70 bg-background/35 p-3">
-              <div className="rounded-md border border-border/70 bg-card/70 px-3 py-2">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Sync state</div>
-                <div className="mt-1 text-xs text-foreground">Last update: <span className="font-medium">{lastUpdated ? lastUpdated.toLocaleTimeString() : 'waiting'}</span></div>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
-                <div className="rounded-md border border-border/70 bg-card/70 px-3 py-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Current EPS</div>
-                  <div className="mt-1 font-display text-xl font-semibold tracking-[-0.04em] text-foreground">{stats ? stats.current_eps.toFixed(1) : '0.0'}</div>
-                </div>
-                <div className="rounded-md border border-border/70 bg-card/70 px-3 py-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">MTTR</div>
-                  <div className="mt-1 font-display text-xl font-semibold tracking-[-0.04em] text-foreground">{formatDuration(stats?.mttr_seconds ?? null)}</div>
-                </div>
-                <div className="rounded-md border border-border/70 bg-card/70 px-3 py-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Fleet coverage</div>
-                  <div className="mt-1 font-display text-xl font-semibold tracking-[-0.04em] text-foreground">{activeCoverage}%</div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+    <div className="flex flex-col gap-3">
+      {/* ── Toolbar: range selector + refresh + sync status ──────────── */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1 rounded-lg border border-border/70 bg-card/60 p-0.5">
+          {RANGE_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setTimeRange(option.value)}
+              className={cn(
+                'rounded-md px-3 py-1 text-xs font-medium transition-colors',
+                option.value === timeRange
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <Button type="button" size="sm" variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
+          <RefreshCcw className={cn('h-3.5 w-3.5', isRefreshing && 'animate-spin')} />
+          Refresh
+        </Button>
+        {error && <WorkspaceStatusBanner tone="warning" className="flex-1">{error}</WorkspaceStatusBanner>}
+        <span className="ml-auto text-[10px] text-muted-foreground">
+          {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : 'Loading...'}
+          {' · Auto-refresh 15s'}
+        </span>
+      </div>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle>Range and refresh</CardTitle>
-            <CardDescription>Keep the board focused on the window you want to investigate.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              {RANGE_OPTIONS.map((option) => (
-                <Button
-                  key={option.value}
-                  type="button"
-                  variant={option.value === timeRange ? 'default' : 'outline'}
-                  className={cn('rounded-lg', option.value === timeRange && 'shadow-[0_14px_40px_-22px_hsl(var(--primary)/0.95)]')}
-                  onClick={() => setTimeRange(option.value)}
-                >
-                  {option.label}
-                </Button>
-              ))}
-            </div>
-            {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
-            <Button type="button" className="w-full rounded-lg" onClick={handleRefresh} disabled={isRefreshing}>
-              <RefreshCcw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
-              {isRefreshing ? 'Refreshing workspace' : `Refresh ${rangeLabel}`}
-            </Button>
-          </CardContent>
-        </Card>
+      {/* ── KPI row ──────────────────────────────────────────────────── */}
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        <WorkspaceMetricCard label="Events" value={formatCompact(stats?.total_events ?? 0)} hint={`${stats?.events_by_source.length ?? 0} sources`} icon={Activity} />
+        <WorkspaceMetricCard label="Open alerts" value={String(stats?.open_alerts ?? 0)} hint={`${sevCounts.critical} crit · ${sevCounts.high} high`} icon={AlertTriangle} />
+        <WorkspaceMetricCard label="Agents" value={`${stats?.active_agents ?? 0}/${stats?.total_agents ?? 0}`} hint={`${activeCoverage}% coverage`} icon={ServerCog} />
+        <WorkspaceMetricCard label="Rules" value={String(stats?.active_rules ?? 0)} hint={`${topRules.length} triggered`} icon={Shield} />
+        <WorkspaceMetricCard label="EPS" value={stats ? stats.current_eps.toFixed(1) : '0.0'} hint="Events/sec" icon={Activity} />
+        <WorkspaceMetricCard label="MTTR" value={formatDuration(stats?.mttr_seconds ?? null)} hint="Mean time to resolve" icon={CheckCircle2} />
       </section>
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <WorkspaceMetricCard label="Events" value={formatCompact(stats?.total_events ?? 0)} hint={`Across ${stats?.events_by_source.length ?? 0} active sources.`} icon={Activity} />
-        <WorkspaceMetricCard label="Open Alerts" value={String(stats?.open_alerts ?? 0)} hint={`${stats?.alerts_by_severity.critical ?? 0} critical and ${stats?.alerts_by_severity.high ?? 0} high.`} icon={AlertTriangle} />
-        <WorkspaceMetricCard label="Active Agents" value={`${stats?.active_agents ?? 0}/${stats?.total_agents ?? 0}`} hint={`${topAgents.filter((agent) => agent.status !== 'active').length} agents need attention.`} icon={ServerCog} />
-        <WorkspaceMetricCard label="Detections" value={String(stats?.active_rules ?? 0)} hint={`${topRules.length} rules contributed alerts in this window.`} icon={Shield} />
-      </section>
+      {/* ── Severity breakdown bar (only when alerts exist) ──────────── */}
+      {sevTotal > 0 && (
+        <div className="flex h-2 overflow-hidden rounded-full bg-muted/40">
+          {sevCounts.critical > 0 && <div className="bg-destructive" style={{ width: `${(sevCounts.critical / sevTotal) * 100}%` }} />}
+          {sevCounts.high > 0 && <div className="bg-[hsl(24_95%_62%)]" style={{ width: `${(sevCounts.high / sevTotal) * 100}%` }} />}
+          {sevCounts.medium > 0 && <div className="bg-accent" style={{ width: `${(sevCounts.medium / sevTotal) * 100}%` }} />}
+          {sevCounts.low > 0 && <div className="bg-chart-2" style={{ width: `${(sevCounts.low / sevTotal) * 100}%` }} />}
+        </div>
+      )}
 
-      <section className="grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+      {/* ── Main grid ────────────────────────────────────────────────── */}
+      <section className="grid gap-3 xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,0.7fr)]">
         <div className="grid gap-3">
           <Card>
             <CardHeader>
               <CardTitle>Event volume</CardTitle>
-              <CardDescription>Telemetry throughput across the current {rangeLabel.toLowerCase()} window.</CardDescription>
+              <CardDescription>Throughput across the current {rangeLabel.toLowerCase()} window.</CardDescription>
             </CardHeader>
-            <CardContent className="h-[240px]">
+            <CardContent className="h-[200px]">
               {isLoading && !stats ? (
-                <WorkspaceEmptyState title="Loading telemetry" body="Pulling the latest event profile for this tenant." />
+                <WorkspaceEmptyState title="Loading telemetry" body="Pulling the latest event profile." />
               ) : eventVolume.length === 0 ? (
-                <WorkspaceEmptyState title="No event traffic yet" body="Once collectors begin sending data, this panel will fill in." />
+                <WorkspaceEmptyState title="No event traffic" body="Volume will appear once collectors send data." />
               ) : (
                 <DashboardEventVolumeChart data={eventVolume} />
               )}
@@ -281,34 +272,39 @@ export function Dashboard({ onRefresh }: DashboardProps) {
 
           <Card>
             <CardHeader>
-              <CardTitle>Analyst queue</CardTitle>
-              <CardDescription>Open alerts sorted so the riskiest work stays visible first.</CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Analyst queue</CardTitle>
+                  <CardDescription>Open alerts, riskiest first.</CardDescription>
+                </div>
+                {alerts.length > 0 && (
+                  <Button asChild size="sm" variant="ghost">
+                    <Link to="/alerts">View all <ArrowRight className="h-3 w-3" /></Link>
+                  </Button>
+                )}
+              </div>
             </CardHeader>
-            <CardContent className="space-y-2">
+            <CardContent className="space-y-1.5">
               {alerts.length === 0 ? (
-                <WorkspaceEmptyState title="Queue is clear" body="New open alerts will land here as detections trigger." />
+                <WorkspaceEmptyState title="Queue is clear" body="Alerts will land here as detections trigger." />
               ) : (
                 alerts.map((alert) => (
                   <Link
                     key={alert.alert_id}
                     to={`/alerts/${alert.alert_id}`}
-                    className="group flex items-start justify-between gap-3 rounded-lg border border-border/70 bg-background/35 px-3 py-2.5 transition-colors hover:bg-muted/55"
+                    className="group flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-background/35 px-3 py-2 transition-colors hover:bg-muted/55"
                   >
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <Badge variant={severityVariant(alert.severity)}>{alert.severity}</Badge>
-                        <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">{formatRelative(alert.first_seen)}</span>
-                      </div>
-                      <div className="mt-1.5 truncate font-display text-sm font-semibold tracking-[-0.02em] text-foreground">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Badge variant={severityVariant(alert.severity)} className="shrink-0">{alert.severity}</Badge>
+                      <span className="truncate text-sm font-medium text-foreground">
                         {alert.rule_title || `Rule ${alert.rule_id.slice(0, 8)}`}
-                      </div>
-                      <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                        <span>{alert.agent_meta?.hostname ?? 'Unassigned asset'}</span>
-                        <span>{alert.hit_count} hits</span>
-                        <span>{alert.assignee ? `Owner: ${alert.assignee}` : 'Unassigned'}</span>
-                      </div>
+                      </span>
                     </div>
-                    <ArrowRight className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1" />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className="text-xs text-muted-foreground">{alert.hit_count} hits</span>
+                      <span className="text-[10px] text-muted-foreground">{formatRelative(alert.first_seen)}</span>
+                      <ArrowRight className="h-3 w-3 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                    </div>
                   </Link>
                 ))
               )}
@@ -317,26 +313,53 @@ export function Dashboard({ onRefresh }: DashboardProps) {
         </div>
 
         <div className="grid gap-3">
+          {/* ── Onboarding checklist (shown when data is sparse) ────── */}
+          {!hasData && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Getting started</CardTitle>
+                <CardDescription>Complete these steps to bring the dashboard to life.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-1">
+                {onboardingSteps.map((step) => (
+                  <Link
+                    key={step.label}
+                    to={step.to}
+                    className={cn(
+                      'flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-muted/55',
+                      step.done ? 'text-muted-foreground line-through' : 'text-foreground',
+                    )}
+                  >
+                    {step.done
+                      ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
+                      : <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+                    {step.label}
+                  </Link>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader>
-              <CardTitle>Top ingest sources</CardTitle>
-              <CardDescription>Where the telemetry load is coming from.</CardDescription>
+              <CardTitle>Top sources</CardTitle>
+              <CardDescription>Ingest load by source type.</CardDescription>
             </CardHeader>
             <CardContent>
               {topSources.length === 0 ? (
-                <WorkspaceEmptyState title="No sources yet" body="Source activity will appear here once telemetry starts flowing." />
+                <WorkspaceEmptyState title="No sources" body="Appears once telemetry starts flowing." />
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2.5">
                   {topSources.map((source, index) => {
                     const max = topSources[0]?.count ?? 1;
                     const width = max > 0 ? (source.count / max) * 100 : 0;
                     return (
-                      <div key={source.label} className="space-y-2">
-                        <div className="flex items-center justify-between gap-3 text-sm">
+                      <div key={source.label} className="space-y-1">
+                        <div className="flex items-center justify-between gap-3 text-xs">
                           <span className="font-medium text-foreground">{source.label}</span>
                           <span className="text-muted-foreground">{formatCompact(source.count)}</span>
                         </div>
-                        <div className="h-2 overflow-hidden rounded-full bg-muted/60">
+                        <div className="h-1.5 overflow-hidden rounded-full bg-muted/60">
                           <div className="h-full rounded-full bg-gradient-to-r from-primary via-chart-2 to-cyan-300" style={{ width: `${Math.max(width, index === 0 ? 18 : 8)}%` }} />
                         </div>
                       </div>
@@ -350,25 +373,23 @@ export function Dashboard({ onRefresh }: DashboardProps) {
           <Card>
             <CardHeader>
               <CardTitle>Top triggered rules</CardTitle>
-              <CardDescription>The detections creating the most pressure right now.</CardDescription>
+              <CardDescription>Detections creating the most pressure.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-2">
+            <CardContent className="space-y-1.5">
               {topRules.length === 0 ? (
-                <WorkspaceEmptyState title="No rule activity yet" body="Triggered rules will show up here when alerts are flowing." />
+                <WorkspaceEmptyState title="No rule activity" body="Triggered rules show up when alerts flow." />
               ) : (
                 topRules.map((rule) => (
-                  <div key={rule.rule_id} className="rounded-lg border border-border/70 bg-background/35 px-3 py-2.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-foreground">{rule.rule_title}</div>
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                          <Badge variant={severityVariant((['critical', 'high', 'medium', 'low'].includes(rule.severity) ? rule.severity : 'medium') as Severity)}>
-                            {rule.severity}
-                          </Badge>
-                          <span className="text-xs text-muted-foreground">{rule.alert_count} alerts</span>
-                        </div>
-                      </div>
-                      <BellRing className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                  <div key={rule.rule_id} className="flex items-center justify-between gap-2 rounded-lg border border-border/70 bg-background/35 px-3 py-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Badge variant={severityVariant((['critical', 'high', 'medium', 'low'].includes(rule.severity) ? rule.severity : 'medium') as Severity)} className="shrink-0">
+                        {rule.severity}
+                      </Badge>
+                      <span className="truncate text-sm font-medium text-foreground">{rule.rule_title}</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs text-muted-foreground">{rule.alert_count}</span>
+                      <BellRing className="h-3 w-3 text-primary" />
                     </div>
                   </div>
                 ))
@@ -379,17 +400,16 @@ export function Dashboard({ onRefresh }: DashboardProps) {
           <Card>
             <CardHeader>
               <CardTitle>Fleet health</CardTitle>
-              <CardDescription>Collector readiness and the endpoints to watch first.</CardDescription>
+              <CardDescription>Agent readiness at a glance.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-2">
+            <CardContent className="space-y-1.5">
               {topAgents.length === 0 ? (
-                <WorkspaceEmptyState title="No agents registered" body="Agent health will appear here once the fleet is enrolled." />
+                <WorkspaceEmptyState title="No agents" body="Enroll agents to see fleet health." />
               ) : (
                 topAgents.map((agent) => (
-                  <div key={agent.agent_id} className="flex items-center justify-between gap-2 rounded-lg border border-border/70 bg-background/35 px-3 py-2">
+                  <div key={agent.agent_id} className="flex items-center justify-between gap-2 rounded-lg border border-border/70 bg-background/35 px-3 py-1.5">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium text-foreground">{agent.hostname}</div>
-                      <div className="truncate text-xs text-muted-foreground">{agent.agent_id}</div>
                     </div>
                     <Badge variant={agent.status === 'active' ? 'success' : agent.status === 'stale' ? 'warning' : 'destructive'}>
                       {agent.status}

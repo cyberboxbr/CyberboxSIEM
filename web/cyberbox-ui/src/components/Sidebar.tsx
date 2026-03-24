@@ -147,30 +147,26 @@ export function Sidebar({
           mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
         )}
       >
-        <div className={cn('flex items-center gap-3 border-b border-sidebar-border/80 px-5 py-5', desktopCollapsed && 'justify-center px-3')}>
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-            <img src="/cyberboxlogo.png" alt="Cyberbox" className="h-8 w-8 object-contain" />
+        <div className={cn('flex items-center gap-2.5 border-b border-sidebar-border/80 px-4 py-3', desktopCollapsed && 'justify-center px-2')}>
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5">
+            <img src="/cyberboxlogo.png" alt="Cyberbox" className="h-6 w-6 object-contain" />
           </div>
           {!desktopCollapsed && (
             <div className="min-w-0">
-              <div className="font-display text-sm font-semibold uppercase tracking-[0.28em] text-sidebar-accent">
+              <div className="font-display text-xs font-semibold uppercase tracking-[0.22em] text-sidebar-accent">
                 Cyberbox
               </div>
-              <div className="text-sm text-sidebar-foreground/72">SOC operating console</div>
+              <div className="text-[10px] text-sidebar-foreground/60">SOC console</div>
             </div>
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto px-3 py-5">
-          {sections.map(([section, items]) => (
-            <div key={section} className="mb-6 last:mb-0">
-              {!desktopCollapsed && (
-                <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.28em] text-sidebar-foreground/45">
-                  {section}
-                </div>
-              )}
+        <div className="flex-1 overflow-y-auto px-2 py-3">
+          {sections.map(([section, items], sectionIndex) => (
+            <div key={section}>
+              {sectionIndex > 0 && <div className="my-2 border-t border-sidebar-border/50" />}
 
-              <div className="space-y-1">
+              <div className="space-y-0.5">
                 {items.map((item) => {
                   const Icon = item.icon;
                   const active = groupIsActive(location.pathname, item);
@@ -186,7 +182,7 @@ export function Sidebar({
                         onClick={onMobileClose}
                         className={({ isActive }) =>
                           cn(
-                            'group flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition-all duration-200',
+                            'group flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition-all duration-200',
                             desktopCollapsed ? 'justify-center px-0' : 'justify-start',
                             isActive
                               ? 'bg-sidebar-accent/14 text-sidebar-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
@@ -221,7 +217,7 @@ export function Sidebar({
                           }));
                         }}
                         className={cn(
-                          'flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition-all duration-200',
+                          'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition-all duration-200',
                           desktopCollapsed ? 'justify-center px-0' : 'justify-start',
                           active
                             ? 'bg-sidebar-accent/14 text-sidebar-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
@@ -247,7 +243,7 @@ export function Sidebar({
                                 onClick={onMobileClose}
                                 className={({ isActive }) =>
                                   cn(
-                                    'flex items-center gap-2 rounded-2xl px-3 py-2.5 text-sm transition-colors',
+                                    'flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors',
                                     isActive
                                       ? 'bg-white/7 text-sidebar-accent'
                                       : 'text-sidebar-foreground/60 hover:bg-white/5 hover:text-sidebar-foreground',
@@ -263,8 +259,8 @@ export function Sidebar({
                       )}
 
                       {desktopCollapsed && flyoutLabel === item.label && hasChildren && (
-                        <div className="absolute left-[calc(100%+0.75rem)] top-0 w-72 rounded-lg border border-border/70 bg-popover/95 p-3 shadow-shell backdrop-blur-2xl">
-                          <div className="mb-2 px-3 pt-1 font-display text-lg font-semibold text-popover-foreground">
+                        <div className="absolute left-[calc(100%+0.5rem)] top-0 w-56 rounded-lg border border-border/70 bg-popover/95 p-2 shadow-shell backdrop-blur-2xl">
+                          <div className="mb-1.5 px-2.5 pt-0.5 font-display text-sm font-semibold text-popover-foreground">
                             {item.label}
                           </div>
                           <div className="space-y-1">
@@ -275,7 +271,7 @@ export function Sidebar({
                                 onClick={onMobileClose}
                                 className={({ isActive }) =>
                                   cn(
-                                    'flex items-center gap-3 rounded-2xl px-3 py-3 text-sm transition-colors',
+                                    'flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors',
                                     isActive
                                       ? 'bg-primary/12 text-primary'
                                       : 'text-popover-foreground/72 hover:bg-muted/70 hover:text-popover-foreground',
@@ -326,36 +322,26 @@ export function Sidebar({
                 Tenant {activeBypassIdentity.tenantId}
               </div>
             </div>
-          ) : (
-            <div className={cn('mb-3 rounded-lg border border-white/8 bg-white/5 p-3 text-xs text-sidebar-foreground/60', desktopCollapsed && 'hidden')}>
-              <div className="mb-1 font-semibold uppercase tracking-[0.22em] text-sidebar-accent">Live Console</div>
-              <div>Blocks-ready shell with room to migrate pages incrementally.</div>
-            </div>
-          )}
+          ) : null}
 
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="hidden h-11 w-11 rounded-2xl border-white/10 bg-white/5 text-sidebar-foreground hover:bg-white/10 lg:inline-flex"
-              onClick={onToggle}
-            >
-              {desktopCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className={cn(
-                'flex-1 justify-start rounded-2xl text-sidebar-foreground/72 hover:bg-white/6 hover:text-sidebar-foreground lg:hidden',
-                desktopCollapsed && 'justify-center',
-              )}
-              onClick={onMobileClose}
-            >
-              <ChevronRight className="h-4 w-4 rotate-180" />
-              {!desktopCollapsed && <span>Close navigation</span>}
-            </Button>
-          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className={cn(
+              'w-full justify-center rounded-lg border-white/10 text-sidebar-foreground/60 hover:bg-white/6 hover:text-sidebar-foreground',
+              desktopCollapsed && 'px-0',
+            )}
+            onClick={mobileOpen ? onMobileClose : onToggle}
+          >
+            {mobileOpen ? (
+              <><ChevronRight className="h-3.5 w-3.5 rotate-180" />{!desktopCollapsed && <span>Close</span>}</>
+            ) : desktopCollapsed ? (
+              <PanelLeftOpen className="h-3.5 w-3.5" />
+            ) : (
+              <><PanelLeftClose className="h-3.5 w-3.5" /><span>Collapse</span></>
+            )}
+          </Button>
         </div>
       </aside>
     </>
