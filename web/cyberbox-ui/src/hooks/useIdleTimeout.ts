@@ -18,6 +18,7 @@ export function useIdleTimeout(
   onTimeout: () => void,
   warningMs = 60_000,
   onWarning?: () => void,
+  enabled = true,
 ) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const warningRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -45,6 +46,12 @@ export function useIdleTimeout(
   }, [timeoutMs, warningMs]);
 
   useEffect(() => {
+    if (!enabled) {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      if (warningRef.current) clearTimeout(warningRef.current);
+      return;
+    }
+
     resetTimers();
 
     const handler = () => resetTimers();
@@ -59,5 +66,5 @@ export function useIdleTimeout(
         window.removeEventListener(event, handler);
       }
     };
-  }, [resetTimers]);
+  }, [enabled, resetTimers]);
 }

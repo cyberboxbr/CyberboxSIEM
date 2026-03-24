@@ -1,256 +1,271 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type ComponentType, type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import {
+  ArrowRight,
+  BellRing,
+  BriefcaseBusiness,
+  Globe2,
+  LayoutGrid,
+  Plus,
+  Search,
+  ServerCog,
+  Shield,
+  ShieldCheck,
+  Sparkles,
+  Table2,
+} from 'lucide-react';
 
-/* ------------------------------------------------------------------ */
-/*  Data                                                               */
-/* ------------------------------------------------------------------ */
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { WorkspaceEmptyState } from '@/components/workspace/empty-state';
+import { useAuth } from '@/contexts/AuthContext';
+import { cn } from '@/lib/utils';
 
 interface PaletteItem {
   id: string;
   label: string;
+  detail: string;
   section: 'Navigation' | 'Actions';
+  icon: ComponentType<{ className?: string }>;
   to?: string;
   action?: () => void;
   keywords?: string;
+  badge?: string;
   adminOnly?: boolean;
   analystOnly?: boolean;
 }
 
-const NAV_ITEMS: PaletteItem[] = [
-  { id: 'nav-dashboard', label: 'Dashboard', section: 'Navigation', to: '/', keywords: 'home overview' },
-  { id: 'nav-alerts', label: 'Alerts', section: 'Navigation', to: '/alerts', keywords: 'alert queue notifications' },
-  { id: 'nav-cases', label: 'Cases', section: 'Navigation', to: '/cases', keywords: 'case incident' },
-  { id: 'nav-rules', label: 'Detection Rules', section: 'Navigation', to: '/rules', keywords: 'rule sigma detection', analystOnly: true },
-  { id: 'nav-coverage', label: 'MITRE Coverage', section: 'Navigation', to: '/coverage', keywords: 'mitre att&ck matrix', analystOnly: true },
-  { id: 'nav-lookups', label: 'Lookup Tables', section: 'Navigation', to: '/lookups', keywords: 'lookup enrichment', analystOnly: true },
-  { id: 'nav-search', label: 'Search', section: 'Navigation', to: '/search', keywords: 'query investigate' },
-  { id: 'nav-threatintel', label: 'Threat Intel', section: 'Navigation', to: '/threat-intel', keywords: 'threat intelligence ioc', analystOnly: true },
-  { id: 'nav-agents', label: 'Agents', section: 'Navigation', to: '/agents', keywords: 'agent collector endpoint', analystOnly: true },
-  { id: 'nav-rbac', label: 'RBAC', section: 'Navigation', to: '/admin/rbac', keywords: 'roles permissions access', adminOnly: true },
-  { id: 'nav-audit', label: 'Audit Logs', section: 'Navigation', to: '/admin/audit', keywords: 'audit trail log', adminOnly: true },
-  { id: 'nav-lgpd', label: 'LGPD Compliance', section: 'Navigation', to: '/admin/lgpd', keywords: 'privacy compliance gdpr', adminOnly: true },
-  { id: 'nav-system', label: 'System', section: 'Navigation', to: '/admin/system', keywords: 'settings configuration', adminOnly: true },
+const ALL_ITEMS: PaletteItem[] = [
+  {
+    id: 'nav-dashboard',
+    label: 'Dashboard',
+    detail: 'Jump to the operations overview and live telemetry snapshot.',
+    section: 'Navigation',
+    icon: LayoutGrid,
+    to: '/',
+    keywords: 'home overview command center',
+  },
+  {
+    id: 'nav-alerts',
+    label: 'Alerts',
+    detail: 'Open the triage queue and work active detections.',
+    section: 'Navigation',
+    icon: BellRing,
+    to: '/alerts',
+    keywords: 'alert queue notifications incidents',
+  },
+  {
+    id: 'nav-cases',
+    label: 'Cases',
+    detail: 'Move into case management and response coordination.',
+    section: 'Navigation',
+    icon: BriefcaseBusiness,
+    to: '/cases',
+    keywords: 'case incident response investigations',
+  },
+  {
+    id: 'nav-rules',
+    label: 'Detection Rules',
+    detail: 'Search or edit the detection rule catalog.',
+    section: 'Navigation',
+    icon: Shield,
+    to: '/rules',
+    keywords: 'rule sigma detection engineering',
+    analystOnly: true,
+  },
+  {
+    id: 'nav-coverage',
+    label: 'MITRE Coverage',
+    detail: 'Review ATT&CK technique coverage and open gaps.',
+    section: 'Navigation',
+    icon: ShieldCheck,
+    to: '/coverage',
+    keywords: 'mitre attack matrix coverage techniques',
+    analystOnly: true,
+  },
+  {
+    id: 'nav-lookups',
+    label: 'Lookup Tables',
+    detail: 'Manage enrichment tables and supporting datasets.',
+    section: 'Navigation',
+    icon: Table2,
+    to: '/lookups',
+    keywords: 'lookup enrichment tables',
+    analystOnly: true,
+  },
+  {
+    id: 'nav-search',
+    label: 'Search',
+    detail: 'Pivot into raw event search, NLQ, or live tail.',
+    section: 'Navigation',
+    icon: Search,
+    to: '/search',
+    keywords: 'query investigate hunt search',
+  },
+  {
+    id: 'nav-threatintel',
+    label: 'Threat Intel',
+    detail: 'Open feeds, syncs, and indicator management.',
+    section: 'Navigation',
+    icon: Globe2,
+    to: '/threat-intel',
+    keywords: 'threat intelligence ioc feeds',
+    analystOnly: true,
+  },
+  {
+    id: 'nav-agents',
+    label: 'Agents',
+    detail: 'Inspect fleet health and collector control actions.',
+    section: 'Navigation',
+    icon: ServerCog,
+    to: '/agents',
+    keywords: 'agent fleet collector endpoint',
+    analystOnly: true,
+  },
+  {
+    id: 'nav-rbac',
+    label: 'RBAC',
+    detail: 'Manage user roles and access control assignments.',
+    section: 'Navigation',
+    icon: ShieldCheck,
+    to: '/admin/rbac',
+    keywords: 'roles permissions access rbac',
+    badge: 'Admin',
+    adminOnly: true,
+  },
+  {
+    id: 'nav-audit',
+    label: 'Audit Logs',
+    detail: 'Inspect platform activity and change history.',
+    section: 'Navigation',
+    icon: ShieldCheck,
+    to: '/admin/audit',
+    keywords: 'audit logs trail compliance',
+    badge: 'Admin',
+    adminOnly: true,
+  },
+  {
+    id: 'nav-lgpd',
+    label: 'LGPD Compliance',
+    detail: 'Handle privacy exports, anonymization, and breach reporting.',
+    section: 'Navigation',
+    icon: ShieldCheck,
+    to: '/admin/lgpd',
+    keywords: 'privacy compliance lgpd gdpr',
+    badge: 'Admin',
+    adminOnly: true,
+  },
+  {
+    id: 'nav-system',
+    label: 'System',
+    detail: 'Open runtime health, metrics, and operational checks.',
+    section: 'Navigation',
+    icon: ShieldCheck,
+    to: '/admin/system',
+    keywords: 'system health settings metrics',
+    badge: 'Admin',
+    adminOnly: true,
+  },
+  {
+    id: 'act-create-rule',
+    label: 'Create Rule',
+    detail: 'Open the rules workspace and start a new detection.',
+    section: 'Actions',
+    icon: Plus,
+    to: '/rules',
+    keywords: 'new add rule sigma detection',
+    analystOnly: true,
+  },
+  {
+    id: 'act-open-search',
+    label: 'Start Hunt',
+    detail: 'Jump directly into the search workspace.',
+    section: 'Actions',
+    icon: Sparkles,
+    to: '/search',
+    keywords: 'hunt search investigate query',
+  },
 ];
-
-const ACTION_ITEMS: PaletteItem[] = [
-  { id: 'act-create-rule', label: 'Create Rule', section: 'Actions', to: '/rules', keywords: 'new add sigma detection', analystOnly: true },
-  { id: 'act-ingest', label: 'Ingest Event', section: 'Actions', to: '/alerts', keywords: 'send submit event log' },
-];
-
-const ALL_ITEMS = [...NAV_ITEMS, ...ACTION_ITEMS];
-
-/* ------------------------------------------------------------------ */
-/*  Styles                                                             */
-/* ------------------------------------------------------------------ */
-
-const S = {
-  overlay: {
-    position: 'fixed',
-    inset: 0,
-    zIndex: 500,
-    background: 'rgba(0, 0, 0, 0.7)',
-    display: 'flex',
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-    paddingTop: 120,
-  } as React.CSSProperties,
-  modal: {
-    width: 520,
-    maxWidth: 'calc(100vw - 32px)',
-    maxHeight: 'calc(100vh - 200px)',
-    background: '#0a0a0a',
-    border: '1px solid rgba(107, 45, 189, 0.4)',
-    borderRadius: 12,
-    boxShadow: '0 20px 60px rgba(0, 0, 0, 0.8)',
-    display: 'flex',
-    flexDirection: 'column',
-    overflow: 'hidden',
-  } as React.CSSProperties,
-  inputWrap: {
-    padding: '12px 16px',
-    borderBottom: '1px solid rgba(107, 45, 189, 0.25)',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-  } as React.CSSProperties,
-  searchIcon: {
-    color: '#A2A9B0',
-    flexShrink: 0,
-  } as React.CSSProperties,
-  input: {
-    flex: 1,
-    background: 'transparent',
-    border: 'none',
-    outline: 'none',
-    color: '#F4F4F4',
-    fontSize: 15,
-    fontFamily: '"IBM Plex Sans", "Segoe UI", sans-serif',
-  } as React.CSSProperties,
-  escBadge: {
-    fontSize: 11,
-    color: '#A2A9B0',
-    padding: '2px 6px',
-    border: '1px solid rgba(107, 45, 189, 0.2)',
-    borderRadius: 4,
-    flexShrink: 0,
-  } as React.CSSProperties,
-  list: {
-    overflowY: 'auto',
-    padding: '8px 0',
-  } as React.CSSProperties,
-  sectionLabel: {
-    padding: '8px 16px 4px',
-    fontSize: 11,
-    fontWeight: 600,
-    color: '#A2A9B0',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.08em',
-  } as React.CSSProperties,
-  item: (active: boolean): React.CSSProperties => ({
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    padding: '8px 16px',
-    cursor: 'pointer',
-    background: active ? 'rgba(107, 45, 189, 0.2)' : 'transparent',
-    color: active ? '#F4F4F4' : '#A2A9B0',
-    fontSize: 13,
-    transition: 'background 0.1s, color 0.1s',
-    border: 'none',
-    width: '100%',
-    textAlign: 'left',
-    fontFamily: '"IBM Plex Sans", "Segoe UI", sans-serif',
-  }),
-  itemIcon: {
-    width: 18,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    color: '#A2A9B0',
-    flexShrink: 0,
-  } as React.CSSProperties,
-  empty: {
-    padding: '24px 16px',
-    textAlign: 'center' as const,
-    color: '#A2A9B0',
-    fontSize: 13,
-  } as React.CSSProperties,
-  footer: {
-    padding: '8px 16px',
-    borderTop: '1px solid rgba(107, 45, 189, 0.2)',
-    display: 'flex',
-    gap: 16,
-    fontSize: 11,
-    color: 'rgba(162, 169, 176, 0.6)',
-  } as React.CSSProperties,
-  footerKbd: {
-    display: 'inline-block',
-    padding: '0px 4px',
-    borderRadius: 3,
-    border: '1px solid rgba(107, 45, 189, 0.2)',
-    background: 'rgba(107, 45, 189, 0.1)',
-    fontSize: 10,
-    fontFamily: 'monospace',
-    marginRight: 4,
-  } as React.CSSProperties,
-};
-
-/* ------------------------------------------------------------------ */
-/*  Icons for palette items                                            */
-/* ------------------------------------------------------------------ */
-
-const navIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="9 18 15 12 9 6" />
-  </svg>
-);
-
-const actionIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="12" y1="5" x2="12" y2="19" />
-    <line x1="5" y1="12" x2="19" y2="12" />
-  </svg>
-);
-
-const searchSvg = (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="11" cy="11" r="8" />
-    <line x1="21" y1="21" x2="16.65" y2="16.65" />
-  </svg>
-);
-
-/* ------------------------------------------------------------------ */
-/*  Component                                                          */
-/* ------------------------------------------------------------------ */
 
 interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
+  onOpenBypassEditor?: () => void;
 }
 
-export function CommandPalette({ open, onClose }: CommandPaletteProps) {
-  const { isAdmin, isAnalyst } = useAuth();
-  const [query, setQuery] = useState('');
-  const [activeIndex, setActiveIndex] = useState(0);
+function footerKey(label: string) {
+  return (
+    <span className="inline-flex min-w-[2rem] items-center justify-center rounded-full border border-border/70 bg-background/45 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+      {label}
+    </span>
+  );
+}
+
+export function CommandPalette({ open, onClose, onOpenBypassEditor }: CommandPaletteProps) {
+  const { authMode, isAdmin, isAnalyst, resetBypassIdentity } = useAuth();
+  const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const navigate = useNavigate();
+  const [query, setQuery] = useState('');
+  const [activeIndex, setActiveIndex] = useState(0);
 
-  const availableItems = ALL_ITEMS.filter((item) => {
-    if (item.adminOnly && !isAdmin) return false;
-    if (item.analystOnly && !(isAdmin || isAnalyst)) return false;
-    return true;
-  });
+  const availableItems = useMemo(
+    () => {
+      const items = ALL_ITEMS.filter((item) => {
+        if (item.adminOnly && !isAdmin) return false;
+        if (item.analystOnly && !(isAdmin || isAnalyst)) return false;
+        return true;
+      });
 
-  // Filter items
-  const filtered = query.trim()
-    ? availableItems.filter((item) => {
-        const q = query.toLowerCase();
-        return (
-          item.label.toLowerCase().includes(q) ||
-          (item.keywords && item.keywords.toLowerCase().includes(q))
-        );
-      })
-    : availableItems;
+      if (authMode === 'bypass' && onOpenBypassEditor) {
+        items.push({
+          id: 'act-edit-development-identity',
+          label: 'Edit Development Identity',
+          detail: 'Open the local bypass identity editor and change tenant, user, or role headers.',
+          section: 'Actions',
+          icon: ShieldCheck,
+          action: onOpenBypassEditor,
+          keywords: 'bypass development identity tenant roles headers auth',
+          badge: 'Dev',
+        });
 
-  // Group by section
-  const sections: { title: string; items: PaletteItem[] }[] = [];
-  const navFiltered = filtered.filter((i) => i.section === 'Navigation');
-  const actFiltered = filtered.filter((i) => i.section === 'Actions');
-  if (navFiltered.length > 0) sections.push({ title: 'Navigation', items: navFiltered });
-  if (actFiltered.length > 0) sections.push({ title: 'Actions', items: actFiltered });
-  const flatItems = sections.flatMap((s) => s.items);
-
-  // Reset active index on query change
-  useEffect(() => {
-    setActiveIndex(0);
-  }, [query]);
-
-  // Focus input on open
-  useEffect(() => {
-    if (open) {
-      setQuery('');
-      setActiveIndex(0);
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }
-  }, [open]);
-
-  // Global Cmd+K / Ctrl+K listener
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        if (!open) {
-          // Parent handles opening
-        } else {
-          onClose();
-        }
+        items.push({
+          id: 'act-reset-development-identity',
+          label: 'Reset Development Identity',
+          detail: 'Return the local bypass headers to the default SOC admin profile.',
+          section: 'Actions',
+          icon: Shield,
+          action: resetBypassIdentity,
+          keywords: 'bypass development identity reset default soc admin headers auth',
+          badge: 'Dev',
+        });
       }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [open, onClose]);
+
+      return items;
+    },
+    [authMode, isAdmin, isAnalyst, onOpenBypassEditor, resetBypassIdentity],
+  );
+
+  const sections = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    const filtered = normalized
+      ? availableItems.filter((item) => {
+          const haystack = `${item.label} ${item.detail} ${item.keywords ?? ''}`.toLowerCase();
+          return haystack.includes(normalized);
+        })
+      : availableItems;
+
+    const navigation = filtered.filter((item) => item.section === 'Navigation');
+    const actions = filtered.filter((item) => item.section === 'Actions');
+    return [
+      ...(navigation.length ? [{ title: 'Navigation', items: navigation }] : []),
+      ...(actions.length ? [{ title: 'Actions', items: actions }] : []),
+    ];
+  }, [availableItems, query]);
+
+  const flatItems = useMemo(() => sections.flatMap((section) => section.items), [sections]);
 
   const selectItem = useCallback(
     (item: PaletteItem) => {
@@ -265,103 +280,167 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     [navigate, onClose],
   );
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
+  useEffect(() => {
+    if (!open) return;
+    setQuery('');
+    setActiveIndex(0);
+    const frame = window.requestAnimationFrame(() => inputRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [open]);
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [query]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!listRef.current) return;
+    const element = listRef.current.querySelector(`[data-palette-index="${activeIndex}"]`) as HTMLElement | null;
+    if (element) {
+      element.scrollIntoView({ block: 'nearest' });
+    }
+  }, [activeIndex]);
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
       onClose();
       return;
     }
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setActiveIndex((prev) => Math.min(prev + 1, flatItems.length - 1));
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setActiveIndex((current) => Math.min(current + 1, Math.max(flatItems.length - 1, 0)));
       return;
     }
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setActiveIndex((prev) => Math.max(prev - 1, 0));
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActiveIndex((current) => Math.max(current - 1, 0));
       return;
     }
-    if (e.key === 'Enter' && flatItems.length > 0) {
-      e.preventDefault();
+    if (event.key === 'Enter' && flatItems.length > 0) {
+      event.preventDefault();
       selectItem(flatItems[activeIndex]);
     }
   };
-
-  // Scroll active item into view
-  useEffect(() => {
-    if (!listRef.current) return;
-    const el = listRef.current.querySelector(`[data-palette-index="${activeIndex}"]`) as HTMLElement | null;
-    if (el) {
-      el.scrollIntoView({ block: 'nearest' });
-    }
-  }, [activeIndex]);
 
   if (!open) return null;
 
   let flatIndex = 0;
 
   return (
-    <div style={S.overlay} onClick={onClose}>
-      <div style={S.modal} onClick={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
-        {/* Search input */}
-        <div style={S.inputWrap}>
-          <span style={S.searchIcon}>{searchSvg}</span>
-          <input
-            ref={inputRef}
-            style={S.input}
-            type="text"
-            placeholder="Type a command or search..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <span style={S.escBadge}>ESC</span>
-        </div>
-
-        {/* Results */}
-        <div style={S.list} ref={listRef}>
-          {sections.length === 0 && (
-            <div style={S.empty}>No results found</div>
-          )}
-          {sections.map((section) => (
-            <div key={section.title}>
-              <div style={S.sectionLabel}>{section.title}</div>
-              {section.items.map((item) => {
-                const idx = flatIndex++;
-                return (
-                  <button
-                    key={item.id}
-                    data-palette-index={idx}
-                    style={S.item(idx === activeIndex)}
-                    onClick={() => selectItem(item)}
-                    onMouseEnter={() => setActiveIndex(idx)}
-                  >
-                    <span style={S.itemIcon}>
-                      {item.section === 'Navigation' ? navIcon : actionIcon}
-                    </span>
-                    {item.label}
-                  </button>
-                );
-              })}
+    <div
+      className="fixed inset-0 z-[120] bg-slate-950/70 px-4 py-6 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Command palette"
+      onClick={onClose}
+    >
+      <div className="mx-auto flex h-full max-w-3xl items-start justify-center pt-8 sm:pt-14" onClick={(event) => event.stopPropagation()}>
+        <Card className="w-full overflow-hidden border-border/80 bg-popover/95 shadow-shell backdrop-blur-2xl">
+          <CardHeader className="border-b border-border/70 pb-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <Badge variant="outline" className="border-primary/20 bg-primary/10 text-primary">Command palette</Badge>
+                <CardTitle className="mt-4 text-3xl">Jump anywhere fast</CardTitle>
+                <CardDescription className="mt-2 max-w-2xl">
+                  Search navigation targets and common actions across the Cyberbox workspace.
+                </CardDescription>
+              </div>
+              <Button type="button" variant="outline" size="sm" className="rounded-full" onClick={onClose}>
+                {footerKey('Esc')}
+                Close
+              </Button>
             </div>
-          ))}
-        </div>
 
-        {/* Footer hints */}
-        <div style={S.footer}>
-          <span>
-            <kbd style={S.footerKbd}>Up</kbd>
-            <kbd style={S.footerKbd}>Down</kbd>
-            navigate
-          </span>
-          <span>
-            <kbd style={S.footerKbd}>Enter</kbd>
-            select
-          </span>
-          <span>
-            <kbd style={S.footerKbd}>Esc</kbd>
-            close
-          </span>
-        </div>
+            <div className="relative mt-6">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                ref={inputRef}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Search routes, admin tools, or actions..."
+                className="h-12 pl-11 pr-24 text-base"
+              />
+              <div className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 items-center gap-2 rounded-full border border-border/70 bg-background/45 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-muted-foreground sm:inline-flex">
+                {footerKey('Enter')}
+                open
+              </div>
+            </div>
+          </CardHeader>
+
+          <CardContent ref={listRef} className="max-h-[60vh] overflow-y-auto p-0">
+            {sections.length === 0 ? (
+              <WorkspaceEmptyState
+                title="No commands match"
+                body="Try a broader search phrase or clear the current query."
+                className="min-h-[240px] rounded-none border-0 bg-transparent"
+              />
+            ) : (
+              sections.map((section) => (
+                <div key={section.title} className="border-b border-border/70 last:border-b-0">
+                  <div className="sticky top-0 z-10 border-b border-border/70 bg-popover/95 px-6 py-3 text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">
+                    {section.title}
+                  </div>
+                  <div className="p-3">
+                    {section.items.map((item) => {
+                      const index = flatIndex++;
+                      const Icon = item.icon;
+                      const active = index === activeIndex;
+
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          data-palette-index={index}
+                          className={cn(
+                            'flex w-full items-center gap-4 rounded-[22px] px-3 py-3 text-left transition-colors',
+                            active ? 'bg-primary/10 text-foreground' : 'text-foreground hover:bg-muted/50',
+                          )}
+                          onClick={() => selectItem(item)}
+                          onMouseEnter={() => setActiveIndex(index)}
+                        >
+                          <div className={cn(
+                            'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-background/45',
+                            active && 'border-primary/20 bg-primary/10 text-primary',
+                          )}>
+                            <Icon className="h-4 w-4" />
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="font-medium">{item.label}</div>
+                              {item.badge ? <Badge variant="outline">{item.badge}</Badge> : null}
+                            </div>
+                            <div className="mt-1 text-sm text-muted-foreground">{item.detail}</div>
+                          </div>
+
+                          <ArrowRight className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', active && 'translate-x-0.5 text-primary')} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))
+            )}
+          </CardContent>
+
+          <div className="flex flex-wrap gap-3 border-t border-border/70 px-6 py-4 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-2">{footerKey('Ctrl K')} toggle palette</span>
+            <span className="inline-flex items-center gap-2">{footerKey('Up')}</span>
+            <span className="inline-flex items-center gap-2">{footerKey('Down')} navigate</span>
+            <span className="inline-flex items-center gap-2">{footerKey('Enter')} open</span>
+          </div>
+        </Card>
       </div>
     </div>
   );

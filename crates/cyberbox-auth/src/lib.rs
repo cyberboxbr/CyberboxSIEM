@@ -16,6 +16,7 @@ use axum::{
     extract::FromRequestParts,
     http::{header::AUTHORIZATION, request::Parts},
 };
+use dashmap::DashMap;
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
@@ -91,6 +92,13 @@ pub struct TenantOverride(pub String);
 /// Set `CYBERBOX__INGEST_API_KEY=<secret>` to enable.
 #[derive(Clone)]
 pub struct IngestApiKey(pub String);
+
+/// Axum extension containing live per-user RBAC grants.
+///
+/// Keys are stored as `"{tenant_id}:{user_id}"` and merged with the roles
+/// derived from JWT claims or auth-bypass headers.
+#[derive(Clone)]
+pub struct RoleOverrideStore(pub Arc<DashMap<String, Vec<Role>>>);
 
 // ── OIDC / JWKS internal types ───────────────────────────────────────────────
 
@@ -401,23 +409,10 @@ where
                                 .map(ToOwned::to_owned)
                         })
                         .unwrap_or_else(|| "api-key".to_string());
-                    let roles = parts
-                        .headers
-                        .get("x-roles")
-                        .and_then(|v| v.to_str().ok())
-                        .map(|r| {
-                            r.split(',')
-                                .filter_map(|s| Role::parse(s.trim()))
-                                .collect::<Vec<_>>()
-                        })
-                        .filter(|r| !r.is_empty())
-                        .unwrap_or_else(|| {
-                            vec![Role::Admin, Role::Analyst, Role::Viewer, Role::Ingestor]
-                        });
                     AuthContext {
                         user_id,
                         tenant_id,
-                        roles,
+                        roles: vec![Role::Ingestor],
                     }
                 }
                 Some(_) => {
@@ -458,10 +453,17 @@ where
         if let Some(TenantOverride(ref forced)) = parts.extensions.get::<TenantOverride>().cloned()
         {
             ctx.tenant_id = forced.clone();
-            // In single-tenant mode, grant all roles to authenticated users
-            // (role management via RBAC page, not Entra ID app roles)
-            if ctx.roles == vec![Role::Viewer] {
-                ctx.roles = vec![Role::Admin, Role::Analyst, Role::Viewer];
+        }
+
+        if let Some(RoleOverrideStore(store)) = parts.extensions.get::<RoleOverrideStore>().cloned()
+        {
+            let key = format!("{}:{}", ctx.tenant_id, ctx.user_id);
+            if let Some(stored) = store.get(&key) {
+                for role in stored.iter() {
+                    if !ctx.roles.contains(role) {
+                        ctx.roles.push(role.clone());
+                    }
+                }
             }
         }
 

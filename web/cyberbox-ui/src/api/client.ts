@@ -28,6 +28,50 @@ export type FeedType = 'taxii' | 'stix' | 'csv' | 'json';
 let tokenProvider: (() => Promise<string>) | null = null;
 let pendingToken: Promise<string> | null = null;
 
+export interface FallbackIdentity {
+  tenantId: string;
+  userId: string;
+  roles: string[];
+}
+
+export const DEFAULT_FALLBACK_IDENTITY: FallbackIdentity = {
+  tenantId: 'tenant-a',
+  userId: 'soc-admin',
+  roles: ['admin', 'analyst', 'viewer', 'ingestor'],
+};
+
+function normalizeIdentityRoles(
+  roles: string | string[] | undefined,
+  fallback: string[] = DEFAULT_FALLBACK_IDENTITY.roles,
+): string[] {
+  const source = Array.isArray(roles)
+    ? roles
+    : typeof roles === 'string'
+      ? roles.split(',')
+      : fallback;
+
+  return source
+    .map((role) => role.trim())
+    .filter(Boolean)
+    .filter((role, index, list) => list.indexOf(role) === index);
+}
+
+export function getDefaultFallbackIdentity(): FallbackIdentity {
+  return {
+    tenantId: DEFAULT_FALLBACK_IDENTITY.tenantId,
+    userId: DEFAULT_FALLBACK_IDENTITY.userId,
+    roles: [...DEFAULT_FALLBACK_IDENTITY.roles],
+  };
+}
+
+export function normalizeFallbackIdentity(identity: Partial<FallbackIdentity>): FallbackIdentity {
+  return {
+    tenantId: identity.tenantId?.trim() || DEFAULT_FALLBACK_IDENTITY.tenantId,
+    userId: identity.userId?.trim() || DEFAULT_FALLBACK_IDENTITY.userId,
+    roles: normalizeIdentityRoles(identity.roles),
+  };
+}
+
 /**
  * Called by AuthContext after login to wire up token acquisition.
  */
@@ -38,19 +82,39 @@ export function setTokenProvider(provider: (() => Promise<string>) | null): void
 
 // ── Dev-mode identity headers (used when no token provider is set) ────────
 
+const initialFallbackIdentity = getDefaultFallbackIdentity();
+
 const BASE_HEADERS: Record<string, string> = {
-  'x-tenant-id': 'tenant-a',
-  'x-user-id': 'soc-admin',
-  'x-roles': 'admin,analyst,viewer,ingestor',
+  'x-tenant-id': initialFallbackIdentity.tenantId,
+  'x-user-id': initialFallbackIdentity.userId,
+  'x-roles': initialFallbackIdentity.roles.join(','),
 };
 
 /**
  * Override the dev-mode identity headers (only used when auth is disabled).
  */
-export function setIdentity(tenantId: string, userId: string, roles: string): void {
-  BASE_HEADERS['x-tenant-id'] = tenantId;
-  BASE_HEADERS['x-user-id'] = userId;
-  BASE_HEADERS['x-roles'] = roles;
+export function setIdentity(
+  tenantId: string,
+  userId: string,
+  roles: string | string[],
+): void {
+  const next = normalizeFallbackIdentity({
+    tenantId,
+    userId,
+    roles: normalizeIdentityRoles(roles, []),
+  });
+
+  BASE_HEADERS['x-tenant-id'] = next.tenantId;
+  BASE_HEADERS['x-user-id'] = next.userId;
+  BASE_HEADERS['x-roles'] = next.roles.join(',');
+}
+
+export function getFallbackIdentity(): FallbackIdentity {
+  return normalizeFallbackIdentity({
+    tenantId: BASE_HEADERS['x-tenant-id'],
+    userId: BASE_HEADERS['x-user-id'],
+    roles: normalizeIdentityRoles(BASE_HEADERS['x-roles'], []),
+  });
 }
 
 /**

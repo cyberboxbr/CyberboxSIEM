@@ -1,58 +1,44 @@
-import { Configuration, LogLevel } from '@azure/msal-browser';
+import type { Configuration } from '@azure/msal-browser';
 
-/**
- * Azure AD / Entra ID — MSAL configuration.
- *
- * To set up:
- *   1. Go to Azure Portal → Entra ID → App registrations → New registration
- *   2. Name: "CyberboxSIEM"
- *   3. Redirect URI (SPA): http://localhost:5173 (dev), https://cyberbox.yourdomain.com (prod)
- *   4. Under "API permissions", add: User.Read (delegated)
- *   5. Under "App roles", create: admin, analyst, viewer, ingestor
- *   6. Under "Token configuration", add optional claims: email, preferred_username
- *   7. Copy the Application (client) ID and Directory (tenant) ID below
- */
+function readEnv(name: string): string {
+  const value = import.meta.env[name as keyof ImportMetaEnv];
+  return typeof value === 'string' ? value.trim() : '';
+}
 
-// ── Replace these with your Azure AD App Registration values ────────────────
+function isPlaceholder(value: string, placeholder: string): boolean {
+  return !value || value === placeholder;
+}
 
-const CLIENT_ID = import.meta.env.VITE_AZURE_CLIENT_ID || 'YOUR_CLIENT_ID';
-const TENANT_ID = import.meta.env.VITE_AZURE_TENANT_ID || 'YOUR_TENANT_ID';
-const REDIRECT_URI = import.meta.env.VITE_AZURE_REDIRECT_URI || window.location.origin;
+const CLIENT_ID = readEnv('VITE_AZURE_CLIENT_ID');
+const TENANT_ID = readEnv('VITE_AZURE_TENANT_ID');
+const REDIRECT_URI = readEnv('VITE_AZURE_REDIRECT_URI') || window.location.origin;
+const AUTH_BYPASS = readEnv('VITE_AUTH_BYPASS').toLowerCase() === 'true';
 
-// ── MSAL configuration ─────────────────────────────────────────────────────
+export const isMicrosoftAuthConfigured =
+  !isPlaceholder(CLIENT_ID, 'YOUR_CLIENT_ID') &&
+  !isPlaceholder(TENANT_ID, 'YOUR_TENANT_ID');
 
-export const msalConfig: Configuration = {
-  auth: {
-    clientId: CLIENT_ID,
-    authority: `https://login.microsoftonline.com/${TENANT_ID}`,
-    redirectUri: REDIRECT_URI,
-    postLogoutRedirectUri: REDIRECT_URI,
-  },
-  cache: {
-    cacheLocation: 'localStorage',
-  },
-  system: {
-    loggerOptions: {
-      logLevel: LogLevel.Warning,
-      piiLoggingEnabled: false,
+export const isAuthBypassEnabled =
+  AUTH_BYPASS || (import.meta.env.DEV && !isMicrosoftAuthConfigured);
+
+export function getMsalConfig(): Configuration {
+  return {
+    auth: {
+      clientId: CLIENT_ID,
+      authority: `https://login.microsoftonline.com/${TENANT_ID}`,
+      redirectUri: REDIRECT_URI,
+      postLogoutRedirectUri: REDIRECT_URI,
     },
-  },
-};
+    cache: {
+      cacheLocation: 'localStorage',
+    },
+  };
+}
 
-/**
- * Scopes requested during login.
- * - `openid` + `profile` + `email` are standard OIDC scopes
- * - `api://<CLIENT_ID>/access` is the custom scope for your API
- *   (configure under "Expose an API" in the App Registration)
- */
 export const loginScopes = {
   scopes: ['openid', 'profile', 'email'],
 };
 
-/**
- * Scopes for acquiring tokens to call the CyberboxSIEM API.
- * After setting up "Expose an API", replace with your actual scope URI.
- */
 export const apiScopes = {
-  scopes: [`api://${CLIENT_ID}/access`],
+  scopes: isMicrosoftAuthConfigured ? [`api://${CLIENT_ID}/access`] : [],
 };

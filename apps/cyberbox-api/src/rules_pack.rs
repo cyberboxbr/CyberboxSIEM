@@ -82,11 +82,10 @@ pub async fn import_rules_from_dir(
             }
         };
 
-        let existing = if let Some(ch) = &state.clickhouse_event_store {
-            ch.get_rule(&auth.tenant_id, rule_id).await.ok()
-        } else {
-            state.storage.get_rule(&auth.tenant_id, rule_id).await.ok()
-        };
+        let existing = state
+            .get_rule_for_tenant(&auth.tenant_id, rule_id)
+            .await
+            .ok();
 
         if let Some(ref ex) = existing {
             if ex.sigma_source == content {
@@ -131,15 +130,10 @@ pub async fn import_rules_from_dir(
 
     let pruned = if prune {
         let mut count = 0;
-        let all_rules = if let Some(ch) = &state.clickhouse_event_store {
-            ch.list_rules(&auth.tenant_id).await.unwrap_or_default()
-        } else {
-            state
-                .storage
-                .list_rules(&auth.tenant_id)
-                .await
-                .unwrap_or_default()
-        };
+        let all_rules = state
+            .list_rules_for_tenant(&auth.tenant_id)
+            .await
+            .unwrap_or_default();
         for rule in &all_rules {
             if rule.enabled && !seen_ids.contains(&rule.rule_id) {
                 let mut disabled = rule.clone();
@@ -158,12 +152,13 @@ pub async fn import_rules_from_dir(
     };
 
     // Refresh rule cache
-    let fresh = state
-        .storage
-        .list_rules(&auth.tenant_id)
-        .await
-        .unwrap_or_default();
-    state.stream_rule_cache.refresh(&auth.tenant_id, fresh);
+    if let Err(err) = state.refresh_stream_rules(&auth.tenant_id).await {
+        tracing::warn!(
+            tenant_id = %auth.tenant_id,
+            error = %err,
+            "failed to refresh stream rule cache after rule pack import"
+        );
+    }
 
     Ok(ImportResult {
         imported,

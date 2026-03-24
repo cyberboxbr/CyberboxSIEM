@@ -1,118 +1,65 @@
-import React, { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import {
+  BellRing,
+  BriefcaseBusiness,
+  ChevronDown,
+  ChevronRight,
+  Globe2,
+  LayoutGrid,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Search,
+  ServerCog,
+  Shield,
+  ShieldCheck,
+} from 'lucide-react';
 
-/* ------------------------------------------------------------------ */
-/*  Inline SVG icons (simple path-based, no library dependency)        */
-/* ------------------------------------------------------------------ */
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
 
-const icons = {
-  grid: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="7" height="7" />
-      <rect x="14" y="3" width="7" height="7" />
-      <rect x="3" y="14" width="7" height="7" />
-      <rect x="14" y="14" width="7" height="7" />
-    </svg>
-  ),
-  bell: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-    </svg>
-  ),
-  briefcase: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
-      <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
-    </svg>
-  ),
-  shield: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-    </svg>
-  ),
-  search: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="11" cy="11" r="8" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
-  ),
-  globe: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <line x1="2" y1="12" x2="22" y2="12" />
-      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2z" />
-    </svg>
-  ),
-  server: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
-      <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
-      <line x1="6" y1="6" x2="6.01" y2="6" />
-      <line x1="6" y1="18" x2="6.01" y2="18" />
-    </svg>
-  ),
-  settings: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1.08z" />
-    </svg>
-  ),
-  chevronDown: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
-  ),
-  chevronLeft: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="15 18 9 12 15 6" />
-    </svg>
-  ),
-  chevronRight: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="9 18 15 12 9 6" />
-    </svg>
-  ),
-};
+type Gate = 'admin' | 'analyst';
 
-/* ------------------------------------------------------------------ */
-/*  Types                                                              */
-/* ------------------------------------------------------------------ */
+interface NavChild {
+  label: string;
+  to: string;
+}
 
 interface NavItem {
   label: string;
-  icon: keyof typeof icons;
+  icon: React.ComponentType<{ className?: string }>;
   to?: string;
   end?: boolean;
-  children?: { label: string; to: string }[];
-  adminOnly?: boolean;
-  analystOnly?: boolean;
-  dividerAfter?: boolean;
+  gate?: Gate;
+  children?: NavChild[];
+  section: string;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard', icon: 'grid', to: '/', end: true, dividerAfter: true },
-  { label: 'Alerts', icon: 'bell', to: '/alerts' },
-  { label: 'Cases', icon: 'briefcase', to: '/cases' },
+  { label: 'Dashboard', icon: LayoutGrid, to: '/', end: true, section: 'Operations' },
+  { label: 'Alerts', icon: BellRing, to: '/alerts', section: 'Operations' },
+  { label: 'Cases', icon: BriefcaseBusiness, to: '/cases', section: 'Operations' },
   {
     label: 'Detection',
-    icon: 'shield',
-    analystOnly: true,
-    dividerAfter: true,
+    icon: Shield,
+    gate: 'analyst',
+    section: 'Hunt',
     children: [
       { label: 'Rules', to: '/rules' },
       { label: 'MITRE Coverage', to: '/coverage' },
       { label: 'Lookup Tables', to: '/lookups' },
     ],
   },
-  { label: 'Search', icon: 'search', to: '/search' },
-  { label: 'Threat Intel', icon: 'globe', to: '/threat-intel', analystOnly: true },
-  { label: 'Agents', icon: 'server', to: '/agents', analystOnly: true },
+  { label: 'Search', icon: Search, to: '/search', section: 'Hunt' },
+  { label: 'Threat Intel', icon: Globe2, to: '/threat-intel', gate: 'analyst', section: 'Hunt' },
+  { label: 'Agents', icon: ServerCog, to: '/agents', gate: 'analyst', section: 'Control' },
   {
     label: 'Administration',
-    icon: 'settings',
-    adminOnly: true,
+    icon: ShieldCheck,
+    gate: 'admin',
+    section: 'Control',
     children: [
       { label: 'RBAC', to: '/admin/rbac' },
       { label: 'Audit Logs', to: '/admin/audit' },
@@ -122,313 +69,295 @@ const NAV_ITEMS: NavItem[] = [
   },
 ];
 
-/* ------------------------------------------------------------------ */
-/*  Styles                                                             */
-/* ------------------------------------------------------------------ */
-
-const S = {
-  sidebar: (collapsed: boolean): React.CSSProperties => ({
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    bottom: 0,
-    width: collapsed ? 72 : 260,
-    background: 'linear-gradient(180deg, var(--sidebar-gradient-from) 0%, var(--sidebar-gradient-to) 100%)',
-    borderRight: '1px solid var(--sidebar-border)',
-    display: 'flex',
-    flexDirection: 'column',
-    zIndex: 200,
-    transition: 'width 0.2s ease-out',
-    overflow: 'hidden',
-  }),
-  logoWrap: (collapsed: boolean): React.CSSProperties => ({
-    height: 48,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: collapsed ? 'center' : 'flex-start',
-    gap: 10,
-    padding: collapsed ? '0 8px' : '0 16px',
-    borderBottom: '1px solid var(--sidebar-divider)',
-    flexShrink: 0,
-    overflow: 'hidden',
-    whiteSpace: 'nowrap',
-  }),
-  logo: { height: 72, width: 'auto', flexShrink: 0 } as React.CSSProperties,
-  logoText: {
-    fontSize: 15,
-    fontWeight: 800,
-    color: '#FFFFFF',
-    letterSpacing: '0.1em',
-    lineHeight: 1,
-  } as React.CSSProperties,
-  nav: {
-    flex: 1,
-    overflowY: 'auto',
-    overflowX: 'hidden',
-    padding: '16px 0',
-  } as React.CSSProperties,
-  sectionLabel: {
-    padding: '20px 24px 8px',
-    fontSize: 11,
-    fontWeight: 600,
-    color: 'var(--sidebar-section-label)',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.1em',
-  } as React.CSSProperties,
-  groupHeader: (collapsed: boolean, isActive: boolean): React.CSSProperties => ({
-    display: 'flex',
-    alignItems: 'center',
-    gap: 12,
-    padding: collapsed ? '10px 0' : '10px 16px',
-    margin: collapsed ? '2px 0' : '2px 12px',
-    justifyContent: collapsed ? 'center' : 'flex-start',
-    cursor: 'pointer',
-    color: isActive ? '#fff' : 'var(--sidebar-text)',
-    fontSize: 14,
-    fontWeight: isActive ? 600 : 400,
-    border: 'none',
-    background: isActive ? 'var(--sidebar-item-active-bg)' : 'transparent',
-    borderRadius: 10,
-    width: collapsed ? '100%' : 'auto',
-    textAlign: 'left',
-    transition: 'all 0.2s ease-out',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-  }),
-  link: (collapsed: boolean): React.CSSProperties => ({
-    display: 'flex',
-    alignItems: 'center',
-    gap: 12,
-    padding: collapsed ? '10px 0' : '10px 16px',
-    margin: collapsed ? '2px 0' : '2px 12px',
-    justifyContent: collapsed ? 'center' : 'flex-start',
-    color: 'var(--sidebar-text)',
-    fontSize: 14,
-    fontWeight: 400,
-    textDecoration: 'none',
-    borderRadius: 10,
-    transition: 'all 0.2s ease-out',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-  }),
-  linkActive: {
-    color: '#fff',
-    fontWeight: 600,
-    background: 'var(--sidebar-item-active-bg)',
-  } as React.CSSProperties,
-  childLink: {
-    display: 'block',
-    padding: '7px 16px 7px 52px',
-    margin: '1px 12px',
-    fontSize: 13,
-    color: 'var(--sidebar-text)',
-    textDecoration: 'none',
-    borderRadius: 8,
-    transition: 'all 0.2s ease-out',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-  } as React.CSSProperties,
-  childLinkActive: {
-    color: 'var(--sidebar-child-active)',
-    fontWeight: 500,
-    background: 'rgba(255,255,255,0.04)',
-  } as React.CSSProperties,
-  chevron: (open: boolean): React.CSSProperties => ({
-    marginLeft: 'auto',
-    flexShrink: 0,
-    transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
-    transition: 'transform 0.2s ease-out',
-    opacity: 0.4,
-  }),
-  toggle: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 48,
-    borderTop: '1px solid var(--sidebar-divider)',
-    cursor: 'pointer',
-    color: 'var(--sidebar-text)',
-    background: 'transparent',
-    border: 'none',
-    borderTopStyle: 'solid' as const,
-    borderTopWidth: 1,
-    borderTopColor: 'var(--sidebar-divider)',
-    flexShrink: 0,
-    width: '100%',
-    transition: 'color 0.2s ease-out',
-  } as React.CSSProperties,
-};
-
-/* ------------------------------------------------------------------ */
-/*  Component                                                          */
-/* ------------------------------------------------------------------ */
-
 interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
-export function Sidebar({ collapsed, onToggle }: SidebarProps) {
-  const { isAdmin, isAnalyst } = useAuth();
+function groupIsActive(pathname: string, item: NavItem) {
+  if (item.to) {
+    return item.end ? pathname === item.to : pathname.startsWith(item.to);
+  }
+  return item.children?.some((child) => pathname.startsWith(child.to)) ?? false;
+}
+
+export function Sidebar({
+  collapsed,
+  onToggle,
+  mobileOpen = false,
+  onMobileClose,
+}: SidebarProps) {
   const location = useLocation();
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
-    Detection: true,
-    Administration: true,
-  });
+  const { authMode, bypassIdentity, isAdmin, isAnalyst } = useAuth();
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const [flyoutLabel, setFlyoutLabel] = useState<string | null>(null);
+  const activeBypassIdentity = authMode === 'bypass' ? bypassIdentity : null;
 
-  const toggleGroup = (label: string) => {
-    setOpenGroups((prev) => ({ ...prev, [label]: !prev[label] }));
-  };
+  const visibleItems = useMemo(
+    () =>
+      NAV_ITEMS.filter((item) => {
+        if (item.gate === 'admin') return isAdmin;
+        if (item.gate === 'analyst') return isAdmin || isAnalyst;
+        return true;
+      }),
+    [isAdmin, isAnalyst],
+  );
 
-  const isRouteActive = (to: string, end?: boolean) => {
-    if (end) return location.pathname === to;
-    return location.pathname.startsWith(to);
-  };
+  useEffect(() => {
+    setOpenGroups((current) => {
+      const next = { ...current };
+      for (const item of visibleItems) {
+        if (item.children && groupIsActive(location.pathname, item)) {
+          next[item.label] = true;
+        }
+      }
+      return next;
+    });
+    setFlyoutLabel(null);
+  }, [location.pathname, visibleItems]);
 
-  const isGroupActive = (item: NavItem): boolean => {
-    if (item.to && isRouteActive(item.to, item.end)) return true;
-    if (item.children) return item.children.some((c) => isRouteActive(c.to));
-    return false;
-  };
+  const sections = useMemo(() => {
+    const grouped = new Map<string, NavItem[]>();
+    for (const item of visibleItems) {
+      const bucket = grouped.get(item.section) ?? [];
+      bucket.push(item);
+      grouped.set(item.section, bucket);
+    }
+    return Array.from(grouped.entries());
+  }, [visibleItems]);
+
+  const desktopCollapsed = collapsed && !mobileOpen;
 
   return (
-    <aside style={S.sidebar(collapsed)}>
-      {/* Logo */}
-      <div style={S.logoWrap(collapsed)}>
-        <img src="/cyberboxlogo.png" alt="CyberboxSIEM" style={{ height: collapsed ? 24 : 28, width: 'auto', flexShrink: 0 }} />
-        {!collapsed && (
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-            <span style={S.logoText}>CYBERBOX</span>
-            <span style={{ fontSize: 15, fontWeight: 700, color: '#00F4A3', letterSpacing: '0.15em' }}>SIEM</span>
-          </div>
+    <>
+      <div
+        className={cn(
+          'fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-sm transition-opacity duration-200 lg:hidden',
+          mobileOpen ? 'opacity-100' : 'pointer-events-none opacity-0',
         )}
-      </div>
+        onClick={onMobileClose}
+      />
 
-      {/* Navigation */}
-      <nav style={S.nav}>
-        {NAV_ITEMS.map((item) => {
-          if (item.adminOnly && !isAdmin) return null;
-          if (item.analystOnly && !isAnalyst && !isAdmin) return null;
-          const active = isGroupActive(item);
-          const hasChildren = item.children && item.children.length > 0;
-          const groupOpen = openGroups[item.label] ?? false;
-
-          // Items with children but also a direct link (e.g., Alerts)
-          // or items that are purely collapsible groups (Detection, Administration)
-          if (hasChildren && !item.to) {
-            // Pure collapsible group
-            return (
-              <React.Fragment key={item.label}>
-                <div>
-                  <button
-                    style={S.groupHeader(collapsed, active)}
-                    onClick={() => !collapsed && toggleGroup(item.label)}
-                    title={collapsed ? item.label : undefined}
-                  >
-                    {icons[item.icon]}
-                    {!collapsed && (
-                      <>
-                        <span>{item.label}</span>
-                        <span style={S.chevron(groupOpen)}>{icons.chevronDown}</span>
-                      </>
-                    )}
-                  </button>
-                  {!collapsed && groupOpen &&
-                    item.children!.map((child) => (
-                      <NavLink
-                        key={child.to}
-                        to={child.to}
-                        style={({ isActive }) => ({
-                          ...S.childLink,
-                          ...(isActive ? S.childLinkActive : {}),
-                        })}
-                      >
-                        {child.label}
-                      </NavLink>
-                    ))}
-                </div>
-                {item.dividerAfter && <div style={{ height: 1, background: 'var(--sidebar-divider)', margin: '6px 16px' }} />}
-              </React.Fragment>
-            );
-          }
-
-          if (hasChildren && item.to) {
-            // Group with a direct link + children
-            return (
-              <div key={item.label}>
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <NavLink
-                    to={item.to}
-                    end={item.end}
-                    style={({ isActive }) => ({
-                      ...S.link(collapsed),
-                      ...(isActive ? S.linkActive : {}),
-                      flex: 1,
-                    })}
-                    title={collapsed ? item.label : undefined}
-                  >
-                    {icons[item.icon]}
-                    {!collapsed && <span>{item.label}</span>}
-                  </NavLink>
-                  {!collapsed && (
-                    <button
-                      style={{
-                        background: 'transparent',
-                        border: 'none',
-                        cursor: 'pointer',
-                        padding: '4px 10px 4px 0',
-                        color: '#A2A9B0',
-                        display: 'flex',
-                        alignItems: 'center',
-                      }}
-                      onClick={() => toggleGroup(item.label)}
-                    >
-                      <span style={S.chevron(groupOpen)}>{icons.chevronDown}</span>
-                    </button>
-                  )}
-                </div>
-                {!collapsed && groupOpen &&
-                  item.children!.map((child) => (
-                    <NavLink
-                      key={child.to}
-                      to={child.to}
-                      style={({ isActive }) => ({
-                        ...S.childLink,
-                        ...(isActive ? S.childLinkActive : {}),
-                      })}
-                    >
-                      {child.label}
-                    </NavLink>
-                  ))}
+      <aside
+        className={cn(
+          'fixed inset-y-0 left-0 z-50 flex h-screen flex-col border-r border-sidebar-border bg-[linear-gradient(180deg,hsl(var(--sidebar))_0%,hsl(228_34%_6%)_100%)] shadow-shell backdrop-blur-2xl transition-all duration-300',
+          desktopCollapsed ? 'w-24' : 'w-[18rem]',
+          mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
+        )}
+      >
+        <div className={cn('flex items-center gap-3 border-b border-sidebar-border/80 px-5 py-5', desktopCollapsed && 'justify-center px-3')}>
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+            <img src="/cyberboxlogo.png" alt="Cyberbox" className="h-8 w-8 object-contain" />
+          </div>
+          {!desktopCollapsed && (
+            <div className="min-w-0">
+              <div className="font-display text-sm font-semibold uppercase tracking-[0.28em] text-sidebar-accent">
+                Cyberbox
               </div>
-            );
-          }
+              <div className="text-sm text-sidebar-foreground/72">SOC operating console</div>
+            </div>
+          )}
+        </div>
 
-          // Simple link (no children)
-          return (
-            <React.Fragment key={item.label}>
-              <NavLink
-                to={item.to!}
-                end={item.end}
-                style={({ isActive }) => ({
-                  ...S.link(collapsed),
-                  ...(isActive ? S.linkActive : {}),
+        <div className="flex-1 overflow-y-auto px-3 py-5">
+          {sections.map(([section, items]) => (
+            <div key={section} className="mb-6 last:mb-0">
+              {!desktopCollapsed && (
+                <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.28em] text-sidebar-foreground/45">
+                  {section}
+                </div>
+              )}
+
+              <div className="space-y-1">
+                {items.map((item) => {
+                  const Icon = item.icon;
+                  const active = groupIsActive(location.pathname, item);
+                  const isOpen = openGroups[item.label];
+                  const hasChildren = Boolean(item.children?.length);
+
+                  if (item.to) {
+                    return (
+                      <NavLink
+                        key={item.label}
+                        end={item.end}
+                        to={item.to}
+                        onClick={onMobileClose}
+                        className={({ isActive }) =>
+                          cn(
+                            'group flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition-all duration-200',
+                            desktopCollapsed ? 'justify-center px-0' : 'justify-start',
+                            isActive
+                              ? 'bg-sidebar-accent/14 text-sidebar-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
+                              : 'text-sidebar-foreground/68 hover:bg-white/6 hover:text-sidebar-foreground',
+                          )
+                        }
+                      >
+                        <Icon className="h-4 w-4 shrink-0" />
+                        {!desktopCollapsed && <span className="truncate">{item.label}</span>}
+                      </NavLink>
+                    );
+                  }
+
+                  return (
+                    <div
+                      key={item.label}
+                      className="relative"
+                      onMouseLeave={() => {
+                        if (desktopCollapsed) setFlyoutLabel(null);
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (desktopCollapsed) {
+                            setFlyoutLabel((current) => (current === item.label ? null : item.label));
+                            return;
+                          }
+                          setOpenGroups((current) => ({
+                            ...current,
+                            [item.label]: !current[item.label],
+                          }));
+                        }}
+                        className={cn(
+                          'flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition-all duration-200',
+                          desktopCollapsed ? 'justify-center px-0' : 'justify-start',
+                          active
+                            ? 'bg-sidebar-accent/14 text-sidebar-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
+                            : 'text-sidebar-foreground/68 hover:bg-white/6 hover:text-sidebar-foreground',
+                        )}
+                      >
+                        <Icon className="h-4 w-4 shrink-0" />
+                        {!desktopCollapsed && <span className="truncate">{item.label}</span>}
+                        {!desktopCollapsed && hasChildren && (
+                          <ChevronDown
+                            className={cn('ml-auto h-4 w-4 transition-transform duration-200', isOpen ? 'rotate-0' : '-rotate-90')}
+                          />
+                        )}
+                      </button>
+
+                      {!desktopCollapsed && hasChildren && (
+                        <div className={cn('overflow-hidden transition-all duration-200', isOpen ? 'max-h-96 pt-1' : 'max-h-0')}>
+                          <div className="space-y-1 pl-4">
+                            {item.children?.map((child) => (
+                              <NavLink
+                                key={child.to}
+                                to={child.to}
+                                onClick={onMobileClose}
+                                className={({ isActive }) =>
+                                  cn(
+                                    'flex items-center gap-2 rounded-2xl px-3 py-2.5 text-sm transition-colors',
+                                    isActive
+                                      ? 'bg-white/7 text-sidebar-accent'
+                                      : 'text-sidebar-foreground/60 hover:bg-white/5 hover:text-sidebar-foreground',
+                                  )
+                                }
+                              >
+                                <ChevronRight className="h-3.5 w-3.5" />
+                                <span>{child.label}</span>
+                              </NavLink>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {desktopCollapsed && flyoutLabel === item.label && hasChildren && (
+                        <div className="absolute left-[calc(100%+0.75rem)] top-0 w-72 rounded-[24px] border border-border/70 bg-popover/95 p-3 shadow-shell backdrop-blur-2xl">
+                          <div className="mb-2 px-3 pt-1 font-display text-lg font-semibold text-popover-foreground">
+                            {item.label}
+                          </div>
+                          <div className="space-y-1">
+                            {item.children?.map((child) => (
+                              <NavLink
+                                key={child.to}
+                                to={child.to}
+                                onClick={onMobileClose}
+                                className={({ isActive }) =>
+                                  cn(
+                                    'flex items-center gap-3 rounded-2xl px-3 py-3 text-sm transition-colors',
+                                    isActive
+                                      ? 'bg-primary/12 text-primary'
+                                      : 'text-popover-foreground/72 hover:bg-muted/70 hover:text-popover-foreground',
+                                  )
+                                }
+                              >
+                                <ChevronRight className="h-3.5 w-3.5" />
+                                <span>{child.label}</span>
+                              </NavLink>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
                 })}
-                title={collapsed ? item.label : undefined}
-              >
-                {icons[item.icon]}
-                {!collapsed && <span>{item.label}</span>}
-              </NavLink>
-              {item.dividerAfter && <div style={{ height: 1, background: 'var(--sidebar-divider)', margin: '6px 16px' }} />}
-            </React.Fragment>
-          );
-        })}
-      </nav>
+              </div>
+            </div>
+          ))}
+        </div>
 
-      {/* Collapse toggle */}
-      <button style={S.toggle} onClick={onToggle} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
-        {collapsed ? icons.chevronRight : icons.chevronLeft}
-      </button>
-    </aside>
+        <div className="border-t border-sidebar-border/80 p-3">
+          {activeBypassIdentity ? (
+            <div
+              className={cn(
+                'mb-3 rounded-[24px] border border-amber-300/20 bg-[linear-gradient(145deg,rgba(245,158,11,0.16),rgba(15,23,42,0.72))] p-3 text-xs text-amber-50/90',
+                desktopCollapsed && 'hidden',
+              )}
+            >
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <Badge
+                  variant="warning"
+                  className="border-amber-300/20 bg-amber-300/12 text-amber-50"
+                >
+                  Bypass
+                </Badge>
+                <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-100/80">
+                  Header identity
+                </span>
+              </div>
+              <div className="font-semibold uppercase tracking-[0.22em] text-amber-100/80">
+                Development session
+              </div>
+              <div className="mt-2 text-sm text-sidebar-foreground">
+                {activeBypassIdentity.userId}
+              </div>
+              <div className="mt-1 text-amber-100/75">
+                Tenant {activeBypassIdentity.tenantId}
+              </div>
+            </div>
+          ) : (
+            <div className={cn('mb-3 rounded-[24px] border border-white/8 bg-white/5 p-3 text-xs text-sidebar-foreground/60', desktopCollapsed && 'hidden')}>
+              <div className="mb-1 font-semibold uppercase tracking-[0.22em] text-sidebar-accent">Live Console</div>
+              <div>Blocks-ready shell with room to migrate pages incrementally.</div>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="hidden h-11 w-11 rounded-2xl border-white/10 bg-white/5 text-sidebar-foreground hover:bg-white/10 lg:inline-flex"
+              onClick={onToggle}
+            >
+              {desktopCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className={cn(
+                'flex-1 justify-start rounded-2xl text-sidebar-foreground/72 hover:bg-white/6 hover:text-sidebar-foreground lg:hidden',
+                desktopCollapsed && 'justify-center',
+              )}
+              onClick={onMobileClose}
+            >
+              <ChevronRight className="h-4 w-4 rotate-180" />
+              {!desktopCollapsed && <span>Close navigation</span>}
+            </Button>
+          </div>
+        </div>
+      </aside>
+    </>
   );
 }

@@ -1,1048 +1,408 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  Cell,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
-import {
-  getAllAlerts,
-  getDashboardStats,
-  type AlertRecord,
-  type DashboardStats,
-} from '../api/client';
+  Activity,
+  AlertTriangle,
+  ArrowRight,
+  BellRing,
+  RefreshCcw,
+  Search,
+  ServerCog,
+  Shield,
+} from 'lucide-react';
 
-interface AlertSparkPoint { day: string; value: number }
-type AssetOs = 'windows' | 'windows-server' | 'linux' | 'linux-server' | 'docker' | 'syslog' | 'firewall' | 'entra_id' | 'o365';
-interface TopAlertRow {
-  severity: 'critical' | 'high' | 'medium' | 'low';
-  alert_name: string;
-  target_asset: string;
-  asset_os: AssetOs;
-  vendor: string;
-  assigned_to: string | null;
-}
-
-
-/* -- Helpers -- */
-
-function formatCompact(n: number): string {
-  if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1).replace(/\.0$/, '') + 'B';
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
-  if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
-  return String(n);
-}
-
-function buildAlertSparkline(alerts: AlertRecord[]): AlertSparkPoint[] {
-  const now = new Date();
-  return Array.from({ length: 8 }, (_, i) => {
-    const bucketStart = new Date(now);
-    bucketStart.setDate(bucketStart.getDate() - (7 - i));
-    bucketStart.setHours(0, 0, 0, 0);
-    const bucketEnd = i < 7
-      ? new Date(bucketStart.getTime() + 24 * 60 * 60 * 1000)
-      : now;
-    const label = i < 7
-      ? bucketStart.toLocaleDateString([], { weekday: 'short' })
-      : 'Now';
-    const value = alerts.filter(a => {
-      const t = new Date(a.first_seen);
-      return t >= bucketStart && t < bucketEnd;
-    }).length;
-    return { day: label, value };
-  });
-}
-
-const FIREWALL_KEYWORDS = ['opnsense', 'pfsense', 'fortinet', 'fortigate', 'sophos', 'paloalto', 'firewall', 'fw.', 'asa'];
-
-function osFromString(os?: string, hostname?: string): AssetOs {
-  if (!os) return 'linux';
-  const lower = os.toLowerCase();
-  const host = (hostname || '').toLowerCase();
-  if (lower === 'azure' && host.includes('entra')) return 'entra_id';
-  if (lower === 'azure') return 'o365';
-  if (host.includes('entra')) return 'entra_id';
-  if (host.includes('office 365')) return 'o365';
-  if (lower === 'firewall') return 'firewall';
-  if (FIREWALL_KEYWORDS.some(k => host.includes(k))) return 'firewall';
-  if (lower === 'syslog' && FIREWALL_KEYWORDS.some(k => host.includes(k))) return 'firewall';
-  if (lower.includes('windows server')) return 'windows-server';
-  if (lower.includes('windows')) return 'windows';
-  if (lower.includes('docker') || lower.includes('container')) return 'docker';
-  if (lower === 'syslog') return 'linux';
-  if (lower.includes('server')) return 'linux-server';
-  return 'linux';
-}
-
-const SOURCE_LABELS: Record<string, string> = {
-  syslog: 'Syslog',
-  otlp: 'OTLP',
-  api: 'API',
-  agent: 'Agent',
-  cef: 'CEF',
-  leef: 'LEEF',
-  json: 'JSON',
-  gelf: 'GELF',
-  netflow: 'NetFlow',
-  wineventlog: 'Windows Event Log',
-  file: 'File',
-  s3: 'S3',
-  okta: 'Okta',
-  o365: 'Office 365',
-};
-
-function prettySource(raw: string): string {
-  if (!raw || raw === '') return 'Other';
-  return SOURCE_LABELS[raw.toLowerCase()] ?? raw.charAt(0).toUpperCase() + raw.slice(1);
-}
-
-/* -- Props */
+import { getAlerts, getDashboardStats, type AlertRecord, type DashboardStats, type Severity } from '@/api/client';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import DashboardEventVolumeChart from '@/components/dashboard/event-volume-chart';
+import { WorkspaceEmptyState } from '@/components/workspace/empty-state';
+import { WorkspaceMetricCard } from '@/components/workspace/metric-card';
+import { WorkspaceStatusBanner } from '@/components/workspace/status-banner';
+import { cn } from '@/lib/utils';
 
 interface DashboardProps {
   onRefresh: () => Promise<void>;
 }
 
-/* -- Helpers */
-
-const TIME_RANGE_QUICK = [
-  { value: '15m', label: 'Last 15 min' },
-  { value: '1h',  label: 'Last 1 hour' },
-  { value: '4h',  label: 'Last 4 hours' },
-  { value: '12h', label: 'Last 12 hours' },
-  { value: '24h', label: 'Last 24 hours' },
-  { value: '3d',  label: 'Last 3 days' },
-  { value: '7d',  label: 'Last 7 days' },
-  { value: '30d', label: 'Last 30 days' },
+const RANGE_OPTIONS = [
+  { value: '1h', label: '1H' },
+  { value: '24h', label: '24H' },
+  { value: '7d', label: '7D' },
+  { value: '30d', label: '30D' },
 ];
 
-const TIME_RANGE_PRECISE = [
-  { value: '1m',  label: 'Last 1 minute' },
-  { value: '5m',  label: 'Last 5 minutes' },
-];
-
-const SEVERITY_OPTIONS = ['critical', 'high', 'medium', 'low'];
-
-/* -- OS icons for target asset */
-
-const osIcons: Record<string, JSX.Element> = {
-  entra_id: (
-    <img src="/entra-id.webp" width="16" height="16" alt="Entra ID" style={{ verticalAlign: 'middle', borderRadius: 3 }} />
-  ),
-  o365: (
-    <img src="/office-365.jpg" width="16" height="16" alt="Office 365" style={{ verticalAlign: 'middle', borderRadius: 3 }} />
-  ),
-  windows: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style={{ color: '#0078D4' }}>
-      <path d="M0 3.5l9.9-1.4v9.5H0V3.5zm11.1-1.6L24 0v11.6H11.1V1.9zM0 12.6h9.9v9.5L0 20.6v-8zm11.1 0H24V24l-12.9-1.8V12.6z"/>
-    </svg>
-  ),
-  'windows-server': (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0078D4" strokeWidth="1.5">
-      <rect x="2" y="2" width="20" height="20" rx="2"/>
-      <path d="M5 7l4.5-.6v4.3H5V7zm5.5-.8L18 5v5.7h-7.5V6.2zM5 12.3h4.5v4.3L5 17v-4.7zm5.5 0H18V18l-7.5-1v-4.7z" fill="#0078D4"/>
-    </svg>
-  ),
-  linux: (
-    <img src="/tux.png" width="16" height="16" alt="Linux" style={{ verticalAlign: 'middle' }} />
-  ),
-  'linux-server': (
-    <img src="/tux.png" width="16" height="16" alt="Linux Server" style={{ verticalAlign: 'middle' }} />
-  ),
-  docker: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style={{ color: '#2496ED' }}>
-      <path d="M13.98 11.08h2.12a.19.19 0 00.19-.19V9.01a.19.19 0 00-.19-.19h-2.12a.19.19 0 00-.19.19v1.88c0 .1.09.19.19.19zm-2.95 0h2.12a.19.19 0 00.19-.19V9.01a.19.19 0 00-.19-.19H11.03a.19.19 0 00-.19.19v1.88c0 .1.09.19.19.19zm-2.93 0h2.12a.19.19 0 00.19-.19V9.01a.19.19 0 00-.19-.19H8.1a.19.19 0 00-.19.19v1.88c0 .1.08.19.19.19zm-2.96 0h2.12a.19.19 0 00.19-.19V9.01a.19.19 0 00-.19-.19H5.14a.19.19 0 00-.19.19v1.88c0 .1.09.19.19.19zm5.89-2.8h2.12a.19.19 0 00.19-.19V6.21a.19.19 0 00-.19-.19H11.03a.19.19 0 00-.19.19v1.88c0 .1.09.19.19.19zm-2.93 0h2.12a.19.19 0 00.19-.19V6.21a.19.19 0 00-.19-.19H8.1a.19.19 0 00-.19.19v1.88c0 .1.08.19.19.19zm5.88 0h2.12a.19.19 0 00.19-.19V6.21a.19.19 0 00-.19-.19h-2.12a.19.19 0 00-.19.19v1.88c0 .1.09.19.19.19zm0-2.8h2.12a.19.19 0 00.19-.19V3.41a.19.19 0 00-.19-.19h-2.12a.19.19 0 00-.19.19v1.88c0 .1.09.19.19.19zM24 12.04c-.55-.49-1.81-.69-2.78-.47-.13-.95-.65-1.78-1.27-2.46l-.26-.3-.31.25c-.65.52-1.03 1.24-1.16 2.04-.06.38-.04.78.06 1.16-.44.25-.96.39-1.41.48-.67.14-1.38.12-2.07.12H.57l-.05.38c-.12 1.14.07 2.28.51 3.32l.2.42v.02c1.37 2.34 3.76 3.34 6.4 3.34 5.32 0 9.67-2.45 11.67-7.72 1.3.07 2.6-.32 3.21-1.53l.16-.32-.67-.43z"/>
-    </svg>
-  ),
-  syslog: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="3" width="20" height="18" rx="2"/>
-      <path d="M7 8h10M7 12h6"/>
-    </svg>
-  ),
-  firewall: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-      <rect x="2" y="4" width="20" height="6" rx="1.5" stroke="#f45d5d" strokeWidth="1.5" fill="rgba(244,93,93,0.1)" />
-      <rect x="2" y="14" width="20" height="6" rx="1.5" stroke="#f45d5d" strokeWidth="1.5" fill="rgba(244,93,93,0.1)" />
-      <circle cx="5.5" cy="7" r="1" fill="#58d68d" />
-      <circle cx="5.5" cy="17" r="1" fill="#58d68d" />
-      <line x1="8" y1="7" x2="14" y2="7" stroke="#f45d5d" strokeWidth="1" strokeLinecap="round" />
-      <line x1="8" y1="17" x2="14" y2="17" stroke="#f45d5d" strokeWidth="1" strokeLinecap="round" />
-      <path d="M12 10V14" stroke="rgba(219,228,243,0.3)" strokeWidth="1.5" strokeDasharray="2 1" />
-    </svg>
-  ),
+const SOURCE_LABELS: Record<string, string> = {
+  agent: 'Agent',
+  api: 'API',
+  cef: 'CEF',
+  gelf: 'GELF',
+  json: 'JSON',
+  leef: 'LEEF',
+  o365: 'Office 365',
+  otlp: 'OTLP',
+  syslog: 'Syslog',
+  wineventlog: 'Windows Event Log',
 };
 
-/* -- Tooltip formatter */
-const compactTooltipFormatter = (value: number | undefined) => [formatCompact(value ?? 0), 'Events'];
-const epsTooltipFormatter = (value: number | undefined) => [(value ?? 0).toFixed(1), 'EPS'];
+function formatCompact(value: number): string {
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1).replace(/\.0$/, '')}B`;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
+  return String(value);
+}
 
-/* -- Main Dashboard */
+function formatDuration(seconds: number | null): string {
+  if (seconds == null || Number.isNaN(seconds)) return 'Unmeasured';
+  if (seconds < 60) return `${Math.round(seconds)} sec`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)} min`;
+  if (seconds < 86_400) return `${(seconds / 3600).toFixed(1).replace(/\.0$/, '')} hr`;
+  return `${(seconds / 86_400).toFixed(1).replace(/\.0$/, '')} d`;
+}
+
+function formatRelative(timestamp: string): string {
+  const minutes = Math.round((Date.now() - new Date(timestamp).getTime()) / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1440) return `${Math.round(minutes / 60)}h ago`;
+  return `${Math.round(minutes / 1440)}d ago`;
+}
+
+function severityRank(severity: Severity): number {
+  if (severity === 'critical') return 0;
+  if (severity === 'high') return 1;
+  if (severity === 'medium') return 2;
+  return 3;
+}
+
+function severityVariant(severity: Severity): 'destructive' | 'warning' | 'info' | 'secondary' {
+  if (severity === 'critical') return 'destructive';
+  if (severity === 'high') return 'warning';
+  if (severity === 'medium') return 'info';
+  return 'secondary';
+}
+
+function prettySource(source: string): string {
+  if (!source) return 'Other';
+  return SOURCE_LABELS[source.toLowerCase()] ?? source;
+}
 
 export function Dashboard({ onRefresh }: DashboardProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'trends' | 'health'>('overview');
   const [timeRange, setTimeRange] = useState('24h');
-  const [customLabel, setCustomLabel] = useState<string | null>(null);
-  const [timeDropdownOpen, setTimeDropdownOpen] = useState(false);
-  const [showCustomPicker, setShowCustomPicker] = useState(false);
-  const [customFrom, setCustomFrom] = useState('');
-  const [customTo, setCustomTo] = useState('');
-  const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
-  const [filterMenu, setFilterMenu] = useState<'main' | 'severity' | 'asset'>('main');
-  const [severityFilters, setSeverityFilters] = useState<Set<string>>(new Set());
-  const [assetFilters, setAssetFilters] = useState<Set<string>>(new Set());
-  const [openAlertsCount, setOpenAlertsCount] = useState<number>(0);
-  const [critHighCount, setCritHighCount] = useState<number>(0);
-  const [openAlertsTrend, setOpenAlertsTrend] = useState<AlertSparkPoint[]>([]);
-  const [critHighTrend, setCritHighTrend] = useState<AlertSparkPoint[]>([]);
-  const [topAlerts, setTopAlerts] = useState<TopAlertRow[]>([]);
-  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
-  const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [alerts, setAlerts] = useState<AlertRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  const timeRangeLabel = useMemo(() => {
-    if (customLabel) return customLabel;
-    return [...TIME_RANGE_QUICK, ...TIME_RANGE_PRECISE].find(o => o.value === timeRange)?.label ?? timeRange;
-  }, [timeRange, customLabel]);
+  const loadDashboardData = useCallback(
+    async (showLoader: boolean) => {
+      if (showLoader || !stats) setIsLoading(true);
 
-  const filteredTopAlerts = useMemo(() => {
-    return topAlerts.filter(row => {
-      if (severityFilters.size > 0 && !severityFilters.has(row.severity)) return false;
-      if (assetFilters.size > 0 && !assetFilters.has(row.target_asset)) return false;
-      return true;
-    });
-  }, [topAlerts, severityFilters, assetFilters]);
+      const [statsResult, alertsResult] = await Promise.allSettled([
+        getDashboardStats(timeRange),
+        getAlerts({ status: 'open', limit: 8 }),
+      ]);
 
-  const hourlyChartData = useMemo(() => {
-    if (!stats?.hourly_events?.length) return [];
-    return stats.hourly_events.map(h => ({
-      time: new Date(h.bucket).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      count: parseInt(h.count, 10) || 0,
-    }));
-  }, [stats]);
+      let updated = false;
 
-  const sourceChartData = useMemo(() => {
-    if (!stats?.events_by_source?.length) return [];
-    return stats.events_by_source
-      .filter(s => s.source && s.source !== '')
-      .slice(0, 6)
-      .map(s => ({
-        source: prettySource(s.source),
-        count: parseInt(s.count, 10) || 0,
-      }));
-  }, [stats]);
+      if (statsResult.status === 'fulfilled') {
+        setStats(statsResult.value);
+        updated = true;
+      }
 
-  const hostChartData = useMemo(() => {
-    if (!stats?.events_by_host?.length) return [];
-    return stats.events_by_host
-      .filter(h => h.hostname && h.hostname !== 'unknown')
-      .slice(0, 6)
-      .map(h => ({
-        hostname: h.hostname,
-        count: parseInt(h.count, 10) || 0,
-      }));
-  }, [stats]);
+      if (alertsResult.status === 'fulfilled') {
+        setAlerts(
+          [...alertsResult.value.alerts].sort(
+            (left, right) =>
+              severityRank(left.severity) - severityRank(right.severity) ||
+              new Date(right.first_seen).getTime() - new Date(left.first_seen).getTime(),
+          ),
+        );
+        updated = true;
+      }
 
-  const epsTrendData = useMemo(() => {
-    if (!stats?.eps_trend?.length) return [];
-    return stats.eps_trend.map(p => ({
-      time: new Date(p.bucket).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      eps: parseFloat(p.eps) || 0,
-    }));
-  }, [stats]);
+      setError(updated && statsResult.status === 'fulfilled' && alertsResult.status === 'fulfilled'
+        ? null
+        : 'Some dashboard tiles may be stale while data refreshes.');
 
-  // Computed metrics for secondary KPI row
-  const avgEps24h = useMemo(() => {
-    if (!stats?.eps_trend?.length) return 0;
-    const values = stats.eps_trend.map(p => parseFloat(p.eps) || 0).filter(v => v > 0);
-    return values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
-  }, [stats]);
+      if (updated) setLastUpdated(new Date());
+      setIsLoading(false);
+    },
+    [stats, timeRange],
+  );
 
-  const eventsToday = useMemo(() => {
-    if (!stats?.hourly_events?.length) return 0;
-    const today = new Date().toISOString().split('T')[0];
-    return stats.hourly_events
-      .filter(p => p.bucket.startsWith(today))
-      .reduce((sum, p) => sum + (parseInt(p.count, 10) || 0), 0);
-  }, [stats]);
-
-  const topHost = useMemo(() => {
-    if (!stats?.events_by_host?.length) return { hostname: '-', count: 0, pct: 0 };
-    const top = stats.events_by_host[0];
-    const total = stats.events_by_host.reduce((sum, h) => sum + (parseInt(h.count, 10) || 0), 0);
-    return {
-      hostname: top.hostname,
-      count: parseInt(top.count, 10) || 0,
-      pct: total > 0 ? Math.round(((parseInt(top.count, 10) || 0) / total) * 100) : 0,
-    };
-  }, [stats]);
-
-  const logSourceCount = useMemo(() => {
-    return stats?.events_by_source?.length ?? 0;
-  }, [stats]);
-
-  const sevChartData = useMemo(() => {
-    if (!stats?.alerts_by_severity) return [];
-    const s = stats.alerts_by_severity;
-    return [
-      { severity: 'Critical', count: s.critical, fill: '#ef4444' },
-      { severity: 'High', count: s.high, fill: '#f59e0b' },
-      { severity: 'Medium', count: s.medium, fill: '#6366f1' },
-      { severity: 'Low', count: s.low, fill: '#10b981' },
-    ].filter(d => d.count > 0);
-  }, [stats]);
-
-  const alertTrendData = useMemo(() => {
-    if (!stats?.alert_trend?.length) return [];
-    return stats.alert_trend.map(p => ({
-      time: new Date(p.bucket).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      count: parseInt(p.count, 10) || 0,
-    }));
-  }, [stats]);
-
-  const assetOptions = useMemo(() => {
-    if (!stats?.agents?.length) return [];
-    return stats.agents.map(a => a.hostname);
-  }, [stats]);
-
-  const loadDashboardData = useCallback(async () => {
-    const rangeParam = timeRange === 'custom' ? '24h' : timeRange;
-    const [openAlerts, dashStats] = await Promise.all([
-      getAllAlerts({ status: 'open' }).catch(() => [] as AlertRecord[]),
-      getDashboardStats(rangeParam).catch(() => null),
-    ]);
-
-    if (dashStats) setStats(dashStats);
-
-    const critHigh = openAlerts.filter(a => a.severity === 'critical' || a.severity === 'high');
-
-    setOpenAlertsCount(dashStats?.open_alerts ?? openAlerts.length);
-    setCritHighCount(critHigh.length);
-    setOpenAlertsTrend(buildAlertSparkline(openAlerts));
-    setCritHighTrend(buildAlertSparkline(critHigh));
-
-    const sevOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
-    const top5 = [...openAlerts]
-      .sort((a, b) => (sevOrder[a.severity] ?? 4) - (sevOrder[b.severity] ?? 4))
-      .slice(0, 5)
-      .map(a => ({
-        severity: a.severity as TopAlertRow['severity'],
-        alert_name: a.rule_title || `Rule ${a.rule_id.slice(0, 8)}`,
-        target_asset: a.agent_meta?.hostname ?? '-',
-        asset_os: osFromString(a.agent_meta?.os, a.agent_meta?.hostname),
-        vendor: 'CyberboxSIEM',
-        assigned_to: a.assignee ?? null,
-      }));
-    setTopAlerts(top5);
-  }, [timeRange]);
+  useEffect(() => {
+    void loadDashboardData(true);
+    const intervalId = window.setInterval(() => {
+      void loadDashboardData(false);
+    }, 15_000);
+    return () => window.clearInterval(intervalId);
+  }, [loadDashboardData]);
 
   const handleRefresh = async () => {
-    setRefreshing(true);
+    setIsRefreshing(true);
     try {
       await onRefresh();
-      await loadDashboardData();
-      setLastRefresh(new Date());
+      await loadDashboardData(true);
     } finally {
-      setRefreshing(false);
+      setIsRefreshing(false);
     }
   };
 
-  useEffect(() => {
-    loadDashboardData();
-    const id = setInterval(loadDashboardData, 15_000);
-    return () => clearInterval(id);
-  }, [loadDashboardData]);
+  const rangeLabel = useMemo(
+    () => RANGE_OPTIONS.find((option) => option.value === timeRange)?.label ?? timeRange,
+    [timeRange],
+  );
+
+  const eventVolume = useMemo(
+    () =>
+      (stats?.hourly_events ?? []).map((point) => ({
+        time: new Date(point.bucket).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        count: Number.parseInt(point.count, 10) || 0,
+      })),
+    [stats],
+  );
+
+  const topSources = useMemo(
+    () =>
+      (stats?.events_by_source ?? [])
+        .filter((item) => item.source)
+        .slice(0, 5)
+        .map((item) => ({ label: prettySource(item.source), count: Number.parseInt(item.count, 10) || 0 })),
+    [stats],
+  );
+
+  const topRules = useMemo(() => (stats?.top_rules ?? []).slice(0, 5), [stats]);
+  const topAgents = useMemo(() => (stats?.agents ?? []).slice(0, 5), [stats]);
+  const activeCoverage = stats?.total_agents ? Math.round((stats.active_agents / stats.total_agents) * 100) : 0;
 
   return (
-    <div className="page">
-      {/* -- Header */}
-      <div className="dash-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-          <h1 className="dash-page-title">DASHBOARD</h1>
-          <div className="dash-tabs">
-            <button
-              type="button"
-              className={`dash-tab${activeTab === 'overview' ? ' dash-tab--active' : ''}`}
-              onClick={() => setActiveTab('overview')}
-            >
-              Overview
-            </button>
-            <button
-              type="button"
-              className={`dash-tab${activeTab === 'trends' ? ' dash-tab--active' : ''}`}
-              onClick={() => setActiveTab('trends')}
-            >
-              Trends
-            </button>
-            <button
-              type="button"
-              className={`dash-tab${activeTab === 'health' ? ' dash-tab--active' : ''}`}
-              onClick={() => setActiveTab('health')}
-            >
-              Health
-            </button>
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {/* Time range picker */}
-          <div className="dash-time-picker">
-            <button
-              type="button"
-              className="dash-time-picker-btn"
-              onClick={() => setTimeDropdownOpen(!timeDropdownOpen)}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-              </svg>
-              {timeRangeLabel}
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 'auto' }}>
-                <polyline points="6 9 12 15 18 9"/>
-              </svg>
-            </button>
-            {timeDropdownOpen && !showCustomPicker && (
-              <>
-                <div className="dash-time-picker-backdrop" onClick={() => setTimeDropdownOpen(false)} />
-                <div className="dash-time-picker-dropdown dash-time-picker-dropdown--split">
-                  <div className="dash-time-picker-col">
-                    <div className="dash-time-picker-col-title">Quick ranges</div>
-                    {TIME_RANGE_QUICK.map(opt => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        className={`dash-time-picker-option${opt.value === timeRange && !customLabel ? ' dash-time-picker-option--active' : ''}`}
-                        onClick={() => { setTimeRange(opt.value); setCustomLabel(null); setTimeDropdownOpen(false); }}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="dash-time-picker-divider" />
-                  <div className="dash-time-picker-col">
-                    <div className="dash-time-picker-col-title">Precise</div>
-                    {TIME_RANGE_PRECISE.map(opt => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        className={`dash-time-picker-option${opt.value === timeRange && !customLabel ? ' dash-time-picker-option--active' : ''}`}
-                        onClick={() => { setTimeRange(opt.value); setCustomLabel(null); setTimeDropdownOpen(false); }}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                    <div style={{ height: 8 }} />
-                    <div className="dash-time-picker-col-title">Custom</div>
-                    <button
-                      type="button"
-                      className={`dash-time-picker-option${customLabel ? ' dash-time-picker-option--active' : ''}`}
-                      onClick={() => setShowCustomPicker(true)}
-                    >
-                      Custom range...
-                    </button>
-                  </div>
+    <div className="flex flex-col gap-6">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.95fr)]">
+        <Card className="overflow-hidden border-primary/15 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.16),transparent_38%),linear-gradient(145deg,hsl(var(--card)),hsl(var(--card)/0.82))]">
+          <CardContent className="grid gap-8 p-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(240px,0.8fr)]">
+            <div>
+              <div className="mb-4 flex flex-wrap gap-2">
+                <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">Live SOC workspace</Badge>
+                <Badge variant="secondary" className="bg-background/55">Auto refresh every 15s</Badge>
+              </div>
+              <div className="max-w-2xl font-display text-4xl font-semibold leading-[0.96] tracking-[-0.05em] text-foreground sm:text-[3.1rem]">
+                A sharper shell for the Cyberbox command center.
+              </div>
+              <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
+                The new dashboard leans into a shadcn-style block layout so the highest-signal telemetry is easier to scan, refresh, and act on.
+              </p>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <Button asChild>
+                  <Link to="/alerts">Open alert queue <ArrowRight className="h-4 w-4" /></Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <Link to="/search">Hunt in search <Search className="h-4 w-4" /></Link>
+                </Button>
+              </div>
+            </div>
+            <div className="grid gap-3 rounded-[28px] border border-border/70 bg-background/35 p-4">
+              <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Sync state</div>
+                <div className="mt-3 text-sm text-foreground">Last update: <span className="font-medium">{lastUpdated ? lastUpdated.toLocaleTimeString() : 'waiting'}</span></div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Current EPS</div>
+                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats ? stats.current_eps.toFixed(1) : '0.0'}</div>
                 </div>
-              </>
-            )}
-            {timeDropdownOpen && showCustomPicker && (
-              <>
-                <div className="dash-time-picker-backdrop" onClick={() => { setTimeDropdownOpen(false); setShowCustomPicker(false); }} />
-                <div className="dash-time-picker-dropdown dash-time-picker-custom">
-                  <div className="dash-time-picker-col-title">Custom Range</div>
-                  <label className="dash-custom-label">
-                    From
-                    <input
-                      type="datetime-local"
-                      className="dash-custom-input"
-                      value={customFrom}
-                      onChange={e => setCustomFrom(e.target.value)}
-                    />
-                  </label>
-                  <label className="dash-custom-label">
-                    To
-                    <input
-                      type="datetime-local"
-                      className="dash-custom-input"
-                      value={customTo}
-                      onChange={e => setCustomTo(e.target.value)}
-                    />
-                  </label>
-                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                    <button
-                      type="button"
-                      className="dash-time-picker-option"
-                      onClick={() => { setShowCustomPicker(false); }}
-                    >
-                      Back
-                    </button>
-                    <button
-                      type="button"
-                      className="dash-custom-apply"
-                      disabled={!customFrom || !customTo}
-                      onClick={() => {
-                        const from = new Date(customFrom);
-                        const to = new Date(customTo);
-                        const fmt = (d: Date) => d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                        setTimeRange('custom');
-                        setCustomLabel(`${fmt(from)} - ${fmt(to)}`);
-                        setShowCustomPicker(false);
-                        setTimeDropdownOpen(false);
-                      }}
-                    >
-                      Apply
-                    </button>
-                  </div>
+                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">MTTR</div>
+                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{formatDuration(stats?.mttr_seconds ?? null)}</div>
                 </div>
-              </>
-            )}
-          </div>
-          {/* Active filter pills */}
-          {severityFilters.size > 0 && (
-            <span className="dash-filter-pill">
-              Severity: {[...severityFilters].join(', ')}
-              <button type="button" className="dash-filter-pill-x" onClick={() => setSeverityFilters(new Set())}>x</button>
-            </span>
-          )}
-          {assetFilters.size > 0 && (
-            <span className="dash-filter-pill">
-              Asset: {[...assetFilters].join(', ')}
-              <button type="button" className="dash-filter-pill-x" onClick={() => setAssetFilters(new Set())}>x</button>
-            </span>
-          )}
-          {/* Add Filter dropdown */}
-          <div className="dash-time-picker">
-            <button
-              type="button"
-              className="dash-filter-btn"
-              onClick={() => { setFilterDropdownOpen(!filterDropdownOpen); setFilterMenu('main'); }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
-              </svg>
-              Add Filter
-            </button>
-            {filterDropdownOpen && (
-              <>
-                <div className="dash-time-picker-backdrop" onClick={() => { setFilterDropdownOpen(false); setFilterMenu('main'); }} />
-                <div className="dash-time-picker-dropdown" style={{ minWidth: 220 }}>
-                  {filterMenu === 'main' && (
-                    <>
-                      <div className="dash-time-picker-col-title">Filter by</div>
-                      <button type="button" className="dash-time-picker-option dash-filter-menu-item" onClick={() => setFilterMenu('severity')}>
-                        <span>Severity</span>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
-                      </button>
-                      <button type="button" className="dash-time-picker-option dash-filter-menu-item" onClick={() => setFilterMenu('asset')}>
-                        <span>Asset</span>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
-                      </button>
-                    </>
-                  )}
-                  {filterMenu === 'severity' && (
-                    <>
-                      <button type="button" className="dash-time-picker-option dash-filter-back" onClick={() => setFilterMenu('main')}>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-                        Severity
-                      </button>
-                      <div className="dash-time-picker-divider" style={{ width: '100%', height: 1, margin: '4px 0' }} />
-                      {SEVERITY_OPTIONS.map(sev => {
-                        const active = severityFilters.has(sev);
-                        return (
-                          <button
-                            key={sev}
-                            type="button"
-                            className={`dash-time-picker-option dash-filter-check${active ? ' dash-time-picker-option--active' : ''}`}
-                            onClick={() => {
-                              const next = new Set(severityFilters);
-                              if (active) next.delete(sev); else next.add(sev);
-                              setSeverityFilters(next);
-                            }}
-                          >
-                            <span className="dash-filter-checkbox">{active ? 'v' : ''}</span>
-                            <span className={`dash-sev-badge dash-sev-badge--${sev}`}>{sev.charAt(0).toUpperCase() + sev.slice(1)}</span>
-                          </button>
-                        );
-                      })}
-                    </>
-                  )}
-                  {filterMenu === 'asset' && (
-                    <>
-                      <button type="button" className="dash-time-picker-option dash-filter-back" onClick={() => setFilterMenu('main')}>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-                        Asset
-                      </button>
-                      <div className="dash-time-picker-divider" style={{ width: '100%', height: 1, margin: '4px 0' }} />
-                      {assetOptions.map(asset => {
-                        const active = assetFilters.has(asset);
-                        return (
-                          <button
-                            key={asset}
-                            type="button"
-                            className={`dash-time-picker-option dash-filter-check${active ? ' dash-time-picker-option--active' : ''}`}
-                            onClick={() => {
-                              const next = new Set(assetFilters);
-                              if (active) next.delete(asset); else next.add(asset);
-                              setAssetFilters(next);
-                            }}
-                          >
-                            <span className="dash-filter-checkbox">{active ? 'v' : ''}</span>
-                            {asset}
-                          </button>
-                        );
-                      })}
-                    </>
-                  )}
+                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Fleet coverage</div>
+                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{activeCoverage}%</div>
                 </div>
-              </>
-            )}
-          </div>
-          <button
-            type="button"
-            className="dash-refresh-icon-btn"
-            onClick={handleRefresh}
-            disabled={refreshing}
-            title="Refresh"
-          >
-            <svg
-              width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-              className={refreshing ? 'dash-spin' : ''}
-            >
-              <polyline points="23 4 23 10 17 10"/>
-              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-            </svg>
-          </button>
-        </div>
-      </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
-      {/* -- Overview tab */}
-      {activeTab === 'overview' && (
-        <>
-          {/* KPI cards row */}
-          <div className="dash-kpis" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">TOTAL EVENTS</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 2 }}>
-                <span className="dash-big-number">{stats?.total_events != null ? formatCompact(stats.total_events) : '-'}</span>
-              </div>
-              <div style={{ marginTop: 8, height: 48 }}>
-                {hourlyChartData.length > 0 && (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={hourlyChartData} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="eventsFill" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#10b981" stopOpacity={0.35} />
-                          <stop offset="100%" stopColor="#10b981" stopOpacity={0.02} />
-                        </linearGradient>
-                      </defs>
-                      <Area type="monotone" dataKey="count" stroke="#10b981" fill="url(#eventsFill)" strokeWidth={2} dot={false} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle>Range and refresh</CardTitle>
+            <CardDescription>Keep the board focused on the window you want to investigate.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid grid-cols-2 gap-3">
+              {RANGE_OPTIONS.map((option) => (
+                <Button
+                  key={option.value}
+                  type="button"
+                  variant={option.value === timeRange ? 'default' : 'outline'}
+                  className={cn('rounded-[22px]', option.value === timeRange && 'shadow-[0_14px_40px_-22px_hsl(var(--primary)/0.95)]')}
+                  onClick={() => setTimeRange(option.value)}
+                >
+                  {option.label}
+                </Button>
+              ))}
             </div>
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">EPS USAGE</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-                <span className="dash-big-number" style={{ color: '#f59e0b' }}>{stats?.current_eps?.toFixed(1) ?? '0'}</span>
-                <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>events/s</span>
-              </div>
-              <div style={{ marginTop: 8, height: 48 }}>
-                {epsTrendData.length > 0 && (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={epsTrendData} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="epsFill" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.35} />
-                          <stop offset="100%" stopColor="#f59e0b" stopOpacity={0.02} />
-                        </linearGradient>
-                      </defs>
-                      <Area type="monotone" dataKey="eps" stroke="#f59e0b" fill="url(#epsFill)" strokeWidth={2} dot={false} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </div>
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">OPEN ALERTS</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 2 }}>
-                <span className="dash-big-number">{openAlertsCount}</span>
-              </div>
-              <div style={{ marginTop: 8, height: 48 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={openAlertsTrend} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="openAlertsFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--accent-violet)" stopOpacity={0.35} />
-                        <stop offset="100%" stopColor="var(--accent-violet)" stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <Area type="monotone" dataKey="value" stroke="var(--accent-violet)" fill="url(#openAlertsFill)" strokeWidth={2} dot={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">ACTIVE AGENTS</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 2 }}>
-                <span className="dash-big-number">{stats?.active_agents ?? 0}</span>
-                <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>/ {stats?.total_agents ?? 0}</span>
-              </div>
-              <div style={{ marginTop: 12 }}>
-                {stats?.agents?.slice(0, 3).map(a => (
-                  <div key={a.agent_id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, fontSize: 13 }}>
-                    {osIcons[osFromString(a.os, a.hostname)] ?? null}
-                    <span style={{ color: 'var(--text-main)' }}>{a.hostname}</span>
-                    <span style={{
-                      marginLeft: 'auto',
-                      fontSize: 11,
-                      padding: '1px 8px',
-                      borderRadius: 10,
-                      background: a.status === 'active' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                      color: a.status === 'active' ? '#10b981' : '#ef4444',
-                    }}>{a.status}</span>
-                  </div>
-                ))}
-                {(stats?.agents?.length ?? 0) > 3 && (
-                  <span style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 4, display: 'block' }}>+{(stats?.agents?.length ?? 0) - 3} more</span>
-                )}
-              </div>
-            </div>
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">ACTIVE RULES</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 2 }}>
-                <span className="dash-big-number">{stats?.active_rules ?? 0}</span>
-              </div>
-              <div style={{ marginTop: 12 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-dim)' }}>
-                  <span>Crit/High alerts</span>
-                  <span style={{ marginLeft: 'auto', fontWeight: 600, color: critHighCount > 0 ? '#ef4444' : 'var(--text-dim)' }}>{critHighCount}</span>
-                </div>
-              </div>
-            </div>
-          </div>
+            {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
+            <Button type="button" className="w-full rounded-[22px]" onClick={handleRefresh} disabled={isRefreshing}>
+              <RefreshCcw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
+              {isRefreshing ? 'Refreshing workspace' : `Refresh ${rangeLabel}`}
+            </Button>
+          </CardContent>
+        </Card>
+      </section>
 
-          {/* Charts row */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16 }}>
-            {/* Event volume */}
-            <div className="panel" style={{ padding: '16px 20px' }}>
-              <h2 className="panel-title" style={{ marginBottom: 12 }}>Event volume ({timeRangeLabel.toLowerCase()})</h2>
-              {hourlyChartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={hourlyChartData}>
-                    <XAxis dataKey="time" tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(hourlyChartData.length / 8) - 1)} />
-                    <YAxis tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} width={48} tickFormatter={formatCompact} />
-                    <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} labelStyle={{ color: '#aaa' }} formatter={compactTooltipFormatter} />
-                    <Bar dataKey="count" fill="#6366f1" radius={[3, 3, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <WorkspaceMetricCard label="Events" value={formatCompact(stats?.total_events ?? 0)} hint={`Across ${stats?.events_by_source.length ?? 0} active sources.`} icon={Activity} valueClassName="text-4xl" />
+        <WorkspaceMetricCard label="Open Alerts" value={String(stats?.open_alerts ?? 0)} hint={`${stats?.alerts_by_severity.critical ?? 0} critical and ${stats?.alerts_by_severity.high ?? 0} high.`} icon={AlertTriangle} valueClassName="text-4xl" />
+        <WorkspaceMetricCard label="Active Agents" value={`${stats?.active_agents ?? 0}/${stats?.total_agents ?? 0}`} hint={`${topAgents.filter((agent) => agent.status !== 'active').length} agents need attention.`} icon={ServerCog} valueClassName="text-4xl" />
+        <WorkspaceMetricCard label="Detections" value={String(stats?.active_rules ?? 0)} hint={`${topRules.length} rules contributed alerts in this window.`} icon={Shield} valueClassName="text-4xl" />
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
+        <div className="grid gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Event volume</CardTitle>
+              <CardDescription>Telemetry throughput across the current {rangeLabel.toLowerCase()} window.</CardDescription>
+            </CardHeader>
+            <CardContent className="h-[320px]">
+              {isLoading && !stats ? (
+                <WorkspaceEmptyState title="Loading telemetry" body="Pulling the latest event profile for this tenant." className="min-h-[220px]" />
+              ) : eventVolume.length === 0 ? (
+                <WorkspaceEmptyState title="No event traffic yet" body="Once collectors begin sending data, this panel will fill in." className="min-h-[220px]" />
               ) : (
-                <div className="chart-empty" style={{ padding: '40px 0' }}>Waiting for events...</div>
+                <DashboardEventVolumeChart data={eventVolume} />
               )}
-            </div>
+            </CardContent>
+          </Card>
 
-            {/* Events by source type */}
-            <div className="panel" style={{ padding: '16px 20px' }}>
-              <h2 className="panel-title" style={{ marginBottom: 12 }}>Events by source</h2>
-              {sourceChartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={sourceChartData} layout="vertical">
-                    <XAxis type="number" tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={formatCompact} />
-                    <YAxis type="category" dataKey="source" tick={{ fill: '#ccc', fontSize: 12 }} tickLine={false} axisLine={false} width={120} />
-                    <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} labelStyle={{ color: '#aaa' }} formatter={compactTooltipFormatter} />
-                    <Bar dataKey="count" fill="#10b981" radius={[0, 3, 3, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+          <Card>
+            <CardHeader>
+              <CardTitle>Analyst queue</CardTitle>
+              <CardDescription>Open alerts sorted so the riskiest work stays visible first.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {alerts.length === 0 ? (
+                <WorkspaceEmptyState title="Queue is clear" body="New open alerts will land here as detections trigger." className="min-h-[220px]" />
               ) : (
-                <div className="chart-empty" style={{ padding: '40px 0' }}>No event sources yet</div>
+                alerts.map((alert) => (
+                  <Link
+                    key={alert.alert_id}
+                    to={`/alerts/${alert.alert_id}`}
+                    className="group flex flex-col gap-3 rounded-[24px] border border-border/70 bg-background/35 p-4 transition-colors hover:bg-muted/55"
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant={severityVariant(alert.severity)}>{alert.severity}</Badge>
+                          <span className="text-xs uppercase tracking-[0.22em] text-muted-foreground">{formatRelative(alert.first_seen)}</span>
+                        </div>
+                        <div className="mt-3 truncate font-display text-xl font-semibold tracking-[-0.03em] text-foreground">
+                          {alert.rule_title || `Rule ${alert.rule_id.slice(0, 8)}`}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-3 text-sm text-muted-foreground">
+                          <span>{alert.agent_meta?.hostname ?? 'Unassigned asset'}</span>
+                          <span>{alert.hit_count} hits</span>
+                          <span>{alert.assignee ? `Owner: ${alert.assignee}` : 'Unassigned'}</span>
+                        </div>
+                      </div>
+                      <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1" />
+                    </div>
+                  </Link>
+                ))
               )}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
+        </div>
 
-          {/* Alerts by severity + Events by host */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16 }}>
-            <div className="panel" style={{ padding: '16px 20px' }}>
-              <h2 className="panel-title" style={{ marginBottom: 12 }}>Alerts by severity</h2>
-              {sevChartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={sevChartData} layout="vertical">
-                    <XAxis type="number" tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} />
-                    <YAxis type="category" dataKey="severity" tick={{ fill: '#ccc', fontSize: 12 }} tickLine={false} axisLine={false} width={80} />
-                    <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} labelStyle={{ color: '#aaa' }} formatter={(v: number | undefined) => [v ?? 0, 'Alerts']} />
-                    <Bar dataKey="count" radius={[0, 3, 3, 0]}>
-                      {sevChartData.map((entry, idx) => (
-                        <Cell key={idx} fill={entry.fill} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+        <div className="grid gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Top ingest sources</CardTitle>
+              <CardDescription>Where the telemetry load is coming from.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {topSources.length === 0 ? (
+                <WorkspaceEmptyState title="No sources yet" body="Source activity will appear here once telemetry starts flowing." className="min-h-[220px]" />
               ) : (
-                <div className="chart-empty" style={{ padding: '40px 0' }}>No alerts yet</div>
-              )}
-              {stats?.mttr_seconds != null && (
-                <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-dim)', display: 'flex', gap: 16 }}>
-                  <span>Total alerts: <strong style={{ color: 'var(--text-main)' }}>{stats.total_alerts}</strong></span>
-                  <span>Avg response time: <strong style={{ color: 'var(--text-main)' }}>{stats.mttr_seconds < 3600 ? `${Math.round(stats.mttr_seconds / 60)}m` : `${(stats.mttr_seconds / 3600).toFixed(1)}h`}</strong></span>
+                <div className="space-y-3">
+                  {topSources.map((source, index) => {
+                    const max = topSources[0]?.count ?? 1;
+                    const width = max > 0 ? (source.count / max) * 100 : 0;
+                    return (
+                      <div key={source.label} className="space-y-2">
+                        <div className="flex items-center justify-between gap-3 text-sm">
+                          <span className="font-medium text-foreground">{source.label}</span>
+                          <span className="text-muted-foreground">{formatCompact(source.count)}</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-muted/60">
+                          <div className="h-full rounded-full bg-gradient-to-r from-primary via-chart-2 to-cyan-300" style={{ width: `${Math.max(width, index === 0 ? 18 : 8)}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
-            </div>
+            </CardContent>
+          </Card>
 
-            {hostChartData.length > 0 ? (
-              <div className="panel" style={{ padding: '16px 20px' }}>
-                <h2 className="panel-title" style={{ marginBottom: 12 }}>Events by host ({timeRangeLabel.toLowerCase()})</h2>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={hostChartData} layout="vertical">
-                    <XAxis type="number" tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={formatCompact} />
-                    <YAxis type="category" dataKey="hostname" tick={{ fill: '#ccc', fontSize: 12 }} tickLine={false} axisLine={false} width={180} />
-                    <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} labelStyle={{ color: '#aaa' }} formatter={compactTooltipFormatter} />
-                    <Bar dataKey="count" fill="#8b5cf6" radius={[0, 3, 3, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="panel" style={{ padding: '16px 20px' }}>
-                <h2 className="panel-title" style={{ marginBottom: 12 }}>Events by host</h2>
-                <div className="chart-empty" style={{ padding: '40px 0' }}>No host data yet</div>
-              </div>
-            )}
-          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Top triggered rules</CardTitle>
+              <CardDescription>The detections creating the most pressure right now.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {topRules.length === 0 ? (
+                <WorkspaceEmptyState title="No rule activity yet" body="Triggered rules will show up here when alerts are flowing." className="min-h-[220px]" />
+              ) : (
+                topRules.map((rule) => (
+                  <div key={rule.rule_id} className="rounded-[22px] border border-border/70 bg-background/35 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate font-medium text-foreground">{rule.rule_title}</div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <Badge variant={severityVariant((['critical', 'high', 'medium', 'low'].includes(rule.severity) ? rule.severity : 'medium') as Severity)}>
+                            {rule.severity}
+                          </Badge>
+                          <span className="text-sm text-muted-foreground">{rule.alert_count} alerts</span>
+                        </div>
+                      </div>
+                      <BellRing className="mt-1 h-4 w-4 shrink-0 text-primary" />
+                    </div>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
 
-          {/* Top triggered rules */}
-          {stats?.top_rules && stats.top_rules.length > 0 && (
-            <div className="panel dash-table-panel" style={{ marginTop: 16 }}>
-              <h2 className="panel-title">Top triggered rules</h2>
-              <table className="dash-table">
-                <thead>
-                  <tr>
-                    <th>Rule</th>
-                    <th>Severity</th>
-                    <th style={{ textAlign: 'right' }}>Alerts</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {stats.top_rules.map((rule) => (
-                    <tr key={rule.rule_id}>
-                      <td className="dash-alert-name">{rule.rule_title}</td>
-                      <td>
-                        <span className={`dash-sev-badge dash-sev-badge--${rule.severity}`}>
-                          {rule.severity.charAt(0).toUpperCase() + rule.severity.slice(1)}
-                        </span>
-                      </td>
-                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{rule.alert_count}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Top unmitigated alerts */}
-          <div className="panel dash-table-panel" style={{ marginTop: 16 }}>
-            <h2 className="panel-title">Top 5 unmitigated alerts by severity</h2>
-            {filteredTopAlerts.length === 0 ? (
-              <div className="chart-empty" style={{ padding: '32px 0' }}>
-                {topAlerts.length === 0 ? 'No open alerts - environment is clean.' : 'No alerts match the active filters.'}
-              </div>
-            ) : (
-              <table className="dash-table">
-                <thead>
-                  <tr>
-                    <th>Severity</th>
-                    <th>Alert name</th>
-                    <th>Target Asset</th>
-                    <th>Assigned to</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredTopAlerts.map((row, i) => (
-                    <tr key={i}>
-                      <td>
-                        <span className={`dash-sev-badge dash-sev-badge--${row.severity}`}>
-                          {row.severity.charAt(0).toUpperCase() + row.severity.slice(1)}
-                        </span>
-                      </td>
-                      <td className="dash-alert-name">{row.alert_name}</td>
-                      <td>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                          {osIcons[row.asset_os] ?? null}
-                          {row.target_asset}
-                        </span>
-                      </td>
-                      <td>{row.assigned_to ?? '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* -- Trends tab */}
-      {activeTab === 'trends' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* Metrics cards */}
-          <div className="dash-kpis" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">AVG EPS (24H)</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-                <span className="dash-big-number" style={{ color: '#06b6d4' }}>{avgEps24h.toFixed(1)}</span>
-                <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>events/s</span>
-              </div>
-              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
-                Peak: {stats?.eps_trend?.length ? Math.max(...stats.eps_trend.map(p => parseFloat(p.eps) || 0)).toFixed(1) : '0'} eps
-              </div>
-            </div>
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">EVENTS TODAY</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-                <span className="dash-big-number" style={{ color: '#8b5cf6' }}>{formatCompact(eventsToday)}</span>
-              </div>
-              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
-                {logSourceCount} log source{logSourceCount !== 1 ? 's' : ''} active
-              </div>
-            </div>
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">TOP LOG SOURCE</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-                <span className="dash-big-number" style={{ fontSize: 20, color: '#ec4899' }}>{topHost.hostname}</span>
-              </div>
-              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
-                {formatCompact(topHost.count)} events ({topHost.pct}% of total)
-              </div>
-            </div>
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">OPEN CASES</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-                <span className="dash-big-number" style={{ color: '#f97316' }}>{stats?.total_alerts ?? 0}</span>
-              </div>
-              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
-                MTTR: {stats?.mttr_seconds ? `${Math.round(stats.mttr_seconds / 60)}min` : 'N/A'}
-              </div>
-            </div>
-            <div className="panel dash-kpi-card">
-              <span className="kpi-label">DATA INGESTED (24H)</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-                <span className="dash-big-number" style={{ color: '#14b8a6' }}>{stats?.total_events ? formatCompact(Math.round(stats.total_events * 0.8 / 1024)) : '0'}</span>
-                <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>MB</span>
-              </div>
-              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
-                ~{stats?.total_events ? (stats.total_events * 0.8 / 1024 / 1024).toFixed(2) : '0'} GB/day
-              </div>
-            </div>
-          </div>
-
-          {/* Alert trend */}
-          <div className="panel" style={{ padding: '16px 20px' }}>
-            <h2 className="panel-title" style={{ marginBottom: 12 }}>Alert trend ({timeRangeLabel.toLowerCase()})</h2>
-            {alertTrendData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={alertTrendData}>
-                  <XAxis dataKey="time" tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(alertTrendData.length / 8) - 1)} />
-                  <YAxis tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} width={40} allowDecimals={false} />
-                  <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} labelStyle={{ color: '#aaa' }} formatter={(v: number | undefined) => [v ?? 0, 'Alerts']} />
-                  <Bar dataKey="count" fill="#ef4444" radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="chart-empty" style={{ padding: '60px 0' }}>No alerts in this time range</div>
-            )}
-          </div>
-
-          <div className="panel" style={{ padding: '16px 20px' }}>
-            <h2 className="panel-title" style={{ marginBottom: 12 }}>Event volume ({timeRangeLabel.toLowerCase()})</h2>
-            {hourlyChartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <AreaChart data={hourlyChartData}>
-                  <XAxis dataKey="time" tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} />
-                  <YAxis tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} width={50} tickFormatter={formatCompact} />
-                  <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} labelStyle={{ color: '#aaa' }} formatter={compactTooltipFormatter} />
-                  <defs>
-                    <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#6366f1" stopOpacity={0.3} />
-                      <stop offset="100%" stopColor="#6366f1" stopOpacity={0.02} />
-                    </linearGradient>
-                  </defs>
-                  <Area type="monotone" dataKey="count" stroke="#6366f1" fill="url(#trendFill)" strokeWidth={2} dot={false} />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="chart-empty" style={{ padding: '60px 0' }}>
-                Waiting for event data to populate trends...
-              </div>
-            )}
-          </div>
-
-          <div className="panel" style={{ padding: '16px 20px' }}>
-            <h2 className="panel-title" style={{ marginBottom: 12 }}>EPS usage ({timeRangeLabel.toLowerCase()})</h2>
-            {epsTrendData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={250}>
-                <LineChart data={epsTrendData}>
-                  <XAxis dataKey="time" tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} />
-                  <YAxis tick={{ fill: '#888', fontSize: 11 }} tickLine={false} axisLine={false} width={50} />
-                  <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} labelStyle={{ color: '#aaa' }} formatter={epsTooltipFormatter} />
-                  <Line type="monotone" dataKey="eps" stroke="#f59e0b" strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="chart-empty" style={{ padding: '60px 0' }}>
-                Waiting for EPS data...
-              </div>
-            )}
-          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Fleet health</CardTitle>
+              <CardDescription>Collector readiness and the endpoints to watch first.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {topAgents.length === 0 ? (
+                <WorkspaceEmptyState title="No agents registered" body="Agent health will appear here once the fleet is enrolled." className="min-h-[220px]" />
+              ) : (
+                topAgents.map((agent) => (
+                  <div key={agent.agent_id} className="flex items-center justify-between gap-3 rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                    <div className="min-w-0">
+                      <div className="truncate font-medium text-foreground">{agent.hostname}</div>
+                      <div className="truncate text-sm text-muted-foreground">{agent.agent_id}</div>
+                    </div>
+                    <Badge variant={agent.status === 'active' ? 'success' : agent.status === 'stale' ? 'warning' : 'destructive'}>
+                      {agent.status}
+                    </Badge>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
         </div>
-      )}
-
-      {/* -- Health tab */}
-      {activeTab === 'health' && (
-        <div className="panel" style={{ padding: '16px 20px' }}>
-          <h2 className="panel-title" style={{ marginBottom: 16 }}>Agent Health</h2>
-          {stats?.agents && stats.agents.length > 0 ? (
-            <table className="dash-table">
-              <thead>
-                <tr>
-                  <th>Agent</th>
-                  <th>Hostname</th>
-                  <th>OS</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stats.agents.slice(0, 3).map(a => (
-                  <tr key={a.agent_id}>
-                    <td style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      {osIcons[osFromString(a.os, a.hostname)] ?? null}
-                      {a.agent_id}
-                    </td>
-                    <td>{a.hostname}</td>
-                    <td>{osFromString(a.os, a.hostname)}</td>
-                    <td>
-                      <span style={{
-                        fontSize: 12,
-                        padding: '2px 10px',
-                        borderRadius: 10,
-                        background: a.status === 'active' ? 'rgba(16,185,129,0.15)' : a.status === 'stale' ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)',
-                        color: a.status === 'active' ? '#10b981' : a.status === 'stale' ? '#f59e0b' : '#ef4444',
-                      }}>{a.status.toUpperCase()}</span>
-                    </td>
-                  </tr>
-                ))}
-                {stats.agents.length > 3 && (
-                  <tr><td colSpan={4} style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-dim)', padding: 8 }}>+{stats.agents.length - 3} more agents</td></tr>
-                )}
-              </tbody>
-            </table>
-          ) : (
-            <div className="chart-empty" style={{ padding: '48px 0' }}>
-              No agents registered yet
-            </div>
-          )}
-        </div>
-      )}
+      </section>
     </div>
   );
 }

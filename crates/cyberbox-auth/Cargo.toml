@@ -8,6 +8,7 @@ license.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 axum.workspace = true
+dashmap.workspace = true
 http.workspace = true
 jsonwebtoken.workspace = true
 reqwest.workspace = true

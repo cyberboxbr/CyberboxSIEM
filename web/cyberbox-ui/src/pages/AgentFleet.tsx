@@ -1,34 +1,45 @@
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AgentRecord,
-  AgentUpdateInput,
+  ChevronDown,
+  ChevronUp,
+  Cloud,
+  Network,
+  RefreshCcw,
+  Save,
+  Search,
+  Send,
+  ServerCog,
+  Shield,
+  Trash2,
+} from 'lucide-react';
+
+import {
   deleteAgent,
   getAgents,
   pushAgentConfig,
   updateAgent,
-} from '../api/client';
+  type AgentRecord,
+  type AgentUpdateInput,
+} from '@/api/client';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { WorkspaceEmptyState } from '@/components/workspace/empty-state';
+import { WorkspaceMetricCard } from '@/components/workspace/metric-card';
+import { WorkspaceStatusBanner } from '@/components/workspace/status-banner';
+import { cn } from '@/lib/utils';
 
-// ---------------------------------------------------------------------------
-// Dark theme tokens
-// ---------------------------------------------------------------------------
+type AgentFilterStatus = 'all' | 'active' | 'stale' | 'offline';
+type Tone = 'default' | 'secondary' | 'outline' | 'destructive' | 'success' | 'warning' | 'info';
+type AgentKind = 'windows' | 'linux' | 'firewall' | 'mac' | 'entra_id' | 'o365' | 'unknown';
 
-const s = {
-  panelBg: 'rgba(9,21,35,0.82)',
-  border: 'rgba(88,143,186,0.35)',
-  inputBg: 'rgba(4,12,21,0.75)',
-  text: '#dbe4f3',
-  dim: 'rgba(219,228,243,0.5)',
-  accent: '#4a9eda',
-  good: '#58d68d',
-  warn: '#f5a623',
-  bad: '#f45d5d',
-} as const;
+const FIREWALL_HINTS = ['opnsense', 'pfsense', 'fortinet', 'fortigate', 'sophos', 'paloalto', 'firewall', 'fw.', 'asa'];
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function relativeTime(iso: string): string {
+function rel(iso?: string): string {
+  if (!iso) return 'Unknown';
   const diff = Date.now() - new Date(iso).getTime();
   if (diff < 0) return 'just now';
   if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`;
@@ -37,86 +48,44 @@ function relativeTime(iso: string): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-function statusColor(status: string): string {
-  if (status === 'active') return s.good;
-  if (status === 'stale') return s.warn;
-  return s.bad;
+function abs(iso?: string): string {
+  if (!iso) return 'Unknown';
+  const parsed = new Date(iso);
+  return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleString();
 }
 
-function statusBadge(status: string): React.CSSProperties {
-  const c = statusColor(status);
-  return {
-    display: 'inline-block',
-    padding: '2px 10px',
-    borderRadius: 4,
-    fontSize: 11,
-    fontWeight: 700,
-    color: c,
-    background: `${c}22`,
-    border: `1px solid ${c}55`,
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.05em',
-  };
+function statusVariant(status: AgentRecord['status']): Tone {
+  if (status === 'active') return 'success';
+  if (status === 'stale') return 'warning';
+  return 'destructive';
 }
 
-function countBadge(count: number, color: string): React.CSSProperties {
-  return {
-    display: 'inline-block',
-    padding: '2px 10px',
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: 700,
-    color,
-    background: `${color}18`,
-    border: `1px solid ${color}44`,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// OS icons (inline SVG)
-// ---------------------------------------------------------------------------
-
-const FIREWALL_HINTS = ['opnsense', 'pfsense', 'fortinet', 'fortigate', 'sophos', 'paloalto', 'firewall', 'fw.', 'asa'];
-
-function resolveOsType(agent: AgentRecord): 'windows' | 'linux' | 'firewall' | 'mac' | 'entra_id' | 'o365' | 'unknown' {
+function resolveAgentKind(agent: AgentRecord): AgentKind {
   const os = (agent.os || '').toLowerCase();
   const host = (agent.hostname || '').toLowerCase();
   const id = (agent.agent_id || '').toLowerCase();
 
-  // Cloud sources
   if (id.includes('entra') || host.includes('entra')) return 'entra_id';
   if (id.includes('office') || id.includes('o365') || host.includes('office 365')) return 'o365';
   if (os === 'azure') return id.includes('entra') ? 'entra_id' : 'o365';
-
   if (os === 'windows' || os === 'windows_sysmon') return 'windows';
   if (os === 'macos' || os === 'darwin') return 'mac';
-
-  // Check for firewall hints in hostname / agent_id
-  if (FIREWALL_HINTS.some(h => host.includes(h) || id.includes(h))) return 'firewall';
-  if (os === 'firewall') return 'firewall';
-
-  // syslog sources on linux
+  if (FIREWALL_HINTS.some((hint) => host.includes(hint) || id.includes(hint)) || os === 'firewall') return 'firewall';
   if (os === 'linux' || os === 'syslog' || os === 'journald') return 'linux';
-
   return 'unknown';
 }
 
-function OsIcon({ agent }: { agent: AgentRecord }) {
-  const type = resolveOsType(agent);
-  const size = 20;
-  const iconStyle: React.CSSProperties = { verticalAlign: 'middle', flexShrink: 0 };
-
-  if (type === 'entra_id') {
-    return <img src="/entra-id.webp" width={size} height={size} alt="Entra ID" style={{ ...iconStyle, borderRadius: 4 }} />;
+function AgentPlatformIcon({ agent }: { agent: AgentRecord }) {
+  const kind = resolveAgentKind(agent);
+  if (kind === 'entra_id') {
+    return <img src="/entra-id.webp" alt="Entra ID" className="h-5 w-5 rounded-md object-cover" />;
   }
-
-  if (type === 'o365') {
-    return <img src="/office-365.jpg" width={size} height={size} alt="Office 365" style={{ ...iconStyle, borderRadius: 4 }} />;
+  if (kind === 'o365') {
+    return <img src="/office-365.jpg" alt="Office 365" className="h-5 w-5 rounded-md object-cover" />;
   }
-
-  if (type === 'windows') {
+  if (kind === 'windows') {
     return (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={iconStyle}>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
         <path d="M3 5.5L10.5 4.4V11.4H3V5.5Z" fill="#4a9eda" />
         <path d="M11.5 4.2L21 3V11.4H11.5V4.2Z" fill="#4a9eda" />
         <path d="M3 12.6H10.5V19.6L3 18.5V12.6Z" fill="#4a9eda" />
@@ -124,55 +93,38 @@ function OsIcon({ agent }: { agent: AgentRecord }) {
       </svg>
     );
   }
-
-  if (type === 'linux') {
-    return <img src="/tux.png" width={size} height={size} alt="Linux" style={iconStyle} />;
+  if (kind === 'linux') {
+    return <img src="/tux.png" alt="Linux" className="h-5 w-5 object-contain" />;
   }
-
-  if (type === 'firewall') {
+  if (kind === 'mac') {
     return (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={iconStyle}>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <path d="M18.7 12.4C18.7 15.8 16.2 19.8 13.5 19.8C12.7 19.8 12.2 19.4 11.5 19.4C10.8 19.4 10.2 19.8 9.5 19.8C7 19.8 4.3 16 4.3 12.4C4.3 9.2 6.5 7.5 8.5 7.5C9.4 7.5 10.2 8 11 8C11.7 8 12.6 7.4 13.7 7.5C15.5 7.5 16.8 8.5 17.5 10C16 10.8 15.2 12.2 15.2 13.5" stroke="currentColor" strokeWidth="1.3" />
+        <path d="M14 4C14 5.5 12.8 7.2 11 7.5C11 6 12.2 4.2 14 4Z" fill="currentColor" />
+      </svg>
+    );
+  }
+  if (kind === 'firewall') {
+    return (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
         <rect x="2" y="4" width="20" height="6" rx="1.5" stroke="#f45d5d" strokeWidth="1.5" fill="rgba(244,93,93,0.1)" />
         <rect x="2" y="14" width="20" height="6" rx="1.5" stroke="#f45d5d" strokeWidth="1.5" fill="rgba(244,93,93,0.1)" />
-        <circle cx="5.5" cy="7" r="1" fill="#58d68d" />
-        <circle cx="5.5" cy="17" r="1" fill="#58d68d" />
-        <line x1="8" y1="7" x2="14" y2="7" stroke="#f45d5d" strokeWidth="1" strokeLinecap="round" />
-        <line x1="8" y1="17" x2="14" y2="17" stroke="#f45d5d" strokeWidth="1" strokeLinecap="round" />
-        <path d="M12 10V14" stroke="rgba(219,228,243,0.3)" strokeWidth="1.5" strokeDasharray="2 1" />
+        <circle cx="5.5" cy="7" r="1" fill="#22c55e" />
+        <circle cx="5.5" cy="17" r="1" fill="#22c55e" />
       </svg>
     );
   }
-
-  if (type === 'mac') {
-    return (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={iconStyle}>
-        <path d="M18.7 12.4C18.7 15.8 16.2 19.8 13.5 19.8C12.7 19.8 12.2 19.4 11.5 19.4C10.8 19.4 10.2 19.8 9.5 19.8C7 19.8 4.3 16 4.3 12.4C4.3 9.2 6.5 7.5 8.5 7.5C9.4 7.5 10.2 8 11 8C11.7 8 12.6 7.4 13.7 7.5C15.5 7.5 16.8 8.5 17.5 10C16 10.8 15.2 12.2 15.2 13.5" stroke={s.text} strokeWidth="1.3" />
-        <path d="M14 4C14 5.5 12.8 7.2 11 7.5C11 6 12.2 4.2 14 4Z" fill={s.text} />
-      </svg>
-    );
-  }
-
-  // Unknown
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={iconStyle}>
-      <rect x="3" y="4" width="18" height="12" rx="2" stroke={s.dim} strokeWidth="1.5" />
-      <line x1="12" y1="16" x2="12" y2="19" stroke={s.dim} strokeWidth="1.5" />
-      <line x1="8" y1="19" x2="16" y2="19" stroke={s.dim} strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
+  return <ServerCog className="h-5 w-5" />;
 }
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 export function AgentFleet() {
   const [agents, setAgents] = useState<AgentRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const [groupFilter, setGroupFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'stale' | 'offline'>('all');
-  const [textSearch, setTextSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<AgentFilterStatus>('all');
+  const [searchValue, setSearchValue] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [configToml, setConfigToml] = useState('');
   const [configStatus, setConfigStatus] = useState('');
@@ -186,8 +138,7 @@ export function AgentFleet() {
     setLoading(true);
     setError('');
     try {
-      const resp = await getAgents(groupFilter || undefined);
-      setAgents(resp);
+      setAgents(await getAgents(groupFilter || undefined));
     } catch (err) {
       setError(String(err));
     } finally {
@@ -196,32 +147,37 @@ export function AgentFleet() {
   }, [groupFilter]);
 
   useEffect(() => {
-    loadAgents();
-    const id = setInterval(loadAgents, 15_000);
-    return () => clearInterval(id);
+    void loadAgents();
+    const id = window.setInterval(() => { void loadAgents(); }, 15_000);
+    return () => window.clearInterval(id);
   }, [loadAgents]);
 
-  // Compute groups for dropdown
-  const groups = Array.from(new Set(agents.map((a) => a.group).filter(Boolean))) as string[];
+  const groups = useMemo(
+    () => Array.from(new Set(agents.map((agent) => agent.group).filter(Boolean))).sort() as string[],
+    [agents],
+  );
 
-  // Filtered view
-  const filtered = agents.filter((a) => {
-    if (statusFilter !== 'all' && a.status !== statusFilter) return false;
-    if (textSearch) {
-      const q = textSearch.toLowerCase();
-      const fields = [a.agent_id, a.hostname, a.os, a.version, ...(a.tags || [])].join(' ').toLowerCase();
-      if (!fields.includes(q)) return false;
-    }
-    return true;
-  });
+  const filteredAgents = useMemo(() => {
+    const query = searchValue.trim().toLowerCase();
+    return agents.filter((agent) => {
+      if (statusFilter !== 'all' && agent.status !== statusFilter) return false;
+      if (!query) return true;
+      const haystack = [agent.agent_id, agent.hostname, agent.os, agent.version, agent.ip, ...(agent.tags || [])]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [agents, searchValue, statusFilter]);
 
-  const counts = {
-    active: agents.filter((a) => a.status === 'active').length,
-    stale: agents.filter((a) => a.status === 'stale').length,
-    offline: agents.filter((a) => a.status === 'offline').length,
-  };
+  const counts = useMemo(() => ({
+    active: agents.filter((agent) => agent.status === 'active').length,
+    stale: agents.filter((agent) => agent.status === 'stale').length,
+    offline: agents.filter((agent) => agent.status === 'offline').length,
+  }), [agents]);
 
-  // Expand handler
+  const expandedAgent = expandedId ? agents.find((agent) => agent.agent_id === expandedId) ?? null : null;
+
   const onExpand = (agent: AgentRecord) => {
     if (expandedId === agent.agent_id) {
       setExpandedId(null);
@@ -247,19 +203,20 @@ export function AgentFleet() {
     }
   };
 
-  const onSaveGroupTags = async (e: FormEvent, agentId: string) => {
-    e.preventDefault();
+  const onSaveAgent = async (event: FormEvent, agentId: string) => {
+    event.preventDefault();
+    setConfigStatus('Saving metadata...');
     try {
       const body: AgentUpdateInput = {
         group: editGroup.trim() ? editGroup.trim() : null,
-        tags: editTags ? editTags.split(',').map((t) => t.trim()).filter(Boolean) : [],
+        tags: editTags ? editTags.split(',').map((tag) => tag.trim()).filter(Boolean) : [],
         hostname: editHostname.trim() ? editHostname.trim() : null,
         os: editOs.trim() ? editOs.trim() : null,
         ip: editIp.trim() ? editIp.trim() : null,
       };
       await updateAgent(agentId, body);
       setConfigStatus('Agent updated.');
-      loadAgents();
+      void loadAgents();
     } catch (err) {
       setConfigStatus(`Error: ${String(err)}`);
     }
@@ -270,305 +227,246 @@ export function AgentFleet() {
     try {
       await deleteAgent(agentId);
       setExpandedId(null);
-      loadAgents();
+      setMessage('Agent removed.');
+      void loadAgents();
     } catch (err) {
       setError(`Delete failed: ${String(err)}`);
     }
   };
 
-  // ─── table cell style ────────────────────────────────────────────────────
-
-  const th: React.CSSProperties = {
-    textAlign: 'left',
-    padding: '8px 10px',
-    borderBottom: `1px solid ${s.border}`,
-    color: s.accent,
-    fontWeight: 600,
-    fontSize: 12,
-    whiteSpace: 'nowrap',
-  };
-
-  const td: React.CSSProperties = {
-    padding: '8px 10px',
-    fontSize: 13,
-    borderBottom: `1px solid ${s.border}`,
-    whiteSpace: 'nowrap',
-  };
-
   return (
-    <div className="page">
-      {/* Header */}
-      <div className="page-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <h1 className="page-title">Agent Fleet</h1>
-          <span style={{ fontSize: 13, color: s.dim }}>{agents.length} total</span>
-          <span style={countBadge(counts.active, s.good)}>{counts.active} active</span>
-          <span style={countBadge(counts.stale, s.warn)}>{counts.stale} stale</span>
-          <span style={countBadge(counts.offline, s.bad)}>{counts.offline} offline</span>
-        </div>
-        <button className="btn-refresh" onClick={loadAgents} disabled={loading}>
-          {loading ? 'Loading...' : 'Refresh'}
-        </button>
-      </div>
+    <div className="space-y-6">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_360px]">
+        <Card className="overflow-hidden border-primary/15 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.15),transparent_40%),linear-gradient(145deg,hsl(var(--card)),hsl(var(--card)/0.85))]">
+          <CardContent className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(250px,0.85fr)]">
+            <div>
+              <div className="mb-4 flex flex-wrap gap-2">
+                <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">Fleet management workspace</Badge>
+                <Badge variant="secondary" className="bg-background/55">Refreshes every 15s</Badge>
+              </div>
+              <div className="max-w-2xl font-display text-4xl font-semibold leading-[0.96] tracking-[-0.05em] text-foreground sm:text-[3rem]">
+                Keep collectors healthy and config drift under control.
+              </div>
+              <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
+                The fleet board shows which agents are alive, which ones are decaying, and gives you a direct lane to update metadata or push config.
+              </p>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <Button type="button" variant="outline" onClick={() => void loadAgents()} disabled={loading}>
+                  <RefreshCcw className={cn('h-4 w-4', loading && 'animate-spin')} />
+                  Refresh fleet
+                </Button>
+              </div>
+            </div>
+            <div className="grid gap-3 rounded-[28px] border border-border/70 bg-background/35 p-4">
+              <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Fleet size</div>
+                <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{agents.length}</div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Active</div>
+                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{counts.active}</div>
+                </div>
+                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Stale</div>
+                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{counts.stale}</div>
+                </div>
+                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Offline</div>
+                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{counts.offline}</div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
-      {/* Filters */}
-      <div
-        className="panel"
-        style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 12, alignItems: 'end' }}
-      >
-        <label>
-          Group
-          <select value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>
-            <option value="">All groups</option>
-            {groups.map((g) => (
-              <option key={g} value={g}>{g}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Status
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'stale' | 'offline')}
-          >
-            <option value="all">All</option>
-            <option value="active">Active</option>
-            <option value="stale">Stale</option>
-            <option value="offline">Offline</option>
-          </select>
-        </label>
-        <label>
-          Search
-          <input
-            value={textSearch}
-            onChange={(e) => setTextSearch(e.target.value)}
-            placeholder="hostname, agent_id, tag..."
-          />
-        </label>
-      </div>
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle>Filters</CardTitle>
+            <CardDescription>Slice the fleet by status, group, or free-text search.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div>
+              <div className="mb-2 text-sm font-medium text-foreground">Group</div>
+              <Select value={groupFilter} onChange={(event) => setGroupFilter(event.target.value)}>
+                <option value="">All groups</option>
+                {groups.map((group) => <option key={group} value={group}>{group}</option>)}
+              </Select>
+            </div>
+            <div>
+              <div className="mb-2 text-sm font-medium text-foreground">Status</div>
+              <Select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as AgentFilterStatus)}>
+                <option value="all">All</option>
+                <option value="active">Active</option>
+                <option value="stale">Stale</option>
+                <option value="offline">Offline</option>
+              </Select>
+            </div>
+            <div>
+              <div className="mb-2 text-sm font-medium text-foreground">Search</div>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input className="pl-11" value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="hostname, agent_id, tag..." />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </section>
 
-      {error && <p style={{ color: s.bad, fontSize: 13, margin: 0 }}>{error}</p>}
+      {message && <WorkspaceStatusBanner>{message}</WorkspaceStatusBanner>}
+      {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
 
-      {/* Agent table */}
-      <div className="panel wide" style={{ overflowX: 'auto' }}>
-        {filtered.length === 0 ? (
-          <p className="empty-state">No agents match current filters.</p>
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <WorkspaceMetricCard label="Active" value={String(counts.active)} hint="Agents reporting recently and considered healthy." icon={Shield} />
+        <WorkspaceMetricCard label="Stale" value={String(counts.stale)} hint="Collectors that need a heartbeat check soon." icon={RefreshCcw} />
+        <WorkspaceMetricCard label="Offline" value={String(counts.offline)} hint="Endpoints that are no longer reaching the control plane." icon={Cloud} />
+        <WorkspaceMetricCard label="Visible" value={String(filteredAgents.length)} hint="Agents matching the current filter set." icon={Network} />
+      </section>
+
+      <section className="space-y-4">
+        {loading && agents.length === 0 ? (
+          <Card><CardContent className="h-[320px] animate-pulse p-6" /></Card>
+        ) : filteredAgents.length === 0 ? (
+          <WorkspaceEmptyState title="No agents match the current view" body="Try clearing a filter, changing the group selector, or waiting for the next heartbeat." />
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={th}>Agent ID</th>
-                <th style={th}>Hostname</th>
-                <th style={th}>Platform</th>
-                <th style={th}>Version</th>
-                <th style={th}>Last Seen</th>
-                <th style={th}>Status</th>
-                <th style={th}>Group</th>
-                <th style={th}>Tags</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((agent) => {
-                const isExpanded = expandedId === agent.agent_id;
-                const platformOptions = Array.from(
-                  new Set(
-                    [agent.os, 'firewall', 'windows', 'linux', 'router', 'network', 'syslog']
-                      .map((value) => value?.trim())
-                      .filter(Boolean),
-                  ),
-                ) as string[];
-                return (
-                  <tr key={agent.agent_id} style={{ cursor: 'pointer' }}>
-                    <td colSpan={8} style={{ padding: 0, border: 'none' }}>
-                      {/* Row */}
-                      <div
-                        onClick={() => onExpand(agent)}
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: 'minmax(120px,1.5fr) 1fr 0.6fr 0.6fr 0.8fr 0.6fr 0.7fr 1fr',
-                          alignItems: 'center',
-                          borderBottom: isExpanded ? 'none' : `1px solid ${s.border}`,
-                          background: isExpanded ? 'rgba(74,158,218,0.06)' : 'transparent',
-                        }}
-                      >
-                        <span style={td}>
-                          <code style={{ fontSize: 11 }}>{agent.agent_id.slice(0, 12)}</code>
-                        </span>
-                        <span style={td}>{agent.hostname}</span>
-                        <span style={{ ...td, display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <OsIcon agent={agent} />
-                          {resolveOsType(agent)}
-                        </span>
-                        <span style={td}>{agent.version}</span>
-                        <span style={td} title={agent.last_seen}>{relativeTime(agent.last_seen)}</span>
-                        <span style={td}><span style={statusBadge(agent.status)}>{agent.status}</span></span>
-                        <span style={td}>{agent.group || '-'}</span>
-                        <span style={td}>
-                          {(agent.tags || []).map((t) => (
-                            <span
-                              key={t}
-                              style={{
-                                display: 'inline-block',
-                                padding: '1px 6px',
-                                marginRight: 4,
-                                borderRadius: 4,
-                                fontSize: 11,
-                                background: 'rgba(88,143,186,0.15)',
-                                border: `1px solid ${s.border}`,
-                              }}
-                            >
-                              {t}
-                            </span>
-                          ))}
-                        </span>
+          filteredAgents.map((agent) => {
+            const isExpanded = expandedId === agent.agent_id;
+            const platformOptions = Array.from(new Set([agent.os, 'firewall', 'windows', 'linux', 'macos', 'router', 'network', 'syslog'].map((value) => value?.trim()).filter(Boolean))) as string[];
+            return (
+              <Card key={agent.agent_id} className={cn('overflow-hidden transition-colors', isExpanded && 'border-primary/20')}>
+                <CardContent className="p-5">
+                  <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-border/70 bg-background/55 text-primary">
+                          <AgentPlatformIcon agent={agent} />
+                        </div>
+                        <div>
+                          <div className="font-display text-2xl font-semibold tracking-[-0.03em] text-foreground">{agent.hostname}</div>
+                          <div className="mt-1 text-sm text-muted-foreground">{agent.agent_id}</div>
+                        </div>
                       </div>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <Badge variant={statusVariant(agent.status)}>{agent.status}</Badge>
+                        <Badge variant="outline">{resolveAgentKind(agent).replace(/_/g, ' ')}</Badge>
+                        <Badge variant="secondary">{agent.version}</Badge>
+                        {agent.group && <Badge variant="secondary">{agent.group}</Badge>}
+                      </div>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Last seen</div>
+                          <div className="mt-2 text-sm font-medium text-foreground">{rel(agent.last_seen)}</div>
+                        </div>
+                        <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">OS</div>
+                          <div className="mt-2 text-sm font-medium text-foreground">{agent.os || 'Unknown'}</div>
+                        </div>
+                        <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">IP</div>
+                          <div className="mt-2 text-sm font-medium text-foreground">{agent.ip || 'Not set'}</div>
+                        </div>
+                        <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Tags</div>
+                          <div className="mt-2 text-sm font-medium text-foreground">{agent.tags.length ? agent.tags.join(', ') : 'None'}</div>
+                        </div>
+                      </div>
+                    </div>
 
-                      {/* Expanded detail panel */}
-                      {isExpanded && (
-                        <div
-                          style={{
-                            padding: 16,
-                            background: 'rgba(4,12,21,0.5)',
-                            borderBottom: `1px solid ${s.border}`,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 14,
-                          }}
-                        >
-                          {/* Full info */}
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, fontSize: 13 }}>
-                            <div><strong style={{ color: s.dim }}>Agent ID:</strong> {agent.agent_id}</div>
-                            <div><strong style={{ color: s.dim }}>Tenant:</strong> {agent.tenant_id}</div>
-                            <div><strong style={{ color: s.dim }}>IP:</strong> {agent.ip || 'N/A'}</div>
-                            <div><strong style={{ color: s.dim }}>Hostname:</strong> {agent.hostname}</div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <strong style={{ color: s.dim }}>OS:</strong> <OsIcon agent={agent} /> {resolveOsType(agent)}
-                            </div>
-                            <div><strong style={{ color: s.dim }}>Version:</strong> {agent.version}</div>
-                            <div><strong style={{ color: s.dim }}>Last Seen:</strong> {new Date(agent.last_seen).toLocaleString()}</div>
-                            <div><strong style={{ color: s.dim }}>Status:</strong> <span style={statusBadge(agent.status)}>{agent.status}</span></div>
-                            <div><strong style={{ color: s.dim }}>Group:</strong> {agent.group || '-'}</div>
+                    <div className="flex shrink-0 flex-wrap gap-3">
+                      <Button type="button" variant="outline" onClick={() => onExpand(agent)}>
+                        {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        {isExpanded ? 'Collapse' : 'Manage'}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {isExpanded && expandedAgent && (
+                    <div className="mt-5 grid gap-5 border-t border-border/70 pt-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+                      <div className="space-y-5">
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <div className="rounded-[24px] border border-border/70 bg-background/35 p-4">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Tenant</div>
+                            <div className="mt-3 text-sm text-foreground">{expandedAgent.tenant_id}</div>
                           </div>
-
-                          {/* Edit agent metadata */}
-                          <form
-                            onSubmit={(e) => onSaveGroupTags(e, agent.agent_id)}
-                            style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'end' }}
-                          >
-                            <label style={{ fontSize: 12 }}>
-                              Hostname
-                              <input
-                                value={editHostname}
-                                onChange={(e) => setEditHostname(e.target.value)}
-                                placeholder="hostname"
-                              />
-                            </label>
-                            <label style={{ fontSize: 12 }}>
-                              Platform
-                              <select
-                                value={editOs}
-                                onChange={(e) => setEditOs(e.target.value)}
-                                style={{ width: '100%', padding: '8px 10px' }}
-                              >
-                                <option value="">— clear platform —</option>
-                                {platformOptions.map((platform) => (
-                                  <option key={platform} value={platform}>
-                                    {platform}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                            <label style={{ fontSize: 12 }}>
-                              Group
-                              <input
-                                value={editGroup}
-                                onChange={(e) => setEditGroup(e.target.value)}
-                                placeholder="production"
-                              />
-                            </label>
-                            <label style={{ fontSize: 12 }}>
-                              IP Address
-                              <input
-                                value={editIp}
-                                onChange={(e) => setEditIp(e.target.value)}
-                                placeholder="10.0.0.5"
-                              />
-                            </label>
-                            <label style={{ fontSize: 12 }}>
-                              Tags (comma-separated)
-                              <input
-                                value={editTags}
-                                onChange={(e) => setEditTags(e.target.value)}
-                                placeholder="linux, prod, us-east-1"
-                              />
-                            </label>
-                            <button type="submit" style={{ padding: '10px 16px', gridColumn: 'span 2' }}>Save</button>
-                          </form>
-
-                          {/* Push config */}
-                          <div>
-                            <label style={{ fontSize: 12 }}>
-                              Push Config (TOML)
-                              <textarea
-                                value={configToml}
-                                onChange={(e) => setConfigToml(e.target.value)}
-                                rows={6}
-                                placeholder={'[agent]\ncollector_url = "http://collector:9090"\n\n[[sources]]\ntype = "file"\npath = "/var/log/syslog"'}
-                                style={{
-                                  fontFamily: '"IBM Plex Mono", monospace',
-                                  fontSize: 12,
-                                  width: '100%',
-                                  resize: 'vertical',
-                                }}
-                              />
-                            </label>
-                            <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 8 }}>
-                              <button
-                                type="button"
-                                onClick={() => onPushConfig(agent.agent_id)}
-                                disabled={!configToml.trim()}
-                                style={{
-                                  padding: '8px 20px',
-                                  background: configToml.trim() ? 'rgba(74,158,218,0.25)' : s.inputBg,
-                                  borderColor: s.accent,
-                                }}
-                              >
-                                Push Config
-                              </button>
-                              {configStatus && (
-                                <span style={{ fontSize: 12, color: configStatus.startsWith('Error') ? s.bad : s.good }}>
-                                  {configStatus}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Delete agent */}
-                          <div style={{ borderTop: `1px solid ${s.border}`, paddingTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
-                            <button
-                              type="button"
-                              onClick={() => onDeleteAgent(agent.agent_id)}
-                              style={{
-                                padding: '8px 20px',
-                                background: 'rgba(244,93,93,0.15)',
-                                borderColor: s.bad,
-                                color: s.bad,
-                                fontWeight: 600,
-                              }}
-                            >
-                              Remove Agent
-                            </button>
+                          <div className="rounded-[24px] border border-border/70 bg-background/35 p-4">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Heartbeat</div>
+                            <div className="mt-3 text-sm text-foreground">{abs(expandedAgent.last_seen)}</div>
                           </div>
                         </div>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+
+                        <form className="grid gap-4 md:grid-cols-2" onSubmit={(event) => void onSaveAgent(event, expandedAgent.agent_id)}>
+                          <div>
+                            <div className="mb-2 text-sm font-medium text-foreground">Hostname</div>
+                            <Input value={editHostname} onChange={(event) => setEditHostname(event.target.value)} placeholder="hostname" />
+                          </div>
+                          <div>
+                            <div className="mb-2 text-sm font-medium text-foreground">Platform</div>
+                            <Select value={editOs} onChange={(event) => setEditOs(event.target.value)}>
+                              <option value="">Clear platform</option>
+                              {platformOptions.map((platform) => <option key={platform} value={platform}>{platform}</option>)}
+                            </Select>
+                          </div>
+                          <div>
+                            <div className="mb-2 text-sm font-medium text-foreground">Group</div>
+                            <Input value={editGroup} onChange={(event) => setEditGroup(event.target.value)} placeholder="production" />
+                          </div>
+                          <div>
+                            <div className="mb-2 text-sm font-medium text-foreground">IP address</div>
+                            <Input value={editIp} onChange={(event) => setEditIp(event.target.value)} placeholder="10.0.0.5" />
+                          </div>
+                          <div className="md:col-span-2">
+                            <div className="mb-2 text-sm font-medium text-foreground">Tags</div>
+                            <Input value={editTags} onChange={(event) => setEditTags(event.target.value)} placeholder="linux, prod, us-east-1" />
+                          </div>
+                          <div className="md:col-span-2 flex flex-wrap justify-between gap-3">
+                            <Button type="button" variant="destructive" onClick={() => void onDeleteAgent(expandedAgent.agent_id)}>
+                              <Trash2 className="h-4 w-4" />
+                              Remove agent
+                            </Button>
+                            <Button type="submit">
+                              <Save className="h-4 w-4" />
+                              Save metadata
+                            </Button>
+                          </div>
+                        </form>
+                      </div>
+
+                      <div className="space-y-4 rounded-[28px] border border-border/70 bg-background/35 p-4">
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Push config</div>
+                          <p className="mt-2 text-sm text-muted-foreground">Send a TOML configuration payload directly to this agent.</p>
+                        </div>
+                        <Textarea
+                          value={configToml}
+                          onChange={(event) => setConfigToml(event.target.value)}
+                          rows={10}
+                          placeholder={'[agent]\ncollector_url = "http://collector:9090"\n\n[[sources]]\ntype = "file"\npath = "/var/log/syslog"'}
+                          className="font-mono text-xs"
+                        />
+                        <Button type="button" className="w-full" onClick={() => void onPushConfig(expandedAgent.agent_id)} disabled={!configToml.trim()}>
+                          <Send className="h-4 w-4" />
+                          Push config
+                        </Button>
+                        {configStatus && (
+                          <div className={cn(
+                            'rounded-[22px] border px-4 py-3 text-sm',
+                            configStatus.startsWith('Error')
+                              ? 'border-amber-500/20 bg-amber-500/10 text-amber-100'
+                              : 'border-primary/20 bg-primary/10 text-primary',
+                          )}
+                          >
+                            {configStatus}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })
         )}
-      </div>
+      </section>
     </div>
   );
 }

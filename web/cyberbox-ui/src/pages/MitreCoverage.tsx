@@ -1,9 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  CoverageReport,
-  CoveredTechnique,
-  getCoverage,
-} from '../api/client';
+  Activity,
+  ArrowRight,
+  Crosshair,
+  RefreshCcw,
+  Search,
+  Shield,
+} from 'lucide-react';
+
+import { getCoverage, type CoverageReport, type CoveredTechnique } from '@/api/client';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { WorkspaceEmptyState } from '@/components/workspace/empty-state';
+import { WorkspaceMetricCard } from '@/components/workspace/metric-card';
+import { WorkspaceStatusBanner } from '@/components/workspace/status-banner';
 
 const TACTICS = [
   'initial-access',
@@ -22,17 +35,17 @@ const TACTICS = [
 
 const TACTIC_LABELS: Record<string, string> = {
   'initial-access': 'Initial Access',
-  'execution': 'Execution',
-  'persistence': 'Persistence',
+  execution: 'Execution',
+  persistence: 'Persistence',
   'privilege-escalation': 'Privilege Escalation',
   'defense-evasion': 'Defense Evasion',
   'credential-access': 'Credential Access',
-  'discovery': 'Discovery',
+  discovery: 'Discovery',
   'lateral-movement': 'Lateral Movement',
-  'collection': 'Collection',
+  collection: 'Collection',
   'command-and-control': 'Command and Control',
-  'exfiltration': 'Exfiltration',
-  'impact': 'Impact',
+  exfiltration: 'Exfiltration',
+  impact: 'Impact',
 };
 
 function normalizeTactic(tactic: string | null | undefined): string {
@@ -40,293 +53,276 @@ function normalizeTactic(tactic: string | null | undefined): string {
   return tactic.toLowerCase().replace(/[\s_]+/g, '-');
 }
 
+function coverageTone(value: number): string {
+  if (value >= 50) return 'text-emerald-300';
+  if (value >= 25) return 'text-amber-100';
+  return 'text-rose-200';
+}
+
 export function MitreCoverage() {
   const [report, setReport] = useState<CoverageReport | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [selectedTechnique, setSelectedTechnique] = useState<CoveredTechnique | null>(null);
+  const [tacticFilter, setTacticFilter] = useState<'all' | string>('all');
+  const [searchValue, setSearchValue] = useState('');
 
-  const loadCoverage = async () => {
+  const loadCoverage = async (showLoader: boolean) => {
+    if (showLoader) setLoading(true);
+    setError('');
     try {
-      setLoading(true);
       const data = await getCoverage();
       setReport(data);
-      setError('');
     } catch (err) {
       setError(String(err));
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  useEffect(() => {
-    loadCoverage();
-  }, []);
+  useEffect(() => { void loadCoverage(true); }, []);
 
-  // Group covered techniques by tactic
   const byTactic = useMemo(() => {
-    if (!report) return {};
+    if (!report) return {} as Record<string, CoveredTechnique[]>;
     const map: Record<string, CoveredTechnique[]> = {};
-    for (const t of report.covered_techniques) {
-      const key = normalizeTactic(t.tactic);
+    report.covered_techniques.forEach((technique) => {
+      const key = normalizeTactic(technique.tactic);
       if (!map[key]) map[key] = [];
-      map[key].push(t);
-    }
+      map[key].push(technique);
+    });
+    Object.values(map).forEach((group) => {
+      group.sort((left, right) => right.rule_count - left.rule_count || left.technique_id.localeCompare(right.technique_id));
+    });
     return map;
   }, [report]);
 
-  // Collect all technique IDs that are covered for quick lookup
-  const coveredIds = useMemo(() => {
-    if (!report) return new Set<string>();
-    return new Set(report.covered_techniques.map((t) => t.technique_id));
-  }, [report]);
+  const filteredTechniques = useMemo(() => {
+    if (!report) return [];
+    const query = searchValue.trim().toLowerCase();
+    return report.covered_techniques.filter((technique) => {
+      const tactic = normalizeTactic(technique.tactic);
+      if (tacticFilter !== 'all' && tactic !== tacticFilter) return false;
+      if (!query) return true;
+      return [technique.technique_id, technique.technique_name, technique.tactic, ...technique.rule_ids]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(query);
+    });
+  }, [report, searchValue, tacticFilter]);
 
-  const panelStyle: React.CSSProperties = {
-    border: '1px solid var(--border)',
-    borderRadius: 14,
-    background: 'var(--panel-bg)',
-    padding: 16,
-  };
+  const tacticCounts = useMemo(
+    () => TACTICS.map((tactic) => ({ tactic, count: (byTactic[tactic] ?? []).length })),
+    [byTactic],
+  );
 
-  if (loading) return <div className="page"><p className="empty-state">Loading coverage data...</p></div>;
-  if (!report) return <div className="page"><p className="empty-state">Failed to load coverage. {error}</p></div>;
+  const maxTacticCount = useMemo(
+    () => Math.max(1, ...tacticCounts.map((item) => item.count)),
+    [tacticCounts],
+  );
+
+  if (loading && !report) {
+    return <Card><CardContent className="h-[320px] animate-pulse p-6" /></Card>;
+  }
+
+  if (!report) {
+    return (
+      <WorkspaceEmptyState
+        title="Coverage data unavailable"
+        body={`We couldn’t load the current MITRE ATT&CK mapping.${error ? ` ${error}` : ''}`}
+      />
+    );
+  }
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <h1 className="page-title">MITRE ATT&CK Coverage</h1>
-        <div className="page-header-meta">
-          <button type="button" className="btn-refresh" onClick={loadCoverage}>
-            Refresh
-          </button>
-        </div>
-      </div>
-
-      {error && <div style={{ color: '#f45d5d', fontSize: 13 }}>{error}</div>}
-
-      {/* Coverage Summary */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-        <div className="kpi-card" style={{ textAlign: 'center' }}>
-          <span className="kpi-label">Coverage</span>
-          <span
-            className="kpi-value"
-            style={{
-              color: report.coverage_pct > 50 ? '#58d68d' : report.coverage_pct > 25 ? '#d4bc00' : '#f45d5d',
-              fontSize: 36,
-            }}
-          >
-            {report.coverage_pct.toFixed(1)}%
-          </span>
-        </div>
-        <div className="kpi-card" style={{ textAlign: 'center' }}>
-          <span className="kpi-label">Covered Techniques</span>
-          <span className="kpi-value good">{report.total_covered}</span>
-        </div>
-        <div className="kpi-card" style={{ textAlign: 'center' }}>
-          <span className="kpi-label">Total in Framework</span>
-          <span className="kpi-value">{report.total_in_framework}</span>
-        </div>
-      </div>
-
-      {/* Coverage progress bar */}
-      <div style={{ height: 8, borderRadius: 4, background: 'rgba(88,143,186,0.15)', overflow: 'hidden' }}>
-        <div
-          style={{
-            height: '100%',
-            width: `${report.coverage_pct}%`,
-            borderRadius: 4,
-            background: report.coverage_pct > 50 ? '#58d68d' : report.coverage_pct > 25 ? '#d4bc00' : '#f45d5d',
-            transition: 'width 0.4s ease',
-          }}
-        />
-      </div>
-
-      {/* Matrix Grid */}
-      <div style={panelStyle}>
-        <h2 className="panel-title">ATT&CK Matrix</h2>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(${TACTICS.length}, minmax(0, 1fr))`,
-            gap: 4,
-            overflowX: 'auto',
-          }}
-        >
-          {/* Tactic headers */}
-          {TACTICS.map((tactic) => (
-            <div
-              key={tactic}
-              style={{
-                padding: '8px 4px',
-                fontSize: 10,
-                fontWeight: 700,
-                color: '#dbe4f3',
-                textAlign: 'center',
-                borderBottom: '1px solid var(--border)',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-              title={TACTIC_LABELS[tactic] ?? tactic}
-            >
-              {TACTIC_LABELS[tactic] ?? tactic}
-            </div>
-          ))}
-
-          {/* Technique cells */}
-          {(() => {
-            // Find max techniques per tactic to determine rows
-            const maxRows = Math.max(1, ...TACTICS.map((t) => (byTactic[t] ?? []).length));
-            const rows: React.ReactNode[] = [];
-            for (let i = 0; i < maxRows; i++) {
-              for (const tactic of TACTICS) {
-                const techniques = byTactic[tactic] ?? [];
-                const tech = techniques[i];
-                if (tech) {
-                  rows.push(
-                    <div
-                      key={`${tactic}-${i}`}
-                      onClick={() => setSelectedTechnique(tech)}
-                      style={{
-                        padding: '6px 4px',
-                        borderRadius: 4,
-                        background: 'rgba(88,214,141,0.12)',
-                        border: '1px solid rgba(88,214,141,0.25)',
-                        cursor: 'pointer',
-                        textAlign: 'center',
-                        fontSize: 9,
-                        color: '#58d68d',
-                        position: 'relative',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                      title={`${tech.technique_id}: ${tech.technique_name} (${tech.rule_count} rules)`}
-                    >
-                      <div style={{ fontWeight: 600 }}>{tech.technique_id}</div>
-                      <div style={{ fontSize: 8, opacity: 0.8, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {tech.technique_name}
-                      </div>
-                      {tech.rule_count > 0 && (
-                        <span
-                          style={{
-                            position: 'absolute',
-                            top: 2,
-                            right: 2,
-                            background: '#58d68d',
-                            color: '#050a14',
-                            fontSize: 8,
-                            fontWeight: 700,
-                            borderRadius: 3,
-                            padding: '0 3px',
-                            lineHeight: '14px',
-                          }}
-                        >
-                          {tech.rule_count}
-                        </span>
-                      )}
-                    </div>,
-                  );
-                } else {
-                  rows.push(
-                    <div
-                      key={`${tactic}-${i}-empty`}
-                      style={{
-                        padding: '6px 4px',
-                        borderRadius: 4,
-                        background: 'rgba(88,143,186,0.06)',
-                        border: '1px solid transparent',
-                      }}
-                    />,
-                  );
-                }
-              }
-            }
-            return rows;
-          })()}
-        </div>
-      </div>
-
-      {/* Technique Detail */}
-      {selectedTechnique && (
-        <div style={panelStyle}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <h2 className="panel-title" style={{ margin: 0 }}>
-              {selectedTechnique.technique_id}: {selectedTechnique.technique_name}
-            </h2>
-            <button
-              type="button"
-              onClick={() => setSelectedTechnique(null)}
-              style={{ padding: '4px 10px', fontSize: 11 }}
-            >
-              Close
-            </button>
-          </div>
-          <div style={{ fontSize: 12, color: 'rgba(219,228,243,0.55)', marginBottom: 10 }}>
-            Tactic: {selectedTechnique.tactic} | Rules covering: {selectedTechnique.rule_count}
-          </div>
-          {selectedTechnique.rule_ids.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {selectedTechnique.rule_ids.map((ruleId) => (
-                <div
-                  key={ruleId}
-                  style={{
-                    padding: '6px 10px',
-                    borderRadius: 6,
-                    border: '1px solid var(--border)',
-                    background: 'rgba(4,12,21,0.5)',
-                    fontSize: 12,
-                  }}
-                >
-                  <code
-                    style={{
-                      background: 'rgba(88,143,186,0.15)',
-                      padding: '1px 6px',
-                      borderRadius: 4,
-                      color: '#9fd3ff',
-                    }}
-                  >
-                    {ruleId}
-                  </code>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="empty-state">No rules mapped.</p>
-          )}
-        </div>
-      )}
-
-      {/* Uncovered Tactics Summary */}
-      <div style={panelStyle}>
-        <h2 className="panel-title">Coverage by Tactic</h2>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {TACTICS.map((tactic) => {
-            const count = (byTactic[tactic] ?? []).length;
-            return (
-              <div key={tactic} style={{ display: 'grid', gridTemplateColumns: '180px 1fr 40px', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 12, fontWeight: 500, color: '#dbe4f3' }}>
-                  {TACTIC_LABELS[tactic] ?? tactic}
-                </span>
-                <div style={{ height: 6, borderRadius: 3, background: 'rgba(88,143,186,0.15)', overflow: 'hidden' }}>
-                  <div
-                    style={{
-                      height: '100%',
-                      width: count > 0 ? `${Math.min(100, count * 10)}%` : '0%',
-                      borderRadius: 3,
-                      background: count > 0 ? '#58d68d' : 'transparent',
-                      transition: 'width 0.3s ease',
-                    }}
-                  />
-                </div>
-                <span style={{ fontSize: 12, color: count > 0 ? '#58d68d' : 'rgba(219,228,243,0.35)', textAlign: 'right' }}>
-                  {count}
-                </span>
+    <div className="space-y-6">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_360px]">
+        <Card className="overflow-hidden border-primary/15 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.15),transparent_40%),linear-gradient(145deg,hsl(var(--card)),hsl(var(--card)/0.85))]">
+          <CardContent className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(250px,0.85fr)]">
+            <div>
+              <div className="mb-4 flex flex-wrap gap-2">
+                <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">ATT&CK coverage workspace</Badge>
+                <Badge variant="secondary" className="bg-background/55">{report.total_covered} mapped techniques</Badge>
               </div>
-            );
-          })}
-        </div>
-      </div>
+              <div className="max-w-2xl font-display text-4xl font-semibold leading-[0.96] tracking-[-0.05em] text-foreground sm:text-[3rem]">
+                See where your detections already reach and where coverage is still thin.
+              </div>
+              <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
+                The ATT&CK board highlights which tactics are covered, which techniques have the heaviest rule backing, and where the biggest gaps still live.
+              </p>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <Button type="button" variant="outline" onClick={() => { setRefreshing(true); void loadCoverage(false); }} disabled={refreshing}>
+                  <RefreshCcw className={refreshing ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
+                  Refresh coverage
+                </Button>
+              </div>
+            </div>
+            <div className="grid gap-3 rounded-[28px] border border-border/70 bg-background/35 p-4">
+              <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Framework coverage</div>
+                <div className={`mt-3 font-display text-4xl font-semibold tracking-[-0.04em] ${coverageTone(report.coverage_pct)}`}>
+                  {report.coverage_pct.toFixed(1)}%
+                </div>
+              </div>
+              <div className="rounded-full bg-muted/60">
+                <div
+                  className={`h-2 rounded-full ${report.coverage_pct >= 50 ? 'bg-emerald-400' : report.coverage_pct >= 25 ? 'bg-amber-300' : 'bg-rose-400'}`}
+                  style={{ width: `${Math.max(report.coverage_pct, 4)}%` }}
+                />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Covered</div>
+                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{report.total_covered}</div>
+                </div>
+                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Framework total</div>
+                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{report.total_in_framework}</div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle>Filters</CardTitle>
+            <CardDescription>Focus on a tactic lane or search for a technique, rule ID, or ATT&CK identifier.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div>
+              <div className="mb-2 text-sm font-medium text-foreground">Tactic</div>
+              <Select value={tacticFilter} onChange={(event) => setTacticFilter(event.target.value)}>
+                <option value="all">All tactics</option>
+                {TACTICS.map((tactic) => <option key={tactic} value={tactic}>{TACTIC_LABELS[tactic]}</option>)}
+              </Select>
+            </div>
+            <div>
+              <div className="mb-2 text-sm font-medium text-foreground">Search</div>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input className="pl-11" value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="T1059, PowerShell, rule id..." />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+
+      {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
+
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <WorkspaceMetricCard label="Coverage" value={`${report.coverage_pct.toFixed(1)}%`} hint="Mapped techniques versus the total ATT&CK framework set." icon={Shield} />
+        <WorkspaceMetricCard label="Techniques" value={String(report.total_covered)} hint="Techniques currently backed by one or more rules." icon={Crosshair} />
+        <WorkspaceMetricCard label="Visible" value={String(filteredTechniques.length)} hint="Techniques matching the active filter set." icon={Search} />
+        <WorkspaceMetricCard label="Tactics hit" value={String(tacticCounts.filter((item) => item.count > 0).length)} hint="Tactic lanes with at least one mapped technique." icon={Activity} />
+      </section>
+
+      <Card>
+        <CardHeader className="pb-4">
+          <CardTitle>ATT&CK matrix</CardTitle>
+          <CardDescription>A horizontal tactic board showing all covered techniques and the depth of rule support behind them.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-flow-col auto-cols-[minmax(220px,1fr)] gap-4 overflow-x-auto pb-2">
+            {TACTICS.map((tactic) => {
+              const techniques = (byTactic[tactic] ?? []).filter((technique) =>
+                tacticFilter === 'all' ? true : normalizeTactic(technique.tactic) === tacticFilter,
+              );
+              return (
+                <div key={tactic} className="min-w-[220px] rounded-[24px] border border-border/70 bg-background/35 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="font-medium text-foreground">{TACTIC_LABELS[tactic]}</div>
+                    <Badge variant={techniques.length ? 'success' : 'secondary'}>{techniques.length}</Badge>
+                  </div>
+                  <div className="mt-4 space-y-3">
+                    {techniques.length === 0 ? (
+                      <div className="rounded-[18px] border border-dashed border-border/70 bg-card/55 px-3 py-4 text-sm text-muted-foreground">
+                        No mapped techniques yet.
+                      </div>
+                    ) : (
+                      techniques.map((technique) => (
+                        <button
+                          key={technique.technique_id}
+                          type="button"
+                          className="w-full rounded-[18px] border border-border/70 bg-card/70 px-3 py-3 text-left transition-colors hover:bg-muted/45"
+                          onClick={() => setSelectedTechnique(technique)}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="font-medium text-foreground">{technique.technique_id}</div>
+                              <div className="mt-1 line-clamp-2 text-sm text-muted-foreground">{technique.technique_name}</div>
+                            </div>
+                            <Badge variant="outline">{technique.rule_count}</Badge>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle>Coverage by tactic</CardTitle>
+            <CardDescription>Technique counts per tactic lane, sized relative to the strongest-covered lane.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {tacticCounts.map((item) => (
+              <div key={item.tactic} className="grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)_40px] sm:items-center">
+                <div className="text-sm font-medium text-foreground">{TACTIC_LABELS[item.tactic]}</div>
+                <div className="h-2 overflow-hidden rounded-full bg-muted/60">
+                  <div className="h-full rounded-full bg-primary" style={{ width: `${item.count ? (item.count / maxTacticCount) * 100 : 0}%` }} />
+                </div>
+                <div className="text-right text-sm text-muted-foreground">{item.count}</div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle>Technique detail</CardTitle>
+            <CardDescription>Click a technique from the matrix to inspect how many rules are mapped to it.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!selectedTechnique ? (
+              <WorkspaceEmptyState title="No technique selected" body="Choose a technique in the ATT&CK matrix to inspect its mapped rules." />
+            ) : (
+              <>
+                <div className="rounded-[24px] border border-border/70 bg-background/35 p-4">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">{selectedTechnique.technique_id}</Badge>
+                    <Badge variant="secondary">{selectedTechnique.rule_count} rules</Badge>
+                  </div>
+                  <div className="mt-4 font-display text-2xl font-semibold tracking-[-0.03em] text-foreground">{selectedTechnique.technique_name}</div>
+                  <div className="mt-2 text-sm text-muted-foreground">{TACTIC_LABELS[normalizeTactic(selectedTechnique.tactic)] ?? selectedTechnique.tactic}</div>
+                </div>
+                <div className="space-y-3">
+                  {selectedTechnique.rule_ids.length ? (
+                    selectedTechnique.rule_ids.map((ruleId) => (
+                      <div key={ruleId} className="flex items-center justify-between gap-3 rounded-[20px] border border-border/70 bg-background/35 px-4 py-3">
+                        <code className="text-sm text-foreground">{ruleId}</code>
+                        <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-[20px] border border-dashed border-border/70 bg-background/35 px-4 py-4 text-sm text-muted-foreground">
+                      No rules are currently attached to this technique.
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </section>
     </div>
   );
 }

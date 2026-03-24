@@ -32,6 +32,10 @@ fn test_router() -> axum::Router {
     build_router(test_state())
 }
 
+fn test_router_with_state(state: AppState) -> axum::Router {
+    build_router(state)
+}
+
 fn auth_request(builder: http::request::Builder) -> http::request::Builder {
     auth_request_for(
         builder,
@@ -220,6 +224,67 @@ async fn update_and_delete_rule() {
         .iter()
         .any(|rule| rule.get("rule_id").and_then(Value::as_str) == Some(rule_id));
     assert!(!contains, "rule should be deleted from list");
+}
+
+#[tokio::test]
+async fn rbac_override_grants_rule_write_access() {
+    let state = test_state();
+    state.rbac_store.insert(
+        "tenant-a:soc-viewer".to_string(),
+        vec![cyberbox_auth::Role::Analyst],
+    );
+    let app = test_router_with_state(state);
+
+    let create = auth_request_for(Request::builder(), "tenant-a", "soc-viewer", "viewer")
+        .uri("/api/v1/rules")
+        .method("POST")
+        .body(axum::body::Body::from(
+            json!({
+                "sigma_source": "title: override\ndetection:\n  selection:\n    - net user\n  condition: selection",
+                "schedule_or_stream": "stream",
+                "severity": "medium",
+                "enabled": true
+            })
+            .to_string(),
+        ))
+        .expect("create request should build");
+
+    let response = app
+        .oneshot(create)
+        .await
+        .expect("response should be available");
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn ingest_api_key_cannot_create_rules() {
+    let mut state = test_state();
+    state.auth_disabled = false;
+    state.ingest_api_key = Some("collector-secret".to_string());
+    let app = test_router_with_state(state);
+
+    let create = Request::builder()
+        .uri("/api/v1/rules")
+        .method("POST")
+        .header("content-type", "application/json")
+        .header("x-tenant-id", "tenant-a")
+        .header("x-api-key", "collector-secret")
+        .body(axum::body::Body::from(
+            json!({
+                "sigma_source": "title: should-fail\ndetection:\n  selection:\n    - whoami\n  condition: selection",
+                "schedule_or_stream": "stream",
+                "severity": "high",
+                "enabled": true
+            })
+            .to_string(),
+        ))
+        .expect("create request should build");
+
+    let response = app
+        .oneshot(create)
+        .await
+        .expect("response should be available");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]
@@ -2046,6 +2111,35 @@ async fn agent_register_returns_id() {
 }
 
 #[tokio::test]
+async fn collector_api_key_cannot_register_over_enrolled_agent() {
+    let mut state = test_state();
+    state.ingest_api_key = Some("collector-secret".to_string());
+    let app = test_router_with_state(state);
+    let identity = enroll_test_agent(&app, "tenant-a", "protected-agent").await;
+
+    let request = Request::builder()
+        .uri("/api/v1/agents/register")
+        .method("POST")
+        .header("content-type", "application/json")
+        .header("x-tenant-id", &identity.tenant_id)
+        .header("x-api-key", "collector-secret")
+        .body(axum::body::Body::from(
+            json!({
+                "agent_id": identity.agent_id,
+                "tenant_id": identity.tenant_id,
+                "hostname": "spoofed-host",
+                "os": "linux",
+                "version": "collector-detected",
+            })
+            .to_string(),
+        ))
+        .expect("register request should build");
+
+    let response = app.oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
 async fn agent_heartbeat_returns_ok_and_empty_body() {
     let app = test_router();
     let (_, identity) = register_test_agent(&app, "tenant-a", "hb-agent").await;
@@ -2069,6 +2163,42 @@ async fn agent_heartbeat_returns_ok_and_empty_body() {
     let body: Value = serde_json::from_slice(&bytes).expect("json");
     assert!(body.get("pending_config").is_none());
     assert_eq!(body["credential_version"].as_u64(), Some(1));
+}
+
+#[tokio::test]
+async fn collector_api_key_heartbeat_requires_tenant_header() {
+    let mut state = test_state();
+    state.ingest_api_key = Some("collector-secret".to_string());
+    let app = test_router_with_state(state);
+
+    let register = Request::builder()
+        .uri("/api/v1/agents/register")
+        .method("POST")
+        .header("content-type", "application/json")
+        .header("x-tenant-id", "tenant-a")
+        .header("x-api-key", "collector-secret")
+        .body(axum::body::Body::from(
+            json!({
+                "agent_id": "collector-agent",
+                "tenant_id": "tenant-a",
+                "hostname": "collector-agent",
+                "os": "cloud",
+                "version": "collector-detected",
+            })
+            .to_string(),
+        ))
+        .expect("register request should build");
+    let register_response = app.clone().oneshot(register).await.expect("response");
+    assert_eq!(register_response.status(), StatusCode::OK);
+
+    let heartbeat = Request::builder()
+        .uri("/api/v1/agents/collector-agent/heartbeat")
+        .method("POST")
+        .header("x-api-key", "collector-secret")
+        .body(axum::body::Body::empty())
+        .expect("heartbeat request should build");
+    let response = app.oneshot(heartbeat).await.expect("response");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]

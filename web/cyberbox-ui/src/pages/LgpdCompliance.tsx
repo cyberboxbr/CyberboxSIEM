@@ -1,24 +1,25 @@
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Database, Download, FileText, RefreshCcw, ShieldAlert, Users } from 'lucide-react';
+
 import {
   getLgpdConfig,
   lgpdAnonymize,
   lgpdBreachReport,
   lgpdExport,
-  LgpdBreachReportInput,
-  LgpdBreachReportResponse,
-  LgpdConfig,
-} from '../api/client';
-
-const s = {
-  panelBg: 'rgba(9,21,35,0.82)',
-  border: 'rgba(88,143,186,0.35)',
-  inputBg: 'rgba(4,12,21,0.75)',
-  text: '#dbe4f3',
-  dim: 'rgba(219,228,243,0.5)',
-  accent: '#4a9eda',
-  good: '#58d68d',
-  bad: '#f45d5d',
-} as const;
+  type LgpdAnonymizeResponse,
+  type LgpdBreachReportInput,
+  type LgpdBreachReportResponse,
+  type LgpdConfig,
+  type LgpdExportResponse,
+} from '@/api/client';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { WorkspaceMetricCard } from '@/components/workspace/metric-card';
+import { WorkspaceStatusBanner } from '@/components/workspace/status-banner';
+import { cn } from '@/lib/utils';
 
 const DATA_CATEGORIES = [
   'personal_identification',
@@ -30,65 +31,48 @@ const DATA_CATEGORIES = [
   'behavioral',
 ] as const;
 
-function ActionCard({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      className="panel"
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
-      }}
-    >
-      <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: s.text }}>{title}</h3>
-      {children}
-    </div>
-  );
+function formatTimestamp(value: string): string {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
 }
 
-function formatTimestamp(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString();
+function categoryLabel(category: string): string {
+  return category.replace(/_/g, ' ');
 }
 
 export function LgpdCompliance() {
   const [config, setConfig] = useState<LgpdConfig | null>(null);
+  const [configLoading, setConfigLoading] = useState(true);
   const [configError, setConfigError] = useState('');
 
   const [exportSubject, setExportSubject] = useState('');
   const [exportLoading, setExportLoading] = useState(false);
-  const [exportResult, setExportResult] = useState<string | null>(null);
+  const [exportResult, setExportResult] = useState<LgpdExportResponse | null>(null);
   const [exportError, setExportError] = useState('');
 
   const [anonSubject, setAnonSubject] = useState('');
   const [anonBefore, setAnonBefore] = useState('');
   const [anonLoading, setAnonLoading] = useState(false);
-  const [anonResult, setAnonResult] = useState<{ anonymized_events: number; tenant_id: string } | null>(null);
+  const [anonResult, setAnonResult] = useState<LgpdAnonymizeResponse | null>(null);
   const [anonError, setAnonError] = useState('');
 
-  const [brDescription, setBrDescription] = useState('');
-  const [brCount, setBrCount] = useState(0);
-  const [brCategories, setBrCategories] = useState<Set<string>>(new Set());
-  const [brReportedToAnpd, setBrReportedToAnpd] = useState(false);
-  const [brLoading, setBrLoading] = useState(false);
-  const [brResult, setBrResult] = useState<LgpdBreachReportResponse | null>(null);
-  const [brError, setBrError] = useState('');
+  const [breachDescription, setBreachDescription] = useState('');
+  const [breachCount, setBreachCount] = useState(0);
+  const [breachCategories, setBreachCategories] = useState<Set<string>>(new Set());
+  const [reportedToAnpd, setReportedToAnpd] = useState(false);
+  const [breachLoading, setBreachLoading] = useState(false);
+  const [breachResult, setBreachResult] = useState<LgpdBreachReportResponse | null>(null);
+  const [breachError, setBreachError] = useState('');
 
   const loadConfig = useCallback(async () => {
+    setConfigLoading(true);
     try {
       setConfig(await getLgpdConfig());
       setConfigError('');
     } catch (err) {
       setConfigError(String(err));
+    } finally {
+      setConfigLoading(false);
     }
   }, []);
 
@@ -96,23 +80,24 @@ export function LgpdCompliance() {
     void loadConfig();
   }, [loadConfig]);
 
-  const onExport = async (e: FormEvent) => {
-    e.preventDefault();
+  const onExport = async (event: FormEvent) => {
+    event.preventDefault();
     setExportLoading(true);
     setExportResult(null);
     setExportError('');
+
     try {
-      const resp = await lgpdExport({ subject_id: exportSubject.trim() });
-      const blob = new Blob([JSON.stringify(resp, null, 2)], { type: 'application/json' });
+      const response = await lgpdExport({ subject_id: exportSubject.trim() });
+      const blob = new Blob([JSON.stringify(response, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `lgpd-export-${resp.subject_id}.json`;
-      a.click();
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `lgpd-export-${response.subject_id}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
       URL.revokeObjectURL(url);
-      setExportResult(
-        `Exported ${resp.total_events} event(s) at ${formatTimestamp(resp.generated_at)}. Download started.`,
-      );
+      setExportResult(response);
     } catch (err) {
       setExportError(String(err));
     } finally {
@@ -120,32 +105,18 @@ export function LgpdCompliance() {
     }
   };
 
-  const toggleBrCategory = (category: string) => {
-    setBrCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(category)) {
-        next.delete(category);
-      } else {
-        next.add(category);
-      }
-      return next;
-    });
-  };
-
-  const onAnonymize = async (e: FormEvent) => {
-    e.preventDefault();
+  const onAnonymize = async (event: FormEvent) => {
+    event.preventDefault();
     setAnonLoading(true);
     setAnonResult(null);
     setAnonError('');
+
     try {
-      const resp = await lgpdAnonymize({
+      const response = await lgpdAnonymize({
         subject_id: anonSubject.trim(),
         before: anonBefore ? new Date(anonBefore).toISOString() : undefined,
       });
-      setAnonResult({
-        anonymized_events: resp.anonymized_events,
-        tenant_id: resp.tenant_id,
-      });
+      setAnonResult(response);
     } catch (err) {
       setAnonError(String(err));
     } finally {
@@ -153,222 +124,269 @@ export function LgpdCompliance() {
     }
   };
 
-  const onBreachReport = async (e: FormEvent) => {
-    e.preventDefault();
-    setBrLoading(true);
-    setBrResult(null);
-    setBrError('');
+  const toggleBreachCategory = (category: string) => {
+    setBreachCategories((current) => {
+      const next = new Set(current);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  };
+
+  const onBreachReport = async (event: FormEvent) => {
+    event.preventDefault();
+    setBreachLoading(true);
+    setBreachResult(null);
+    setBreachError('');
+
     try {
       const input: LgpdBreachReportInput = {
-        description: brDescription,
-        data_categories: Array.from(brCategories),
-        estimated_subjects_affected: brCount,
-        reported_to_anpd: brReportedToAnpd,
+        description: breachDescription.trim(),
+        data_categories: Array.from(breachCategories),
+        estimated_subjects_affected: breachCount,
+        reported_to_anpd: reportedToAnpd,
       };
-      const resp = await lgpdBreachReport(input);
-      setBrResult(resp);
+      setBreachResult(await lgpdBreachReport(input));
     } catch (err) {
-      setBrError(String(err));
+      setBreachError(String(err));
     } finally {
-      setBrLoading(false);
+      setBreachLoading(false);
     }
   };
 
-  const checkLabel = (active: boolean): React.CSSProperties => ({
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 4,
-    cursor: 'pointer',
-    fontSize: 12,
-    flexDirection: 'row',
-    color: active ? s.text : s.dim,
-    padding: '2px 6px',
-    borderRadius: 4,
-    border: `1px solid ${active ? `${s.accent}55` : s.border}`,
-    background: active ? `${s.accent}15` : 'transparent',
-  });
+  const stats = useMemo(() => ({
+    workflows: '3',
+    dpoReady: config?.dpo_email ? 'Ready' : 'Missing',
+    categories: String(DATA_CATEGORIES.length),
+    selectedCategories: String(breachCategories.size),
+  }), [breachCategories.size, config?.dpo_email]);
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <h1 className="page-title">LGPD Compliance</h1>
-      </div>
-
-      <div className="panel" style={{ display: 'flex', gap: 24, alignItems: 'center', fontSize: 13 }}>
-        {config ? (
-          <>
+    <div className="space-y-6">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_380px]">
+        <Card className="overflow-hidden border-primary/15 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.15),transparent_40%),linear-gradient(145deg,hsl(var(--card)),hsl(var(--card)/0.85))]">
+          <CardContent className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(260px,0.85fr)]">
             <div>
-              <span style={{ color: s.dim }}>DPO Email: </span>
-              <strong>{config.dpo_email}</strong>
-            </div>
-            <div>
-              <span style={{ color: s.dim }}>Legal Basis: </span>
-              <strong>{config.legal_basis}</strong>
-            </div>
-            <div>
-              <span style={{ color: s.dim }}>Controller: </span>
-              <strong>{config.controller_name}</strong>
-            </div>
-          </>
-        ) : configError ? (
-          <span style={{ color: s.bad }}>{configError}</span>
-        ) : (
-          <span style={{ color: s.dim }}>Loading config...</span>
-        )}
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-        <ActionCard title="Data Subject Export">
-          <form onSubmit={onExport} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <label>
-              Subject ID
-              <input
-                value={exportSubject}
-                onChange={(e) => setExportSubject(e.target.value)}
-                required
-                placeholder="user@example.com or CPF"
-              />
-            </label>
-            <p style={{ margin: 0, fontSize: 12, color: s.dim }}>
-              Downloads the full DSAR package, including controller metadata, export time, and matched events.
-            </p>
-            <button
-              type="submit"
-              disabled={exportLoading}
-              style={{
-                padding: '8px 16px',
-                background: 'rgba(74,158,218,0.2)',
-                borderColor: s.accent,
-                fontWeight: 700,
-              }}
-            >
-              {exportLoading ? 'Exporting...' : 'Export Data'}
-            </button>
-            {exportResult && <p style={{ fontSize: 12, color: s.good, margin: 0 }}>{exportResult}</p>}
-            {exportError && <p style={{ fontSize: 12, color: s.bad, margin: 0 }}>{exportError}</p>}
-          </form>
-        </ActionCard>
-
-        <ActionCard title="Anonymize Subject Data">
-          <form onSubmit={onAnonymize} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <label>
-              Subject ID
-              <input
-                value={anonSubject}
-                onChange={(e) => setAnonSubject(e.target.value)}
-                required
-                placeholder="user@example.com"
-              />
-            </label>
-            <label>
-              Optional Cutoff
-              <input
-                type="datetime-local"
-                value={anonBefore}
-                onChange={(e) => setAnonBefore(e.target.value)}
-              />
-            </label>
-            <p style={{ margin: 0, fontSize: 12, color: s.dim }}>
-              The current backend anonymizes all matching payload values for the subject within the selected time window.
-            </p>
-            <button
-              type="submit"
-              disabled={anonLoading || !anonSubject.trim()}
-              style={{
-                padding: '8px 16px',
-                background: 'rgba(245,166,35,0.2)',
-                borderColor: '#f5a623',
-                fontWeight: 700,
-              }}
-            >
-              {anonLoading ? 'Anonymizing...' : 'Anonymize'}
-            </button>
-            {anonResult && (
-              <p style={{ fontSize: 12, color: s.good, margin: 0 }}>
-                Anonymized {anonResult.anonymized_events} event(s) in tenant {anonResult.tenant_id}.
+              <div className="mb-4 flex flex-wrap gap-2">
+                <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">LGPD compliance workspace</Badge>
+                <Badge variant="secondary" className="bg-background/55">
+                  {config?.controller_name ?? 'Controller config pending'}
+                </Badge>
+              </div>
+              <div className="max-w-2xl font-display text-4xl font-semibold leading-[0.96] tracking-[-0.05em] text-foreground sm:text-[3rem]">
+                Handle privacy exports, anonymization, and breach reporting from one operator flow.
+              </div>
+              <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
+                This workspace keeps the controller profile visible while you prepare DSAR exports, anonymize subject data, and record incident notifications under LGPD.
               </p>
-            )}
-            {anonError && <p style={{ fontSize: 12, color: s.bad, margin: 0 }}>{anonError}</p>}
-          </form>
-        </ActionCard>
-
-        <ActionCard title="Breach Report">
-          <form onSubmit={onBreachReport} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <label>
-              Description
-              <textarea
-                value={brDescription}
-                onChange={(e) => setBrDescription(e.target.value)}
-                required
-                rows={3}
-                style={{ resize: 'vertical', fontSize: 12 }}
-                placeholder="Describe the breach incident..."
-              />
-            </label>
-            <label>
-              Estimated Subjects Affected
-              <input
-                type="number"
-                min={0}
-                value={brCount}
-                onChange={(e) => setBrCount(Number(e.target.value))}
-                required
-              />
-            </label>
-            <div>
-              <span style={{ fontSize: 12, color: s.dim, marginBottom: 4, display: 'block' }}>Data categories:</span>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {DATA_CATEGORIES.map((category) => (
-                  <label key={category} style={checkLabel(brCategories.has(category))}>
-                    <input
-                      type="checkbox"
-                      checked={brCategories.has(category)}
-                      onChange={() => toggleBrCategory(category)}
-                      style={{ width: 14, height: 14 }}
-                    />
-                    {category.replace(/_/g, ' ')}
-                  </label>
-                ))}
+              <div className="mt-6 flex flex-wrap gap-3">
+                <Button type="button" variant="outline" onClick={() => void loadConfig()} disabled={configLoading}>
+                  <RefreshCcw className={configLoading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
+                  Refresh config
+                </Button>
               </div>
             </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: s.text }}>
-              <input
-                type="checkbox"
-                checked={brReportedToAnpd}
-                onChange={(e) => setBrReportedToAnpd(e.target.checked)}
-              />
-              Already reported to ANPD
-            </label>
-            <button
-              type="submit"
-              disabled={brLoading}
-              style={{
-                padding: '8px 16px',
-                background: 'rgba(244,93,93,0.2)',
-                borderColor: s.bad,
-                fontWeight: 700,
-              }}
-            >
-              {brLoading ? 'Submitting...' : 'Submit Breach Report'}
-            </button>
-            {brResult && (
-              <div style={{ fontSize: 12, color: s.good, margin: 0 }}>
-                <p style={{ margin: 0 }}>
-                  Incident ID: <code>{brResult.incident_id}</code>
-                </p>
-                <p style={{ margin: '4px 0 0' }}>Reported At: {formatTimestamp(brResult.reported_at)}</p>
-                <p style={{ margin: '4px 0 0' }}>
-                  ANPD Deadline: {formatTimestamp(brResult.anpd_notification_deadline)}
-                </p>
-                <p style={{ margin: '4px 0 0' }}>
-                  Reported to ANPD: <strong>{brResult.reported_to_anpd ? 'Yes' : 'No'}</strong>
-                </p>
+            <div className="grid gap-3 rounded-[28px] border border-border/70 bg-background/35 p-4">
+              <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Controller</div>
+                <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">
+                  {config?.controller_name ?? 'Pending'}
+                </div>
               </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">DPO email</div>
+                  <div className="mt-3 break-all text-sm font-medium text-foreground">{config?.dpo_email ?? 'Unavailable'}</div>
+                </div>
+                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Legal basis</div>
+                  <div className="mt-3 text-sm font-medium text-foreground">{config?.legal_basis ?? 'Unavailable'}</div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle>Controller profile</CardTitle>
+            <CardDescription>Core privacy metadata stays visible while you execute the operational workflows below.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {configLoading ? (
+              <Card className="animate-pulse">
+                <CardContent className="h-[220px] p-4" />
+              </Card>
+            ) : configError ? (
+              <WorkspaceStatusBanner tone="warning">{configError}</WorkspaceStatusBanner>
+            ) : config ? (
+              <>
+                <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Controller name</div>
+                  <div className="mt-2 text-sm font-medium text-foreground">{config.controller_name}</div>
+                </div>
+                <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">DPO email</div>
+                  <div className="mt-2 break-all text-sm font-medium text-foreground">{config.dpo_email}</div>
+                </div>
+                <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Legal basis</div>
+                  <div className="mt-2 text-sm font-medium text-foreground">{config.legal_basis}</div>
+                </div>
+              </>
+            ) : (
+              <WorkspaceStatusBanner tone="neutral">No LGPD configuration is available yet.</WorkspaceStatusBanner>
             )}
-            {brError && <p style={{ fontSize: 12, color: s.bad, margin: 0 }}>{brError}</p>}
-          </form>
-        </ActionCard>
-      </div>
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <WorkspaceMetricCard label="Workflows" value={stats.workflows} hint="Operational privacy flows available in this workspace." icon={FileText} />
+        <WorkspaceMetricCard label="DPO" value={stats.dpoReady} hint="Whether a DPO contact is present in the loaded config." icon={ShieldAlert} />
+        <WorkspaceMetricCard label="Categories" value={stats.categories} hint="Data categories available for breach classification." icon={Database} />
+        <WorkspaceMetricCard label="Selected" value={stats.selectedCategories} hint="Categories currently selected in the breach report form." icon={Users} />
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-3">
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle>Data subject export</CardTitle>
+            <CardDescription>Generate the DSAR package for a subject and download the resulting JSON export immediately.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form className="space-y-4" onSubmit={(event) => void onExport(event)}>
+              <div>
+                <div className="mb-2 text-sm font-medium text-foreground">Subject ID</div>
+                <Input
+                  value={exportSubject}
+                  onChange={(event) => setExportSubject(event.target.value)}
+                  placeholder="user@example.com or CPF"
+                  required
+                />
+              </div>
+              <WorkspaceStatusBanner tone="neutral">
+                The export contains controller metadata, the generation timestamp, and the matched events for the selected subject.
+              </WorkspaceStatusBanner>
+              <Button type="submit" className="w-full justify-center" disabled={exportLoading || !exportSubject.trim()}>
+                <Download className="h-4 w-4" />
+                {exportLoading ? 'Exporting...' : 'Export subject data'}
+              </Button>
+              {exportResult && (
+                <WorkspaceStatusBanner tone="success">
+                  Exported <strong>{exportResult.total_events}</strong> event(s) for <strong>{exportResult.subject_id}</strong> at{' '}
+                  <strong>{formatTimestamp(exportResult.generated_at)}</strong>. Download started automatically.
+                </WorkspaceStatusBanner>
+              )}
+              {exportError && <WorkspaceStatusBanner tone="warning">{exportError}</WorkspaceStatusBanner>}
+            </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle>Anonymize subject data</CardTitle>
+            <CardDescription>Remove identifiable subject values from matching events, optionally constrained by a cutoff time.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form className="space-y-4" onSubmit={(event) => void onAnonymize(event)}>
+              <div>
+                <div className="mb-2 text-sm font-medium text-foreground">Subject ID</div>
+                <Input
+                  value={anonSubject}
+                  onChange={(event) => setAnonSubject(event.target.value)}
+                  placeholder="user@example.com"
+                  required
+                />
+              </div>
+              <div>
+                <div className="mb-2 text-sm font-medium text-foreground">Optional cutoff</div>
+                <Input type="datetime-local" value={anonBefore} onChange={(event) => setAnonBefore(event.target.value)} />
+              </div>
+              <WorkspaceStatusBanner tone="neutral">
+                When a cutoff is provided, only matching events before that timestamp are anonymized.
+              </WorkspaceStatusBanner>
+              <Button type="submit" className="w-full justify-center" disabled={anonLoading || !anonSubject.trim()}>
+                {anonLoading ? 'Anonymizing...' : 'Run anonymization'}
+              </Button>
+              {anonResult && (
+                <WorkspaceStatusBanner tone="success">
+                  Anonymized <strong>{anonResult.anonymized_events}</strong> event(s) in tenant <strong>{anonResult.tenant_id}</strong>.
+                </WorkspaceStatusBanner>
+              )}
+              {anonError && <WorkspaceStatusBanner tone="warning">{anonError}</WorkspaceStatusBanner>}
+            </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle>Breach report</CardTitle>
+            <CardDescription>Capture the incident summary, data categories, affected subject count, and ANPD notification status.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form className="space-y-4" onSubmit={(event) => void onBreachReport(event)}>
+              <div>
+                <div className="mb-2 text-sm font-medium text-foreground">Description</div>
+                <Textarea
+                  rows={4}
+                  value={breachDescription}
+                  onChange={(event) => setBreachDescription(event.target.value)}
+                  placeholder="Describe the breach incident and what was exposed."
+                  required
+                />
+              </div>
+              <div>
+                <div className="mb-2 text-sm font-medium text-foreground">Estimated subjects affected</div>
+                <Input
+                  type="number"
+                  min={0}
+                  value={String(breachCount)}
+                  onChange={(event) => setBreachCount(Number(event.target.value))}
+                  required
+                />
+              </div>
+              <div>
+                <div className="mb-2 text-sm font-medium text-foreground">Data categories</div>
+                <div className="flex flex-wrap gap-2">
+                  {DATA_CATEGORIES.map((category) => {
+                    const active = breachCategories.has(category);
+                    return (
+                      <button
+                        key={category}
+                        type="button"
+                        className={cn(
+                          'rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.22em] transition-colors',
+                          active
+                            ? 'border-primary/25 bg-primary/10 text-primary'
+                            : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-muted/40',
+                        )}
+                        onClick={() => toggleBreachCategory(category)}
+                      >
+                        {categoryLabel(category)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <label className="flex items-center gap-3 rounded-[22px] border border-border/70 bg-background/35 px-4 py-3 text-sm text-foreground">
+                <input type="checkbox" checked={reportedToAnpd} onChange={(event) => setReportedToAnpd(event.target.checked)} />
+                Already reported to ANPD
+              </label>
+              <Button type="submit" className="w-full justify-center" disabled={breachLoading || !breachDescription.trim()}>
+                {breachLoading ? 'Submitting...' : 'Submit breach report'}
+              </Button>
+              {breachResult && (
+                <WorkspaceStatusBanner tone="success">
+                  Incident <strong>{breachResult.incident_id}</strong> was recorded at <strong>{formatTimestamp(breachResult.reported_at)}</strong>.
+                  ANPD deadline: <strong>{formatTimestamp(breachResult.anpd_notification_deadline)}</strong>.
+                </WorkspaceStatusBanner>
+              )}
+              {breachError && <WorkspaceStatusBanner tone="warning">{breachError}</WorkspaceStatusBanner>}
+            </form>
+          </CardContent>
+        </Card>
+      </section>
     </div>
   );
 }

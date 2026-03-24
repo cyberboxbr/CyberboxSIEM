@@ -8,8 +8,8 @@ use cyberbox_core::CyberboxError;
 use cyberbox_models::{
     AgentRecord, AlertRecord, AlertStatus, AssignAlertRequest, AuditLogRecord, CaseRecord,
     CaseStatus, CloseAlertRequest, DetectionMode, DetectionRule, EnrichmentMetadata, EventEnvelope,
-    EventSource, RuleScheduleConfig, RuleSchedulerHealth, SearchQueryRequest, SearchQueryResponse,
-    Severity, UpdateCaseRequest,
+    EventSource, RuleScheduleConfig, RuleSchedulerHealth, RuleVersion, SearchQueryRequest,
+    SearchQueryResponse, Severity, UpdateCaseRequest,
 };
 
 use crate::traits::{apply_case_patch, AlertStore, CaseStore, EventStore, RuleStore};
@@ -36,6 +36,7 @@ pub struct ClickHouseEventStore {
     replicated_tables_enabled: bool,
     retention_days_hot: u32,
     rules_table: String,
+    rule_versions_table: String,
     alerts_table: String,
     audits_table: String,
     rule_health_table: String,
@@ -73,6 +74,7 @@ impl ClickHouseEventStore {
             replicated_tables_enabled: false,
             retention_days_hot: 0,
             rules_table: format!("{}_rules", table),
+            rule_versions_table: format!("{}_rule_versions", table),
             alerts_table: format!("{}_alerts", table),
             audits_table: format!("{}_audit_logs", table),
             rule_health_table: format!("{}_rule_health", table),
@@ -316,6 +318,7 @@ impl ClickHouseEventStore {
         let alerts_engine = self.replacing_merge_tree_engine(&self.alerts_table, "version");
         let audits_engine = self.merge_tree_engine(&self.audits_table);
         let rules_engine = self.replacing_merge_tree_engine(&self.rules_table, "version");
+        let rule_versions_engine = self.merge_tree_engine(&self.rule_versions_table);
         let rule_health_engine =
             self.replacing_merge_tree_engine(&self.rule_health_table, "version");
         let rollup_engine = self.summing_merge_tree_engine(&self.hourly_rollup_table);
@@ -493,6 +496,9 @@ impl ClickHouseEventStore {
                 schedule_lookback_seconds UInt32,
                 severity String,
                 enabled UInt8,
+                threshold_count UInt32,
+                threshold_group_by String,
+                suppression_window_secs UInt64,
                 deleted UInt8,
                 updated_at DateTime64(3, 'UTC'),
                 version UInt64
@@ -519,6 +525,40 @@ impl ClickHouseEventStore {
             self.database, self.rules_table
         );
         self.execute_sql(&rules_alter_deleted).await?;
+        let rules_alter_threshold_count = format!(
+            "ALTER TABLE {}.{} ADD COLUMN IF NOT EXISTS threshold_count UInt32 DEFAULT 0",
+            self.database, self.rules_table
+        );
+        self.execute_sql(&rules_alter_threshold_count).await?;
+        let rules_alter_threshold_group_by = format!(
+            "ALTER TABLE {}.{} ADD COLUMN IF NOT EXISTS threshold_group_by String DEFAULT ''",
+            self.database, self.rules_table
+        );
+        self.execute_sql(&rules_alter_threshold_group_by).await?;
+        let rules_alter_suppression = format!(
+            "ALTER TABLE {}.{} ADD COLUMN IF NOT EXISTS suppression_window_secs UInt64 DEFAULT 0",
+            self.database, self.rules_table
+        );
+        self.execute_sql(&rules_alter_suppression).await?;
+
+        let rule_versions_ddl = format!(
+            r#"
+            CREATE TABLE IF NOT EXISTS {}.{} (
+                rule_id UUID,
+                tenant_id String,
+                version UInt32,
+                sigma_source String,
+                compiled_plan String,
+                severity String,
+                created_at DateTime64(3, 'UTC')
+            )
+            ENGINE = {}
+            PARTITION BY cityHash64(tenant_id) % 8
+            ORDER BY (tenant_id, rule_id, version)
+            "#,
+            self.database, self.rule_versions_table, rule_versions_engine
+        );
+        self.execute_sql(&rule_versions_ddl).await?;
 
         let rule_health_ddl = format!(
             r#"
@@ -1145,7 +1185,7 @@ impl ClickHouseEventStore {
 
     pub async fn list_scheduled_rules(&self) -> Result<Vec<DetectionRule>, CyberboxError> {
         let query = format!(
-            "SELECT rule_id, tenant_id, sigma_source, compiled_plan, schedule_or_stream, schedule_interval_seconds, schedule_lookback_seconds, severity, enabled \
+            "SELECT rule_id, tenant_id, sigma_source, compiled_plan, schedule_or_stream, schedule_interval_seconds, schedule_lookback_seconds, severity, enabled, threshold_count, threshold_group_by, suppression_window_secs \
              FROM {}.{} FINAL \
              WHERE enabled = 1 AND deleted = 0 AND schedule_or_stream = 'scheduled' \
              ORDER BY tenant_id, rule_id \
@@ -1162,7 +1202,7 @@ impl ClickHouseEventStore {
 
     pub async fn list_stream_rules(&self) -> Result<Vec<DetectionRule>, CyberboxError> {
         let query = format!(
-            "SELECT rule_id, tenant_id, sigma_source, compiled_plan, schedule_or_stream, schedule_interval_seconds, schedule_lookback_seconds, severity, enabled \
+            "SELECT rule_id, tenant_id, sigma_source, compiled_plan, schedule_or_stream, schedule_interval_seconds, schedule_lookback_seconds, severity, enabled, threshold_count, threshold_group_by, suppression_window_secs \
              FROM {}.{} FINAL \
              WHERE enabled = 1 AND deleted = 0 AND schedule_or_stream = 'stream' \
              ORDER BY tenant_id, rule_id \
@@ -1331,13 +1371,13 @@ impl EventStore for ClickHouseEventStore {
         &self,
         query: &SearchQueryRequest,
     ) -> Result<SearchQueryResponse, CyberboxError> {
-        let base_query = normalize_base_query(
-            &query.sql,
-            &format!(
-                "SELECT event_id, tenant_id, source, event_time, ingest_time, raw_payload, ocsf_record, enrichment, integrity_hash FROM {}.{}",
-                self.database, self.table
-            ),
-        )?;
+        let filter = sanitize_search_filter(&query.sql, "sql")?;
+        let extra_filter = query
+            .extra_where
+            .as_deref()
+            .map(|value| sanitize_search_filter(value, "extra_where"))
+            .transpose()?
+            .flatten();
 
         let tenant_id = escape_sql_literal(&query.tenant_id);
         let start = format_clickhouse_datetime(query.time_range.start);
@@ -1345,24 +1385,28 @@ impl EventStore for ClickHouseEventStore {
         let page_size = query.pagination.page_size.max(1);
         let offset = pagination_offset(query.pagination.page, page_size);
 
-        let mut wrapped_filter = format!(
-            "q.tenant_id = '{}' AND q.event_time >= toDateTime64('{}', 3, 'UTC') AND q.event_time <= toDateTime64('{}', 3, 'UTC')",
+        let mut where_clauses = vec![format!(
+            "tenant_id = '{}' AND event_time >= toDateTime64('{}', 3, 'UTC') AND event_time <= toDateTime64('{}', 3, 'UTC')",
             tenant_id, start, end
-        );
-        if let Some(extra) = &query.extra_where {
-            let safe = extra.trim();
-            if !safe.is_empty() {
-                wrapped_filter = format!("{wrapped_filter} AND ({safe})");
-            }
+        )];
+        if let Some(filter) = filter {
+            where_clauses.push(format!("({filter})"));
         }
+        if let Some(extra_filter) = extra_filter {
+            where_clauses.push(format!("({extra_filter})"));
+        }
+        let wrapped_filter = where_clauses.join(" AND ");
 
         let rows_query = format!(
-            "SELECT * FROM ({}) AS q WHERE {} ORDER BY q.event_time DESC LIMIT {} OFFSET {} FORMAT JSON",
-            base_query, wrapped_filter, page_size, offset
+            "SELECT event_id, tenant_id, source, event_time, ingest_time, raw_payload, ocsf_record, enrichment, integrity_hash \
+             FROM {}.{} \
+             WHERE {} \
+             ORDER BY event_time DESC LIMIT {} OFFSET {} FORMAT JSON",
+            self.database, self.table, wrapped_filter, page_size, offset
         );
         let count_query = format!(
-            "SELECT count() AS total FROM ({}) AS q WHERE {} FORMAT JSON",
-            base_query, wrapped_filter
+            "SELECT count() AS total FROM {}.{} WHERE {} FORMAT JSON",
+            self.database, self.table, wrapped_filter
         );
 
         let rows_response = self.execute_sql_json(&rows_query).await?;
@@ -1386,6 +1430,143 @@ impl EventStore for ClickHouseEventStore {
     }
 }
 
+impl ClickHouseEventStore {
+    async fn next_rule_version(
+        &self,
+        tenant_id: &str,
+        rule_id: Uuid,
+    ) -> Result<u32, CyberboxError> {
+        let query = format!(
+            "SELECT max(version) AS version FROM {}.{} \
+             WHERE tenant_id = '{}' AND rule_id = '{}' \
+             FORMAT JSON",
+            self.database,
+            self.rule_versions_table,
+            escape_sql_literal(tenant_id),
+            rule_id
+        );
+        let response = self.execute_sql_json(&query).await?;
+        let current = response
+            .data
+            .first()
+            .and_then(|row| row.get("version"))
+            .and_then(parse_u64_value)
+            .unwrap_or(0);
+        let current = u32::try_from(current)
+            .map_err(|_| CyberboxError::Internal("rule version overflow".to_string()))?;
+        Ok(current.saturating_add(1))
+    }
+
+    async fn append_rule_version_snapshot(
+        &self,
+        rule: &DetectionRule,
+        created_at: DateTime<Utc>,
+    ) -> Result<(), CyberboxError> {
+        let version = self
+            .next_rule_version(&rule.tenant_id, rule.rule_id)
+            .await?;
+        let row = json!({
+            "rule_id": rule.rule_id.to_string(),
+            "tenant_id": rule.tenant_id.clone(),
+            "version": version,
+            "sigma_source": rule.sigma_source.clone(),
+            "compiled_plan": rule.compiled_plan.to_string(),
+            "severity": severity_to_string(&rule.severity),
+            "created_at": format_clickhouse_datetime(created_at),
+        });
+        let query = format!(
+            "INSERT INTO {}.{} (rule_id, tenant_id, version, sigma_source, compiled_plan, severity, created_at) FORMAT JSONEachRow\n{}\n",
+            self.database,
+            self.rule_versions_table,
+            serde_json::to_string(&row).map_err(|err| {
+                CyberboxError::Internal(format!("rule version row serialization failed: {err}"))
+            })?
+        );
+        self.execute_sql(&query).await.map(|_| ())
+    }
+
+    async fn current_rule_snapshot(
+        &self,
+        tenant_id: &str,
+        rule_id: Uuid,
+    ) -> Result<Option<RuleVersion>, CyberboxError> {
+        let query = format!(
+            "SELECT rule_id, tenant_id, sigma_source, compiled_plan, severity, updated_at AS created_at \
+             FROM {}.{} FINAL \
+             WHERE tenant_id = '{}' AND rule_id = '{}' AND deleted = 0 \
+             LIMIT 1 \
+             FORMAT JSON",
+            self.database,
+            self.rules_table,
+            escape_sql_literal(tenant_id),
+            rule_id
+        );
+        let response = self.execute_sql_json(&query).await?;
+        response
+            .data
+            .first()
+            .map(|row| parse_rule_version_row_with_version(row, 1))
+            .transpose()
+    }
+
+    pub async fn list_rule_versions(
+        &self,
+        tenant_id: &str,
+        rule_id: Uuid,
+    ) -> Result<Vec<RuleVersion>, CyberboxError> {
+        let query = format!(
+            "SELECT rule_id, tenant_id, version, sigma_source, compiled_plan, severity, created_at \
+             FROM {}.{} \
+             WHERE tenant_id = '{}' AND rule_id = '{}' \
+             ORDER BY version ASC \
+             FORMAT JSON",
+            self.database,
+            self.rule_versions_table,
+            escape_sql_literal(tenant_id),
+            rule_id
+        );
+        let response = self.execute_sql_json(&query).await?;
+        let mut versions = response
+            .data
+            .iter()
+            .map(parse_rule_version_row)
+            .collect::<Result<Vec<_>, _>>()?;
+        if versions.is_empty() {
+            if let Some(current) = self.current_rule_snapshot(tenant_id, rule_id).await? {
+                versions.push(current);
+            }
+        }
+        Ok(versions)
+    }
+
+    pub async fn get_rule_version(
+        &self,
+        tenant_id: &str,
+        rule_id: Uuid,
+        version: u32,
+    ) -> Result<Option<RuleVersion>, CyberboxError> {
+        let query = format!(
+            "SELECT rule_id, tenant_id, version, sigma_source, compiled_plan, severity, created_at \
+             FROM {}.{} \
+             WHERE tenant_id = '{}' AND rule_id = '{}' AND version = {} \
+             LIMIT 1 \
+             FORMAT JSON",
+            self.database,
+            self.rule_versions_table,
+            escape_sql_literal(tenant_id),
+            rule_id,
+            version
+        );
+        let response = self.execute_sql_json(&query).await?;
+        let version = response
+            .data
+            .first()
+            .map(parse_rule_version_row)
+            .transpose()?;
+        Ok(version)
+    }
+}
+
 #[async_trait]
 impl RuleStore for ClickHouseEventStore {
     async fn upsert_rule(&self, rule: DetectionRule) -> Result<DetectionRule, CyberboxError> {
@@ -1395,27 +1576,31 @@ impl RuleStore for ClickHouseEventStore {
 
         let row = json!({
             "rule_id": rule.rule_id.to_string(),
-            "tenant_id": rule.tenant_id,
-            "sigma_source": rule.sigma_source,
+            "tenant_id": rule.tenant_id.clone(),
+            "sigma_source": rule.sigma_source.clone(),
             "compiled_plan": rule.compiled_plan.to_string(),
             "schedule_or_stream": detection_mode_to_string(&rule.schedule_or_stream),
             "schedule_interval_seconds": interval_seconds,
             "schedule_lookback_seconds": lookback_seconds,
             "severity": severity_to_string(&rule.severity),
             "enabled": if rule.enabled { 1 } else { 0 },
+            "threshold_count": rule.threshold_count.unwrap_or(0),
+            "threshold_group_by": rule.threshold_group_by.clone().unwrap_or_default(),
+            "suppression_window_secs": rule.suppression_window_secs.unwrap_or(0),
             "deleted": 0,
             "updated_at": format_clickhouse_datetime(now),
             "version": version
         });
 
         let query = format!(
-            "INSERT INTO {}.{} (rule_id, tenant_id, sigma_source, compiled_plan, schedule_or_stream, schedule_interval_seconds, schedule_lookback_seconds, severity, enabled, deleted, updated_at, version) FORMAT JSONEachRow\n{}\n",
+            "INSERT INTO {}.{} (rule_id, tenant_id, sigma_source, compiled_plan, schedule_or_stream, schedule_interval_seconds, schedule_lookback_seconds, severity, enabled, threshold_count, threshold_group_by, suppression_window_secs, deleted, updated_at, version) FORMAT JSONEachRow\n{}\n",
             self.database,
             self.rules_table,
             serde_json::to_string(&row)
-                .map_err(|err| CyberboxError::Internal(format!("rule row serialization failed: {err}")))?
+                .map_err(|err| CyberboxError::Internal(format!("rule row serialization failed: {err}")))? 
         );
         self.execute_sql(&query).await?;
+        self.append_rule_version_snapshot(&rule, now).await?;
 
         Ok(rule)
     }
@@ -1427,7 +1612,7 @@ impl RuleStore for ClickHouseEventStore {
             .into_iter()
             .collect();
         let query = format!(
-            "SELECT rule_id, tenant_id, sigma_source, compiled_plan, schedule_or_stream, schedule_interval_seconds, schedule_lookback_seconds, severity, enabled \
+            "SELECT rule_id, tenant_id, sigma_source, compiled_plan, schedule_or_stream, schedule_interval_seconds, schedule_lookback_seconds, severity, enabled, threshold_count, threshold_group_by, suppression_window_secs \
              FROM {}.{} FINAL \
              WHERE tenant_id = '{}' AND deleted = 0 \
              ORDER BY rule_id \
@@ -1455,7 +1640,7 @@ impl RuleStore for ClickHouseEventStore {
         rule_id: Uuid,
     ) -> Result<DetectionRule, CyberboxError> {
         let query = format!(
-            "SELECT rule_id, tenant_id, sigma_source, compiled_plan, schedule_or_stream, schedule_interval_seconds, schedule_lookback_seconds, severity, enabled \
+            "SELECT rule_id, tenant_id, sigma_source, compiled_plan, schedule_or_stream, schedule_interval_seconds, schedule_lookback_seconds, severity, enabled, threshold_count, threshold_group_by, suppression_window_secs \
              FROM {}.{} FINAL \
              WHERE tenant_id = '{}' AND rule_id = '{}' AND deleted = 0 \
              LIMIT 1 \
@@ -1495,17 +1680,20 @@ impl RuleStore for ClickHouseEventStore {
             "schedule_lookback_seconds": existing.schedule.as_ref().map(|s| s.lookback_seconds).unwrap_or(0),
             "severity": severity_to_string(&existing.severity),
             "enabled": if existing.enabled { 1 } else { 0 },
+            "threshold_count": existing.threshold_count.unwrap_or(0),
+            "threshold_group_by": existing.threshold_group_by.clone().unwrap_or_default(),
+            "suppression_window_secs": existing.suppression_window_secs.unwrap_or(0),
             "deleted": 1,
             "updated_at": format_clickhouse_datetime(now),
             "version": version
         });
 
         let query = format!(
-            "INSERT INTO {}.{} (rule_id, tenant_id, sigma_source, compiled_plan, schedule_or_stream, schedule_interval_seconds, schedule_lookback_seconds, severity, enabled, deleted, updated_at, version) FORMAT JSONEachRow\n{}\n",
+            "INSERT INTO {}.{} (rule_id, tenant_id, sigma_source, compiled_plan, schedule_or_stream, schedule_interval_seconds, schedule_lookback_seconds, severity, enabled, threshold_count, threshold_group_by, suppression_window_secs, deleted, updated_at, version) FORMAT JSONEachRow\n{}\n",
             self.database,
             self.rules_table,
             serde_json::to_string(&row)
-                .map_err(|err| CyberboxError::Internal(format!("rule tombstone serialization failed: {err}")))?
+                .map_err(|err| CyberboxError::Internal(format!("rule tombstone serialization failed: {err}")))? 
         );
         self.execute_sql(&query).await?;
         Ok(())
@@ -1877,26 +2065,111 @@ fn format_clickhouse_datetime(datetime: DateTime<Utc>) -> String {
     datetime.format("%Y-%m-%d %H:%M:%S%.3f").to_string()
 }
 
-fn normalize_base_query(input: &str, fallback: &str) -> Result<String, CyberboxError> {
-    let candidate = input.trim().trim_end_matches(';');
+fn sanitize_search_filter(input: &str, field_name: &str) -> Result<Option<String>, CyberboxError> {
+    let candidate = input.trim();
     if candidate.is_empty() {
-        return Ok(fallback.to_string());
+        return Ok(None);
     }
 
-    let lower = candidate.to_ascii_lowercase();
-    if lower.contains(" format ") {
-        return Err(CyberboxError::BadRequest(
-            "search:query sql must not include FORMAT clause".to_string(),
-        ));
+    let inspected = mask_quoted_text(candidate);
+    for pattern in [";", "--", "/*", "*/"] {
+        if inspected.contains(pattern) {
+            return Err(CyberboxError::BadRequest(format!(
+                "search:query {field_name} must be a filter expression, not raw SQL"
+            )));
+        }
+    }
+    for keyword in [
+        "select", "from", "union", "join", "insert", "update", "delete", "alter", "create", "drop",
+        "truncate", "system", "optimize", "format", "describe", "show", "attach", "detach",
+    ] {
+        if contains_sql_keyword(&inspected, keyword) {
+            return Err(CyberboxError::BadRequest(format!(
+                "search:query {field_name} must be a filter expression, not raw SQL"
+            )));
+        }
     }
 
-    if !lower.starts_with("select ") {
-        return Ok(format!(
-            "SELECT * FROM ({fallback}) AS events WHERE ({candidate})"
-        ));
+    Ok(Some(candidate.to_string()))
+}
+
+fn mask_quoted_text(input: &str) -> String {
+    let mut masked = String::with_capacity(input.len());
+    let chars: Vec<char> = input.chars().collect();
+    let mut idx = 0;
+    let mut in_single = false;
+    let mut in_double = false;
+
+    while idx < chars.len() {
+        let ch = chars[idx];
+        if in_single {
+            if ch == '\'' {
+                if chars.get(idx + 1) == Some(&'\'') {
+                    masked.push(' ');
+                    masked.push(' ');
+                    idx += 2;
+                    continue;
+                }
+                in_single = false;
+            }
+            masked.push(' ');
+            idx += 1;
+            continue;
+        }
+        if in_double {
+            if ch == '"' {
+                if chars.get(idx + 1) == Some(&'"') {
+                    masked.push(' ');
+                    masked.push(' ');
+                    idx += 2;
+                    continue;
+                }
+                in_double = false;
+            }
+            masked.push(' ');
+            idx += 1;
+            continue;
+        }
+
+        match ch {
+            '\'' => {
+                in_single = true;
+                masked.push(' ');
+            }
+            '"' => {
+                in_double = true;
+                masked.push(' ');
+            }
+            _ => masked.push(ch.to_ascii_lowercase()),
+        }
+        idx += 1;
     }
 
-    Ok(candidate.to_string())
+    masked
+}
+
+fn contains_sql_keyword(input: &str, keyword: &str) -> bool {
+    let bytes = input.as_bytes();
+    let keyword = keyword.as_bytes();
+    let mut idx = 0;
+
+    while idx + keyword.len() <= bytes.len() {
+        if &bytes[idx..idx + keyword.len()] == keyword {
+            let before = idx == 0 || !is_identifier_byte(bytes[idx - 1]);
+            let after = idx + keyword.len() == bytes.len()
+                || !is_identifier_byte(bytes[idx + keyword.len()]);
+            if before && after {
+                return true;
+            }
+        }
+        idx += 1;
+    }
+
+    false
+}
+
+fn is_identifier_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
 fn escape_sql_literal(value: &str) -> String {
@@ -2048,6 +2321,21 @@ fn parse_rule_row(row: &Value) -> Result<DetectionRule, CyberboxError> {
         serde_json::from_value::<Severity>(Value::String(parse_string_field(row, "severity")?))
             .map_err(|err| CyberboxError::Internal(format!("invalid severity: {err}")))?;
     let enabled = parse_bool_field(row, "enabled")?;
+    let threshold_count = row
+        .get("threshold_count")
+        .and_then(parse_u64_value)
+        .and_then(|value| u32::try_from(value).ok())
+        .filter(|value| *value > 0);
+    let threshold_group_by = row
+        .get("threshold_group_by")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let suppression_window_secs = row
+        .get("suppression_window_secs")
+        .and_then(parse_u64_value)
+        .filter(|value| *value > 0);
 
     Ok(DetectionRule {
         rule_id,
@@ -2059,9 +2347,44 @@ fn parse_rule_row(row: &Value) -> Result<DetectionRule, CyberboxError> {
         severity,
         enabled,
         scheduler_health: None,
-        threshold_count: None,
-        threshold_group_by: None,
-        suppression_window_secs: None,
+        threshold_count,
+        threshold_group_by,
+        suppression_window_secs,
+    })
+}
+
+fn parse_rule_version_row(row: &Value) -> Result<RuleVersion, CyberboxError> {
+    let version = parse_u32_field(row, "version")
+        .ok_or_else(|| CyberboxError::Internal("missing or invalid rule version".to_string()))?;
+    parse_rule_version_row_with_version(row, version)
+}
+
+fn parse_rule_version_row_with_version(
+    row: &Value,
+    version: u32,
+) -> Result<RuleVersion, CyberboxError> {
+    let rule_id = parse_uuid_field(row, "rule_id")?;
+    let tenant_id = parse_string_field(row, "tenant_id")?;
+    let sigma_source = parse_string_field(row, "sigma_source")?;
+    let compiled_plan_raw = parse_string_field(row, "compiled_plan")?;
+    let compiled_plan = serde_json::from_str::<Value>(&compiled_plan_raw).map_err(|err| {
+        CyberboxError::Internal(format!(
+            "invalid compiled_plan JSON for rule version {rule_id}: {err}"
+        ))
+    })?;
+    let severity =
+        serde_json::from_value::<Severity>(Value::String(parse_string_field(row, "severity")?))
+            .map_err(|err| CyberboxError::Internal(format!("invalid severity: {err}")))?;
+    let created_at = parse_datetime_field(row, "created_at")?;
+
+    Ok(RuleVersion {
+        rule_id,
+        tenant_id,
+        version,
+        sigma_source,
+        compiled_plan,
+        severity,
+        created_at,
     })
 }
 
@@ -2297,7 +2620,8 @@ fn pagination_offset(page: u32, page_size: u32) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_base_query, pagination_offset};
+    use super::{pagination_offset, sanitize_search_filter};
+    use cyberbox_core::CyberboxError;
 
     #[test]
     fn pagination_offset_uses_one_based_pages() {
@@ -2308,22 +2632,38 @@ mod tests {
     }
 
     #[test]
-    fn normalize_base_query_supports_filter_shorthand() {
-        let fallback = "SELECT * FROM cyberbox.events_hot";
-        let query = normalize_base_query("event_id = 'abc123'", fallback)
+    fn sanitize_search_filter_accepts_plain_filter_expressions() {
+        let query = sanitize_search_filter("event_id = 'abc123'", "sql")
             .expect("filter shorthand should normalize");
 
+        assert_eq!(query, Some("event_id = 'abc123'".to_string()));
+    }
+
+    #[test]
+    fn sanitize_search_filter_rejects_raw_selects() {
+        let err = sanitize_search_filter("SELECT * FROM cyberbox.events_hot LIMIT 5", "sql")
+            .expect_err("raw select should be rejected");
+        assert!(matches!(err, CyberboxError::BadRequest(_)));
+    }
+
+    #[test]
+    fn sanitize_search_filter_allows_keywords_inside_string_literals() {
+        let query = sanitize_search_filter("raw_payload LIKE '%select from union%'", "sql")
+            .expect("keywords inside strings should be allowed");
         assert_eq!(
             query,
-            "SELECT * FROM (SELECT * FROM cyberbox.events_hot) AS events WHERE (event_id = 'abc123')"
+            Some("raw_payload LIKE '%select from union%'".to_string())
         );
     }
 
     #[test]
-    fn normalize_base_query_keeps_full_selects() {
-        let query = normalize_base_query("SELECT * FROM cyberbox.events_hot LIMIT 5", "ignored")
-            .expect("full select should pass through");
+    fn sanitize_search_filter_rejects_comments_and_statement_terminators() {
+        let err = sanitize_search_filter("event_id = 'abc123';", "sql")
+            .expect_err("terminators should be rejected");
+        assert!(matches!(err, CyberboxError::BadRequest(_)));
 
-        assert_eq!(query, "SELECT * FROM cyberbox.events_hot LIMIT 5");
+        let err = sanitize_search_filter("event_id = 'abc123' -- comment", "sql")
+            .expect_err("comments should be rejected");
+        assert!(matches!(err, CyberboxError::BadRequest(_)));
     }
 }

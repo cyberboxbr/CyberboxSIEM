@@ -1,79 +1,47 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  LookupTable,
+  Database,
+  PencilLine,
+  Plus,
+  RefreshCcw,
+  Save,
+  Search,
+  Table2,
+  Trash2,
+  XCircle,
+} from 'lucide-react';
+
+import {
   createLookupTable,
   getLookupEntries,
   getLookupTables,
   updateLookupEntries,
-} from '../api/client';
-
-/* ── SVG Icons ────────────────────────────────────── */
-
-const tableIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>
-  </svg>
-);
-const plusIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-  </svg>
-);
-const searchIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-  </svg>
-);
-const editIcon = (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-  </svg>
-);
-const saveIcon = (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
-  </svg>
-);
-const refreshIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-  </svg>
-);
-const trashIcon = (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-  </svg>
-);
-const xIcon = (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-  </svg>
-);
-const dbIcon = (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
-  </svg>
-);
-
-/* ── Component ────────────────────────────────────── */
+  type LookupTable,
+} from '@/api/client';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { WorkspaceEmptyState } from '@/components/workspace/empty-state';
+import { WorkspaceMetricCard } from '@/components/workspace/metric-card';
+import { WorkspaceModal } from '@/components/workspace/modal-shell';
+import { WorkspaceStatusBanner } from '@/components/workspace/status-banner';
+import { WorkspaceTableShell } from '@/components/workspace/table-shell';
+import { cn } from '@/lib/utils';
 
 export function LookupTables() {
   const [tables, setTables] = useState<LookupTable[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const [searchText, setSearchText] = useState('');
-
-  // Selected table
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [entries, setEntries] = useState<Array<Record<string, string>>>([]);
   const [entriesLoading, setEntriesLoading] = useState(false);
   const [entrySearch, setEntrySearch] = useState('');
-
-  // Edit mode
   const [editing, setEditing] = useState(false);
   const [editRows, setEditRows] = useState<Array<Record<string, string>>>([]);
-
-  // Create modal
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newColumns, setNewColumns] = useState('');
@@ -82,311 +50,366 @@ export function LookupTables() {
   const loadTables = useCallback(async () => {
     try {
       setLoading(true);
-      const t = await getLookupTables();
-      setTables(t);
       setError('');
-    } catch (err) { setError(String(err)); }
-    finally { setLoading(false); }
+      setTables(await getLookupTables());
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setLoading(false);
+    }
   }, []);
-
-  useEffect(() => { loadTables(); }, [loadTables]);
 
   const loadEntries = useCallback(async (name: string) => {
     setEntriesLoading(true);
     try {
-      const e = await getLookupEntries(name);
-      setEntries(e);
+      setEntries(await getLookupEntries(name));
       setEditing(false);
-    } catch (err) { setError(String(err)); }
-    finally { setEntriesLoading(false); }
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setEntriesLoading(false);
+    }
   }, []);
+
+  useEffect(() => { void loadTables(); }, [loadTables]);
+
+  const filteredTables = useMemo(() => {
+    if (!searchText) return tables;
+    const query = searchText.toLowerCase();
+    return tables.filter((table) => table.name.toLowerCase().includes(query));
+  }, [tables, searchText]);
+
+  const selectedMeta = useMemo(
+    () => tables.find((table) => table.name === selectedTable),
+    [tables, selectedTable],
+  );
+
+  const columns = selectedMeta?.columns ?? [];
+
+  const displayRows = useMemo(() => {
+    const source = editing ? editRows : entries;
+    const query = entrySearch.toLowerCase();
+    const indexed = source.map((row, index) => ({ row, index }));
+    if (!query) return indexed;
+    return indexed.filter(({ row }) => Object.values(row).some((value) => value.toLowerCase().includes(query)));
+  }, [editing, editRows, entries, entrySearch]);
+
+  const totalRows = useMemo(() => tables.reduce((sum, table) => sum + table.row_count, 0), [tables]);
 
   const handleSelectTable = (name: string) => {
     setSelectedTable(name);
     setEntrySearch('');
     setEditing(false);
-    loadEntries(name);
+    void loadEntries(name);
   };
 
   const handleCreate = async () => {
     if (!newName.trim() || !newColumns.trim()) return;
     setCreating(true);
+    setMessage('Creating lookup table...');
     try {
+      const normalizedName = newName.trim().toLowerCase().replace(/\s+/g, '_');
       await createLookupTable({
-        name: newName.trim().toLowerCase().replace(/\s+/g, '_'),
-        columns: newColumns.split(',').map((c) => c.trim()).filter(Boolean),
+        name: normalizedName,
+        columns: newColumns.split(',').map((column) => column.trim()).filter(Boolean),
         rows: [],
       });
       setShowCreate(false);
       setNewName('');
       setNewColumns('');
       await loadTables();
-    } catch (err) { setError(String(err)); }
-    finally { setCreating(false); }
+      handleSelectTable(normalizedName);
+      setMessage('Lookup table created.');
+    } catch (err) {
+      setMessage(String(err));
+    } finally {
+      setCreating(false);
+    }
   };
 
   const handleStartEdit = () => {
-    setEditRows(entries.map((r) => ({ ...r })));
+    setEditRows(entries.map((row) => ({ ...row })));
     setEditing(true);
   };
 
   const handleSaveEntries = async () => {
     if (!selectedTable) return;
+    setMessage('Saving lookup entries...');
     try {
       const updated = await updateLookupEntries(selectedTable, editRows);
       setEntries(updated);
       setEditing(false);
-    } catch (err) { setError(String(err)); }
+      await loadTables();
+      setMessage('Lookup entries saved.');
+    } catch (err) {
+      setMessage(String(err));
+    }
   };
 
   const handleCellChange = (rowIdx: number, col: string, value: string) => {
-    setEditRows((prev) => {
-      const next = [...prev];
+    setEditRows((current) => {
+      const next = [...current];
       next[rowIdx] = { ...next[rowIdx], [col]: value };
       return next;
     });
   };
 
   const handleAddRow = () => {
-    const selected = tables.find((t) => t.name === selectedTable);
-    if (!selected) return;
-    const emptyRow: Record<string, string> = {};
-    selected.columns.forEach((c) => { emptyRow[c] = ''; });
-    setEditRows((prev) => [...prev, emptyRow]);
+    if (!selectedMeta) return;
+    const nextRow: Record<string, string> = {};
+    selectedMeta.columns.forEach((column) => { nextRow[column] = ''; });
+    setEditRows((current) => [...current, nextRow]);
   };
 
-  const handleDeleteRow = (idx: number) => {
-    setEditRows((prev) => prev.filter((_, i) => i !== idx));
+  const handleDeleteRow = (rowIdx: number) => {
+    setEditRows((current) => current.filter((_, index) => index !== rowIdx));
   };
-
-  /* ── Derived ──────────────────────────────────── */
-
-  const filteredTables = useMemo(() => {
-    if (!searchText) return tables;
-    const q = searchText.toLowerCase();
-    return tables.filter((t) => t.name.toLowerCase().includes(q));
-  }, [tables, searchText]);
-
-  const selectedMeta = useMemo(() => tables.find((t) => t.name === selectedTable), [tables, selectedTable]);
-
-  const columns = selectedMeta?.columns ?? [];
-
-  const displayRows = useMemo(() => {
-    const rows = editing ? editRows : entries;
-    if (!entrySearch) return rows;
-    const q = entrySearch.toLowerCase();
-    return rows.filter((r) => Object.values(r).some((v) => v.toLowerCase().includes(q)));
-  }, [editing, editRows, entries, entrySearch]);
-
-  const totalRows = useMemo(() => tables.reduce((s, t) => s + t.row_count, 0), [tables]);
 
   return (
-    <div className="page lt-page">
-      {/* ── Header ──────────────────────────────── */}
-      <div className="re-header">
-        <div className="re-header-left">
-          <h1 className="re-title">Lookup Tables</h1>
-          <div className="re-stats">
-            <span className="re-stat">{tables.length} tables</span>
-            <span className="re-stat-sep" />
-            <span className="re-stat">{totalRows.toLocaleString()} total rows</span>
-          </div>
-        </div>
-        <div className="re-header-actions">
-          <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={loadTables}>
-            {refreshIcon} Refresh
-          </button>
-          <button type="button" className="cd-action-btn cd-action-btn--primary" onClick={() => setShowCreate(true)}>
-            {plusIcon} New Table
-          </button>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_360px]">
+        <Card className="overflow-hidden border-primary/15 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.15),transparent_40%),linear-gradient(145deg,hsl(var(--card)),hsl(var(--card)/0.85))]">
+          <CardContent className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(250px,0.85fr)]">
+            <div>
+              <div className="mb-4 flex flex-wrap gap-2">
+                <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">Lookup table workspace</Badge>
+                <Badge variant="secondary" className="bg-background/55">{tables.length} tables</Badge>
+              </div>
+              <div className="max-w-2xl font-display text-4xl font-semibold leading-[0.96] tracking-[-0.05em] text-foreground sm:text-[3rem]">
+                Keep enrichment data editable, searchable, and close to the detections that use it.
+              </div>
+              <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
+                This board gives you a faster way to browse lookup schemas, edit rows, and keep enrichment sources current without dropping back to raw JSON.
+              </p>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <Button type="button" onClick={() => setShowCreate(true)}>
+                  <Plus className="h-4 w-4" />
+                  New table
+                </Button>
+                <Button type="button" variant="outline" onClick={() => void loadTables()} disabled={loading}>
+                  <RefreshCcw className={loading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
+                  Refresh tables
+                </Button>
+              </div>
+            </div>
+            <div className="grid gap-3 rounded-[28px] border border-border/70 bg-background/35 p-4">
+              <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Total rows</div>
+                <div className="mt-3 font-display text-4xl font-semibold tracking-[-0.04em] text-foreground">{totalRows.toLocaleString()}</div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Tables</div>
+                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{tables.length}</div>
+                </div>
+                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Selected rows</div>
+                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{selectedMeta?.row_count ?? 0}</div>
+                </div>
+                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Columns</div>
+                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{columns.length}</div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
-      {error && <div className="cd-error">{error}</div>}
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle>Table search</CardTitle>
+            <CardDescription>Find a table by name and jump directly into its row set.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div>
+              <div className="mb-2 text-sm font-medium text-foreground">Search tables</div>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input className="pl-11" value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="approved_binaries, suspicious_ips..." />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </section>
 
-      {/* ── Layout ──────────────────────────────── */}
-      <div className="lt-layout">
-        {/* ── Sidebar: Table list ────────────────── */}
-        <div className="re-sidebar">
-          <div className="re-search-wrap">
-            {searchIcon}
-            <input
-              className="re-search"
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              placeholder="Search tables..."
-            />
-          </div>
+      {message && <WorkspaceStatusBanner>{message}</WorkspaceStatusBanner>}
+      {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
 
-          <div className="re-rule-list">
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <WorkspaceMetricCard label="Tables" value={String(tables.length)} hint="Lookup schemas available to enrich detections and search." icon={Database} />
+        <WorkspaceMetricCard label="Rows" value={totalRows.toLocaleString()} hint="Total records stored across every lookup table." icon={Table2} />
+        <WorkspaceMetricCard label="Visible" value={String(filteredTables.length)} hint="Tables matching the current search query." icon={Search} />
+        <WorkspaceMetricCard label="Selected columns" value={String(columns.length)} hint={selectedTable ? `Schema for ${selectedTable}` : 'Pick a table to inspect its schema.'} icon={PencilLine} />
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <Card className="overflow-hidden">
+          <CardHeader className="pb-4">
+            <CardTitle>Tables</CardTitle>
+            <CardDescription>Select a lookup source to inspect its schema and edit its rows.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
             {loading ? (
-              <p className="empty-state">Loading...</p>
-            ) : filteredTables.length === 0 ? (
-              <p className="empty-state">No tables found.</p>
+              <Card className="animate-pulse"><CardContent className="h-[220px] p-4" /></Card>
+            ) : !filteredTables.length ? (
+              <WorkspaceEmptyState title="No tables found" body="Try a broader search or create a new lookup table." />
             ) : (
-              filteredTables.map((t) => (
-                <div
-                  key={t.name}
-                  className={`lt-table-item ${selectedTable === t.name ? 'lt-table-item--selected' : ''}`}
-                  onClick={() => handleSelectTable(t.name)}
+              filteredTables.map((table) => (
+                <button
+                  key={table.name}
+                  type="button"
+                  className={cn(
+                    'w-full rounded-[24px] border px-4 py-4 text-left transition-colors',
+                    selectedTable === table.name
+                      ? 'border-primary/30 bg-primary/10'
+                      : 'border-border/70 bg-background/35 hover:bg-muted/40',
+                  )}
+                  onClick={() => handleSelectTable(table.name)}
                 >
-                  <div className="lt-table-icon">{dbIcon}</div>
-                  <div className="re-rule-info">
-                    <span className="re-rule-name">{t.name}</span>
-                    <div className="re-rule-meta">
-                      <span className="re-rule-mode">{t.columns.length} cols</span>
-                      <span className="re-rule-mode">{t.row_count.toLocaleString()} rows</span>
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border/70 bg-card/70 text-primary">
+                      <Database className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-medium text-foreground">{table.name}</div>
+                      <div className="mt-1 flex flex-wrap gap-2 text-sm text-muted-foreground">
+                        <span>{table.columns.length} columns</span>
+                        <span>{table.row_count.toLocaleString()} rows</span>
+                      </div>
                     </div>
                   </div>
-                </div>
+                </button>
               ))
             )}
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
-        {/* ── Main: Table Viewer ─────────────────── */}
-        <div className="re-main">
-          {!selectedTable ? (
-            <div className="lt-empty-main">
-              <div className="lt-empty-icon">{tableIcon}</div>
-              <h3 className="lt-empty-title">Select a Lookup Table</h3>
-              <p className="lt-empty-desc">Choose a table from the sidebar to view and edit its entries, or create a new one.</p>
-            </div>
-          ) : (
-            <div className="re-panel">
-              {/* Table header */}
-              <div className="re-panel-header">
-                <div className="cd-panel-title">
-                  {dbIcon}
-                  <span>{selectedTable}</span>
-                  <span className="cd-count-badge">{selectedMeta?.row_count ?? 0}</span>
+        {!selectedTable ? (
+          <WorkspaceEmptyState title="Select a lookup table" body="Choose a table from the left side to browse its schema and edit its rows." />
+        ) : (
+          <Card>
+            <CardHeader className="pb-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <CardTitle>{selectedTable}</CardTitle>
+                  <CardDescription className="mt-2">
+                    {selectedMeta?.row_count ?? 0} rows across {columns.length} columns.
+                  </CardDescription>
                 </div>
-                <div className="lt-table-actions">
+                <div className="flex flex-wrap gap-3">
                   {!editing ? (
-                    <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={handleStartEdit}>
-                      {editIcon} Edit
-                    </button>
+                    <Button type="button" variant="outline" onClick={handleStartEdit}>
+                      <PencilLine className="h-4 w-4" />
+                      Edit rows
+                    </Button>
                   ) : (
                     <>
-                      <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={handleAddRow}>
-                        {plusIcon} Add Row
-                      </button>
-                      <button type="button" className="cd-action-btn cd-action-btn--primary" onClick={handleSaveEntries}>
-                        {saveIcon} Save
-                      </button>
-                      <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={() => setEditing(false)}>
-                        {xIcon} Cancel
-                      </button>
+                      <Button type="button" variant="outline" onClick={handleAddRow}>
+                        <Plus className="h-4 w-4" />
+                        Add row
+                      </Button>
+                      <Button type="button" onClick={() => void handleSaveEntries()}>
+                        <Save className="h-4 w-4" />
+                        Save
+                      </Button>
+                      <Button type="button" variant="outline" onClick={() => setEditing(false)}>
+                        <XCircle className="h-4 w-4" />
+                        Cancel
+                      </Button>
                     </>
                   )}
                 </div>
               </div>
-
-              {/* Column chips */}
-              <div className="lt-col-chips">
-                {columns.map((col) => (
-                  <span key={col} className="lt-col-chip">{col}</span>
-                ))}
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="flex flex-wrap gap-2">
+                {columns.map((column) => <Badge key={column} variant="outline">{column}</Badge>)}
               </div>
 
-              {/* Search within entries */}
-              <div className="lt-entry-search">
-                {searchIcon}
-                <input
-                  className="re-search"
-                  value={entrySearch}
-                  onChange={(e) => setEntrySearch(e.target.value)}
-                  placeholder={`Search ${selectedMeta?.row_count ?? 0} entries...`}
-                />
-              </div>
-
-              {/* Data table */}
-              {entriesLoading ? (
-                <div className="lt-table-loading">Loading entries...</div>
-              ) : displayRows.length === 0 ? (
-                <div className="lt-table-loading">
-                  {entries.length === 0 ? 'No entries in this table.' : 'No entries match your search.'}
+              <div>
+                <div className="mb-2 text-sm font-medium text-foreground">Search rows</div>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input className="pl-11" value={entrySearch} onChange={(event) => setEntrySearch(event.target.value)} placeholder={`Search ${selectedMeta?.row_count ?? 0} entries...`} />
                 </div>
+              </div>
+
+              {entriesLoading ? (
+                <Card className="animate-pulse"><CardContent className="h-[320px] p-4" /></Card>
+              ) : !displayRows.length ? (
+                <WorkspaceEmptyState title={entries.length === 0 ? 'No entries in this table' : 'No entries match your search'} body={entries.length === 0 ? 'Start editing to add the first row to this lookup table.' : 'Try a different row search to bring matching values into view.'} />
               ) : (
-                <div className="lt-data-wrap">
-                  <table className="lt-data-table">
+                <WorkspaceTableShell>
+                  <table className="min-w-full border-collapse text-sm">
                     <thead>
-                      <tr>
-                        {editing && <th className="lt-th lt-th--action">#</th>}
-                        {columns.map((col) => (
-                          <th key={col} className="lt-th">{col}</th>
+                      <tr className="border-b border-border/70 bg-card/70">
+                        {editing && <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">#</th>}
+                        {columns.map((column) => (
+                          <th key={column} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                            {column}
+                          </th>
                         ))}
-                        {editing && <th className="lt-th lt-th--action" />}
+                        {editing && <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Actions</th>}
                       </tr>
                     </thead>
                     <tbody>
-                      {displayRows.map((row, ri) => (
-                        <tr key={ri} className="lt-tr">
-                          {editing && <td className="lt-td lt-td--idx">{ri + 1}</td>}
-                          {columns.map((col) => (
-                            <td key={col} className="lt-td">
+                      {displayRows.map(({ row, index }) => (
+                        <tr key={`${selectedTable}-${index}`} className="border-b border-border/70 last:border-b-0">
+                          {editing && <td className="px-4 py-3 text-muted-foreground">{index + 1}</td>}
+                          {columns.map((column) => (
+                            <td key={column} className="px-4 py-3 align-top">
                               {editing ? (
-                                <input
-                                  className="lt-cell-input"
-                                  value={editRows[ri]?.[col] ?? ''}
-                                  onChange={(e) => handleCellChange(ri, col, e.target.value)}
+                                <Input
+                                  value={editRows[index]?.[column] ?? ''}
+                                  onChange={(event) => handleCellChange(index, column, event.target.value)}
+                                  className="h-10 rounded-xl"
                                 />
                               ) : (
-                                <span className="lt-cell-value">{row[col] ?? ''}</span>
+                                <span className="text-foreground">{row[column] ?? ''}</span>
                               )}
                             </td>
                           ))}
                           {editing && (
-                            <td className="lt-td lt-td--action">
-                              <button type="button" className="lt-delete-btn" onClick={() => handleDeleteRow(ri)} title="Delete row">
-                                {trashIcon}
-                              </button>
+                            <td className="px-4 py-3 text-right">
+                              <Button type="button" size="sm" variant="outline" onClick={() => handleDeleteRow(index)}>
+                                <Trash2 className="h-4 w-4" />
+                                Delete
+                              </Button>
                             </td>
                           )}
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                </div>
+                </WorkspaceTableShell>
               )}
-            </div>
-          )}
-        </div>
-      </div>
+            </CardContent>
+          </Card>
+        )}
+      </section>
 
-      {/* ── Create Modal ────────────────────────── */}
-      {showCreate && (
-        <div className="cd-modal-overlay" onClick={() => setShowCreate(false)}>
-          <div className="cd-modal" onClick={(e) => e.stopPropagation()}>
-            <h3 className="cd-modal-title">Create Lookup Table</h3>
-            <p className="cd-modal-subtitle">Define a name and column schema for the new table.</p>
-            <div className="cd-modal-field">
-              <label className="cd-modal-label">Table Name</label>
-              <input
-                className="cd-inline-input"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="e.g. approved_binaries"
-              />
-            </div>
-            <div className="cd-modal-field">
-              <label className="cd-modal-label">Columns (comma-separated)</label>
-              <input
-                className="cd-inline-input"
-                value={newColumns}
-                onChange={(e) => setNewColumns(e.target.value)}
-                placeholder="e.g. hash, name, vendor, approved_by"
-              />
-            </div>
-            <div className="cd-modal-actions">
-              <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={() => setShowCreate(false)}>Cancel</button>
-              <button type="button" className="cd-action-btn cd-action-btn--primary" onClick={handleCreate} disabled={creating || !newName.trim() || !newColumns.trim()}>
-                {creating ? 'Creating...' : 'Create Table'}
-              </button>
-            </div>
-          </div>
+      <WorkspaceModal
+        open={showCreate}
+        title="Create lookup table"
+        description="Define a lookup schema first, then start adding rows from the main table editor."
+        onClose={() => setShowCreate(false)}
+        panelClassName="max-w-xl"
+      >
+        <div>
+          <div className="mb-2 text-sm font-medium text-foreground">Table name</div>
+          <Input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="approved_binaries" />
         </div>
-      )}
+        <div>
+          <div className="mb-2 text-sm font-medium text-foreground">Columns</div>
+          <Textarea value={newColumns} onChange={(event) => setNewColumns(event.target.value)} rows={4} placeholder="hash, name, vendor, approved_by" />
+        </div>
+        <div className="flex flex-wrap justify-end gap-3">
+          <Button type="button" variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
+          <Button type="button" onClick={() => void handleCreate()} disabled={creating || !newName.trim() || !newColumns.trim()}>
+            {creating ? 'Creating...' : 'Create table'}
+          </Button>
+        </div>
+      </WorkspaceModal>
     </div>
   );
 }

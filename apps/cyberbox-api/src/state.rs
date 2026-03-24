@@ -9,16 +9,18 @@ use arc_swap::ArcSwap;
 use metrics_exporter_prometheus::PrometheusHandle;
 use tokio::sync::broadcast;
 
-use cyberbox_auth::{JwtValidator, Role};
+use cyberbox_auth::JwtValidator;
 use cyberbox_core::{
     threatintel::ThreatIntelFeed, AppConfig, CyberboxError, EpsLimiter, GeoIpEnricher, LookupStore,
     TeamsNotifier,
 };
 use cyberbox_detection::{RuleExecutor, SharedCorrelationState, SigmaCompiler};
 use cyberbox_models::{
-    AgentRecord, AlertRecord, DetectionMode, DetectionRule, EventEnvelope, SourceInfo,
+    AgentRecord, AlertRecord, DetectionMode, DetectionRule, EventEnvelope, RuleVersion, SourceInfo,
 };
-use cyberbox_storage::{ClickHouseEventStore, ClickHouseWriteBuffer, InMemoryStore, WorkflowStore};
+use cyberbox_storage::{
+    ClickHouseEventStore, ClickHouseWriteBuffer, InMemoryStore, RuleStore, WorkflowStore,
+};
 
 use crate::stream::{RawEventPublisher, ReplayRequestPublisher};
 
@@ -223,22 +225,73 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// Returns `true` if this event hash was already seen within the dedup window.
-    /// Evicts expired entries and records the new hash as a side effect.
-    /// Return effective roles for `(tenant_id, user_id)`: JWT roles ∪ stored overrides.
-    /// If stored roles exist they are merged (union) with the JWT-derived roles.
-    pub fn effective_roles(&self, tenant_id: &str, user_id: &str, jwt_roles: &[Role]) -> Vec<Role> {
-        let key = format!("{tenant_id}:{user_id}");
-        if let Some(stored) = self.rbac_store.get(&key) {
-            let mut merged = jwt_roles.to_vec();
-            for role in stored.iter() {
-                if !merged.contains(role) {
-                    merged.push(role.clone());
-                }
-            }
-            merged
+    pub async fn list_rules_for_tenant(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Vec<DetectionRule>, CyberboxError> {
+        if let Some(clickhouse_store) = &self.clickhouse_event_store {
+            clickhouse_store.list_rules(tenant_id).await
         } else {
-            jwt_roles.to_vec()
+            self.storage.list_rules(tenant_id).await
+        }
+    }
+
+    pub async fn get_rule_for_tenant(
+        &self,
+        tenant_id: &str,
+        rule_id: Uuid,
+    ) -> Result<DetectionRule, CyberboxError> {
+        if let Some(clickhouse_store) = &self.clickhouse_event_store {
+            clickhouse_store.get_rule(tenant_id, rule_id).await
+        } else {
+            self.storage.get_rule(tenant_id, rule_id).await
+        }
+    }
+
+    pub async fn refresh_stream_rules(&self, tenant_id: &str) -> Result<(), CyberboxError> {
+        let fresh = self.list_rules_for_tenant(tenant_id).await?;
+        self.stream_rule_cache.refresh(tenant_id, fresh);
+        Ok(())
+    }
+
+    pub async fn list_rule_versions_for_tenant(
+        &self,
+        tenant_id: &str,
+        rule_id: Uuid,
+    ) -> Result<Vec<RuleVersion>, CyberboxError> {
+        if let Some(clickhouse_store) = &self.clickhouse_event_store {
+            clickhouse_store
+                .list_rule_versions(tenant_id, rule_id)
+                .await
+        } else {
+            Ok(self.storage.list_rule_versions(tenant_id, rule_id))
+        }
+    }
+
+    pub async fn get_rule_version_for_tenant(
+        &self,
+        tenant_id: &str,
+        rule_id: Uuid,
+        version: u32,
+    ) -> Result<RuleVersion, CyberboxError> {
+        if let Some(clickhouse_store) = &self.clickhouse_event_store {
+            if let Some(snapshot) = clickhouse_store
+                .get_rule_version(tenant_id, rule_id, version)
+                .await?
+            {
+                Ok(snapshot)
+            } else {
+                clickhouse_store
+                    .list_rule_versions(tenant_id, rule_id)
+                    .await?
+                    .into_iter()
+                    .find(|snapshot| snapshot.version == version)
+                    .ok_or(CyberboxError::NotFound)
+            }
+        } else {
+            self.storage
+                .get_rule_version(tenant_id, rule_id, version)
+                .ok_or(CyberboxError::NotFound)
         }
     }
 

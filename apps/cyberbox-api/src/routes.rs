@@ -341,10 +341,7 @@ pub async fn ingest_events(
                 // Threshold gate: if the rule requires N matches before firing,
                 // increment the per-(rule,entity) counter and skip until threshold met.
                 let rule = rule_map.get(&alert.rule_id).copied();
-                let entity = rule
-                    .and_then(|r| r.threshold_group_by.as_deref())
-                    .map(|f| f.to_string())
-                    .unwrap_or_else(|| "__global__".to_string());
+                let entity = threshold_entity_key(rule, event);
                 let passes_threshold = if let Some(rule) = rule {
                     let min = rule.threshold_count.unwrap_or(1).max(1);
                     if min <= 1 {
@@ -358,7 +355,8 @@ pub async fn ingest_events(
                         *entry += 1;
                         if *entry >= min {
                             // Threshold met — fire and reset counter.
-                            *entry = 0;
+                            drop(entry);
+                            state.threshold_counters.remove(&counter_key);
                             true
                         } else {
                             false
@@ -377,7 +375,14 @@ pub async fn ingest_events(
                             let active = state
                                 .suppression_map
                                 .get(&suppress_key)
-                                .map(|exp| now < *exp)
+                                .map(|exp| {
+                                    let still_active = now < *exp;
+                                    if !still_active {
+                                        drop(exp);
+                                        state.suppression_map.remove(&suppress_key);
+                                    }
+                                    still_active
+                                })
                                 .unwrap_or(false);
                             if !active {
                                 // Record the firing time so subsequent matches are suppressed.
@@ -655,6 +660,62 @@ async fn append_audit_log(
     }
 }
 
+async fn refresh_stream_rule_cache(state: &AppState, tenant_id: &str) {
+    if let Err(err) = state.refresh_stream_rules(tenant_id).await {
+        tracing::warn!(
+            tenant_id = %tenant_id,
+            error = %err,
+            "failed to refresh stream rule cache"
+        );
+    }
+}
+
+fn threshold_entity_key(rule: Option<&DetectionRule>, event: &EventEnvelope) -> String {
+    match rule.and_then(|r| r.threshold_group_by.as_deref()) {
+        Some(field) => {
+            lookup_event_grouping_value(event, field).unwrap_or_else(|| "__missing__".to_string())
+        }
+        None => "__global__".to_string(),
+    }
+}
+
+fn lookup_event_grouping_value(event: &EventEnvelope, field: &str) -> Option<String> {
+    lookup_json_value(&event.raw_payload, field)
+        .or_else(|| lookup_json_value(&event.ocsf_record, field))
+        .and_then(flatten_grouping_value)
+}
+
+fn lookup_json_value<'a>(value: &'a Value, field: &str) -> Option<&'a Value> {
+    if let Some(found) = value.get(field) {
+        return Some(found);
+    }
+    if let Some(object) = value.as_object() {
+        for (key, candidate) in object {
+            if key.eq_ignore_ascii_case(field) {
+                return Some(candidate);
+            }
+        }
+    }
+    if let Some((head, tail)) = field.split_once('.') {
+        return lookup_json_value(value, head).and_then(|nested| lookup_json_value(nested, tail));
+    }
+    None
+}
+
+fn flatten_grouping_value(value: &Value) -> Option<String> {
+    match value {
+        Value::Null => None,
+        Value::String(text) => {
+            let trimmed = text.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        }
+        Value::Number(number) => Some(number.to_string()),
+        Value::Bool(flag) => Some(flag.to_string()),
+        Value::Array(values) => values.iter().find_map(flatten_grouping_value),
+        other => Some(other.to_string()),
+    }
+}
+
 async fn find_alert_snapshot(
     state: &AppState,
     tenant_id: &str,
@@ -864,12 +925,7 @@ pub async fn create_rule(
     };
 
     // Refresh the lock-free stream-rule cache so ingest immediately sees the new rule.
-    let fresh = state
-        .storage
-        .list_rules(&auth.tenant_id)
-        .await
-        .unwrap_or_default();
-    state.stream_rule_cache.refresh(&auth.tenant_id, fresh);
+    refresh_stream_rule_cache(&state, &auth.tenant_id).await;
 
     tracing::info!(
         user_id = %auth.user_id,
@@ -900,11 +956,7 @@ pub async fn update_rule(
 ) -> Result<Json<DetectionRule>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst])?;
 
-    let existing = if let Some(clickhouse_store) = &state.clickhouse_event_store {
-        clickhouse_store.get_rule(&auth.tenant_id, rule_id).await?
-    } else {
-        state.storage.get_rule(&auth.tenant_id, rule_id).await?
-    };
+    let existing = state.get_rule_for_tenant(&auth.tenant_id, rule_id).await?;
 
     let sigma_source = payload
         .sigma_source
@@ -945,12 +997,7 @@ pub async fn update_rule(
         state.storage.upsert_rule(updated).await?
     };
 
-    let fresh = state
-        .storage
-        .list_rules(&auth.tenant_id)
-        .await
-        .unwrap_or_default();
-    state.stream_rule_cache.refresh(&auth.tenant_id, fresh);
+    refresh_stream_rule_cache(&state, &auth.tenant_id).await;
     state.rule_executor.invalidate_rule(saved.rule_id);
 
     tracing::info!(
@@ -980,11 +1027,7 @@ pub async fn delete_rule(
     Path(rule_id): Path<Uuid>,
 ) -> Result<Json<Value>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst])?;
-    let existing = if let Some(clickhouse_store) = &state.clickhouse_event_store {
-        clickhouse_store.get_rule(&auth.tenant_id, rule_id).await?
-    } else {
-        state.storage.get_rule(&auth.tenant_id, rule_id).await?
-    };
+    let existing = state.get_rule_for_tenant(&auth.tenant_id, rule_id).await?;
 
     if let Some(clickhouse_store) = &state.clickhouse_event_store {
         clickhouse_store
@@ -994,12 +1037,7 @@ pub async fn delete_rule(
         state.storage.delete_rule(&auth.tenant_id, rule_id).await?;
     }
 
-    let fresh = state
-        .storage
-        .list_rules(&auth.tenant_id)
-        .await
-        .unwrap_or_default();
-    state.stream_rule_cache.refresh(&auth.tenant_id, fresh);
+    refresh_stream_rule_cache(&state, &auth.tenant_id).await;
     state.rule_executor.invalidate_rule(rule_id);
 
     tracing::info!(
@@ -1028,11 +1066,7 @@ pub async fn list_rules(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<DetectionRule>>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst, Role::Viewer])?;
-    let rules = if let Some(clickhouse_store) = &state.clickhouse_event_store {
-        clickhouse_store.list_rules(&auth.tenant_id).await?
-    } else {
-        state.storage.list_rules(&auth.tenant_id).await?
-    };
+    let rules = state.list_rules_for_tenant(&auth.tenant_id).await?;
     Ok(Json(rules))
 }
 
@@ -1243,11 +1277,7 @@ pub async fn test_rule(
 ) -> Result<Json<RuleTestResult>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst])?;
 
-    let rule = if let Some(clickhouse_store) = &state.clickhouse_event_store {
-        clickhouse_store.get_rule(&auth.tenant_id, rule_id).await?
-    } else {
-        state.storage.get_rule(&auth.tenant_id, rule_id).await?
-    };
+    let rule = state.get_rule_for_tenant(&auth.tenant_id, rule_id).await?;
 
     let synthetic_event = cyberbox_models::EventEnvelope {
         event_id: Uuid::new_v4(),
@@ -1598,11 +1628,7 @@ pub async fn backtest_rule(
         .unwrap_or(BACKTEST_DEFAULT_MAX)
         .min(BACKTEST_HARD_MAX);
 
-    let rule = if let Some(clickhouse_store) = &state.clickhouse_event_store {
-        clickhouse_store.get_rule(&auth.tenant_id, rule_id).await?
-    } else {
-        state.storage.get_rule(&auth.tenant_id, rule_id).await?
-    };
+    let rule = state.get_rule_for_tenant(&auth.tenant_id, rule_id).await?;
 
     // Isolated executor — keeps backtest buffers separate from live detection.
     let backtest_executor = cyberbox_detection::RuleExecutor::default();
@@ -1720,11 +1746,7 @@ pub async fn mitre_coverage(
 ) -> Result<Json<CoverageReport>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst, Role::Viewer])?;
 
-    let rules = if let Some(clickhouse_store) = &state.clickhouse_event_store {
-        clickhouse_store.list_rules(&auth.tenant_id).await?
-    } else {
-        state.storage.list_rules(&auth.tenant_id).await?
-    };
+    let rules = state.list_rules_for_tenant(&auth.tenant_id).await?;
 
     type TechniqueEntry = (Option<String>, Option<String>, Vec<Uuid>);
     let mut technique_map: std::collections::HashMap<String, TechniqueEntry> =
@@ -3041,8 +3063,10 @@ async fn list_rule_versions(
 ) -> Result<Json<Vec<RuleVersion>>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst, Role::Viewer])?;
     // Verify the rule exists and belongs to this tenant.
-    state.storage.get_rule(&auth.tenant_id, id).await?;
-    let versions = state.storage.list_rule_versions(&auth.tenant_id, id);
+    state.get_rule_for_tenant(&auth.tenant_id, id).await?;
+    let versions = state
+        .list_rule_versions_for_tenant(&auth.tenant_id, id)
+        .await?;
     Ok(Json(versions))
 }
 
@@ -3054,21 +3078,22 @@ async fn restore_rule_version(
 ) -> Result<Json<DetectionRule>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst])?;
     let snapshot = state
-        .storage
-        .get_rule_version(&auth.tenant_id, id, ver)
-        .ok_or(CyberboxError::NotFound)?;
+        .get_rule_version_for_tenant(&auth.tenant_id, id, ver)
+        .await?;
 
     // Fetch the current live rule to preserve mutable fields (enabled, schedule, etc.)
-    let mut live = state.storage.get_rule(&auth.tenant_id, id).await?;
+    let mut live = state.get_rule_for_tenant(&auth.tenant_id, id).await?;
+    let before = live.clone();
     live.sigma_source = snapshot.sigma_source;
     live.compiled_plan = snapshot.compiled_plan;
     live.severity = snapshot.severity;
 
-    let saved = state.storage.upsert_rule(live).await?;
-    state.stream_rule_cache.refresh(
-        &auth.tenant_id,
-        state.storage.list_rules(&auth.tenant_id).await?,
-    );
+    let saved = if let Some(clickhouse_store) = &state.clickhouse_event_store {
+        clickhouse_store.upsert_rule(live).await?
+    } else {
+        state.storage.upsert_rule(live).await?
+    };
+    refresh_stream_rule_cache(&state, &auth.tenant_id).await;
     state.rule_executor.invalidate_rule(id);
 
     tracing::info!(
@@ -3077,6 +3102,17 @@ async fn restore_rule_version(
         restored_version = ver,
         "rule version restored"
     );
+    append_audit_log(
+        &state,
+        &auth.tenant_id,
+        &auth.user_id,
+        "rule.restore",
+        "rule",
+        &id.to_string(),
+        audit_json(&before),
+        audit_json(&saved),
+    )
+    .await;
     Ok(Json(saved))
 }
 
@@ -3110,8 +3146,7 @@ pub async fn auto_correlate_alert(state: AppState, alert: AlertRecord) {
         alert.rule_title.clone()
     } else {
         let rule = state
-            .storage
-            .get_rule(&alert.tenant_id, alert.rule_id)
+            .get_rule_for_tenant(&alert.tenant_id, alert.rule_id)
             .await
             .ok();
         rule.as_ref()
@@ -3210,11 +3245,7 @@ async fn tune_rule_handler(
     })?;
 
     // Fetch the rule.
-    let rules = state.storage.list_rules(&auth.tenant_id).await?;
-    let rule = rules
-        .into_iter()
-        .find(|r| r.rule_id == id)
-        .ok_or(CyberboxError::NotFound)?;
+    let rule = state.get_rule_for_tenant(&auth.tenant_id, id).await?;
 
     // Summarise recent alert history for this rule.
     let alerts = state.workflow_store.list_alerts(&auth.tenant_id).await?;
@@ -3532,6 +3563,21 @@ fn required_header(headers: &HeaderMap, name: &str) -> Result<String, CyberboxEr
         .ok_or(CyberboxError::Unauthorized)
 }
 
+fn provided_api_key(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get("x-api-key")
+        .and_then(|value| value.to_str().ok())
+}
+
+fn is_collector_managed_agent(agent: &AgentRecord) -> bool {
+    agent.enrolled_at.is_none()
+        && agent.credential_version == 0
+        && agent.credential_hash.is_none()
+        && agent.credential_rotated_at.is_none()
+        && agent.device_certificate_serial.is_none()
+        && agent.device_certificate_expires_at.is_none()
+}
+
 async fn issue_and_persist_agent_device_certificate(
     state: &AppState,
     mut agent: AgentRecord,
@@ -3696,33 +3742,42 @@ pub async fn register_agent(
         rec
     } else {
         // Fallback: accept API key auth (collector registers agents this way)
-        let api_key = headers
-            .get("x-api-key")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string());
-        if api_key != state.ingest_api_key {
+        if provided_api_key(&headers) != state.ingest_api_key.as_deref() {
             return Err(CyberboxError::Unauthorized);
         }
-        AgentRecord {
-            agent_id: body.agent_id.clone(),
-            tenant_id: body.tenant_id.clone(),
-            hostname: String::new(),
-            os: String::new(),
-            version: String::new(),
-            ip: None,
-            registered_at: Utc::now(),
-            last_seen: Utc::now(),
-            group: None,
-            tags: vec![],
-            pending_config: None,
-            enrolled_at: None,
-            credential_version: 0,
-            credential_hash: None,
-            credential_rotated_at: None,
-            device_certificate_serial: None,
-            device_certificate_expires_at: None,
-            revoked_at: None,
-            revoked_reason: None,
+        match state
+            .workflow_store
+            .get_agent(&body.tenant_id, &body.agent_id)
+            .await
+        {
+            Ok(existing) => {
+                if existing.revoked_at.is_some() || !is_collector_managed_agent(&existing) {
+                    return Err(CyberboxError::Forbidden);
+                }
+                existing
+            }
+            Err(CyberboxError::NotFound) => AgentRecord {
+                agent_id: body.agent_id.clone(),
+                tenant_id: body.tenant_id.clone(),
+                hostname: String::new(),
+                os: String::new(),
+                version: String::new(),
+                ip: None,
+                registered_at: Utc::now(),
+                last_seen: Utc::now(),
+                group: None,
+                tags: vec![],
+                pending_config: None,
+                enrolled_at: None,
+                credential_version: 0,
+                credential_hash: None,
+                credential_rotated_at: None,
+                device_certificate_serial: None,
+                device_certificate_expires_at: None,
+                revoked_at: None,
+                revoked_reason: None,
+            },
+            Err(err) => return Err(err),
         }
     };
 
@@ -3758,19 +3813,15 @@ pub async fn agent_heartbeat(
         authenticate_agent_request(&state, &headers, Some(&id)).await?
     } else {
         // Fallback: API key auth for collector-registered agents
-        let api_key = headers
-            .get("x-api-key")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string());
-        if api_key != state.ingest_api_key {
+        if provided_api_key(&headers) != state.ingest_api_key.as_deref() {
             return Err(CyberboxError::Unauthorized);
         }
-        let tenant_id = headers
-            .get("x-tenant-id")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("default")
-            .to_string();
-        state.workflow_store.get_agent(&tenant_id, &id).await?
+        let tenant_id = required_header(&headers, "x-tenant-id")?;
+        let agent = state.workflow_store.get_agent(&tenant_id, &id).await?;
+        if agent.revoked_at.is_some() || !is_collector_managed_agent(&agent) {
+            return Err(CyberboxError::Forbidden);
+        }
+        agent
     };
     agent.last_seen = Utc::now();
     let pending_config = agent.pending_config.take();

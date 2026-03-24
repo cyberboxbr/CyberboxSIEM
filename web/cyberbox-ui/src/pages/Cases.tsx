@@ -1,21 +1,64 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import {
-  CaseCreateInput,
-  CaseRecord,
-  CaseResolution,
-  CaseStatus,
-  Severity,
+  AlertTriangle,
+  ArrowRight,
+  Clock3,
+  FolderKanban,
+  Plus,
+  RefreshCcw,
+  Search,
+  ShieldAlert,
+  UserRound,
+} from 'lucide-react';
+
+import {
   createCase,
   getCases,
   getSlaBreaches,
   updateCase,
-} from '../api/client';
+  type CaseCreateInput,
+  type CaseRecord,
+  type CaseResolution,
+  type CaseStatus,
+  type Severity,
+} from '@/api/client';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { WorkspaceEmptyState } from '@/components/workspace/empty-state';
+import { WorkspaceMetricCard } from '@/components/workspace/metric-card';
+import { WorkspaceModal } from '@/components/workspace/modal-shell';
+import { WorkspaceStatusBanner } from '@/components/workspace/status-banner';
+import { cn } from '@/lib/utils';
 
-/* ── helpers ─────────────────────────────────────── */
+type FilterTab = 'all' | 'open' | 'in_progress' | 'resolved' | 'closed';
+type Tone = 'default' | 'secondary' | 'outline' | 'destructive' | 'success' | 'warning' | 'info';
 
-function timeAgo(isoString: string): string {
-  const diff = Date.now() - new Date(isoString).getTime();
+const STATUS_TRANSITIONS: Record<CaseStatus, CaseStatus[]> = {
+  open: ['in_progress'],
+  in_progress: ['resolved'],
+  resolved: ['closed'],
+  closed: [],
+};
+
+const RESOLUTION_LABELS: Record<CaseResolution, string> = {
+  tp_contained: 'True positive - contained',
+  tp_not_contained: 'True positive - not contained',
+  benign_tp: 'Benign true positive',
+  false_positive: 'False positive',
+  duplicate: 'Duplicate',
+};
+
+const FILTER_TABS: FilterTab[] = ['all', 'open', 'in_progress', 'resolved', 'closed'];
+
+function rel(iso?: string): string {
+  if (!iso) return 'Unknown';
+  const diff = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(diff)) return iso;
   const minutes = Math.floor(diff / 60_000);
   if (minutes < 1) return 'just now';
   if (minutes < 60) return `${minutes}m ago`;
@@ -24,128 +67,123 @@ function timeAgo(isoString: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-function slaInfo(sla_due_at?: string): { label: string; color: string; pct: number } {
-  if (!sla_due_at) return { label: 'No SLA', color: 'var(--text-secondary)', pct: 100 };
-  const due = new Date(sla_due_at).getTime();
-  const now = Date.now();
-  const remaining = due - now;
-  if (remaining <= 0) return { label: 'BREACHED', color: '#f45d5d', pct: 0 };
-  const hours = Math.floor(remaining / 3_600_000);
-  const mins = Math.floor((remaining % 3_600_000) / 60_000);
-  const label = hours > 0 ? `${hours}h ${mins}m left` : `${mins}m left`;
-  const totalWindow = 24 * 3_600_000;
-  const pct = Math.min(100, (remaining / totalWindow) * 100);
-  let color = '#58d68d';
-  if (pct < 10) color = '#f45d5d';
-  else if (pct < 50) color = '#d4bc00';
-  return { label, color, pct };
+function abs(iso?: string): string {
+  if (!iso) return 'Unknown';
+  const parsed = new Date(iso);
+  return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleString();
 }
 
-type FilterTab = 'all' | 'open' | 'in_progress' | 'resolved' | 'closed';
+function slaInfo(slaDueAt?: string): { label: string; pct: number; breached: boolean } {
+  if (!slaDueAt) return { label: 'No SLA', pct: 100, breached: false };
+  const remaining = new Date(slaDueAt).getTime() - Date.now();
+  if (remaining <= 0) return { label: 'Breached', pct: 0, breached: true };
+  const hours = Math.floor(remaining / 3_600_000);
+  const minutes = Math.floor((remaining % 3_600_000) / 60_000);
+  return {
+    label: hours > 0 ? `${hours}h ${minutes}m left` : `${minutes}m left`,
+    pct: Math.min(100, (remaining / (24 * 3_600_000)) * 100),
+    breached: false,
+  };
+}
 
-const RESOLUTION_LABELS: Record<CaseResolution, { label: string; color: string }> = {
-  tp_contained: { label: 'True Positive — Contained', color: '#58d68d' },
-  tp_not_contained: { label: 'True Positive — Not Contained', color: '#f45d5d' },
-  benign_tp: { label: 'Benign True Positive', color: '#4a9eda' },
-  false_positive: { label: 'False Positive', color: '#d4bc00' },
-  duplicate: { label: 'Duplicate', color: 'var(--text-secondary)' },
-};
+function severityVariant(severity: Severity): Tone {
+  if (severity === 'critical') return 'destructive';
+  if (severity === 'high') return 'warning';
+  if (severity === 'medium') return 'info';
+  return 'secondary';
+}
 
-const SEVERITY_COLORS: Record<string, string> = {
-  critical: '#f45d5d',
-  high: '#f5a623',
-  medium: '#d4bc00',
-  low: '#4a9eda',
-};
-
-/* ── SVG icons ────────────────────────────────────── */
-
-const refreshIcon = (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="23 4 23 10 17 10" />
-    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-  </svg>
-);
-
-const plusIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-  </svg>
-);
-
-/* ── component ───────────────────────────────────── */
+function statusVariant(status: CaseStatus): Tone {
+  if (status === 'closed') return 'secondary';
+  if (status === 'resolved') return 'success';
+  if (status === 'in_progress') return 'warning';
+  return 'default';
+}
 
 export function Cases() {
   const navigate = useNavigate();
   const [cases, setCases] = useState<CaseRecord[]>([]);
   const [slaBreaches, setSlaBreaches] = useState<CaseRecord[]>([]);
   const [filter, setFilter] = useState<FilterTab>('all');
+  const [severityFilter, setSeverityFilter] = useState<'all' | Severity>('all');
+  const [searchValue, setSearchValue] = useState('');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
-  const [statusText, setStatusText] = useState('');
-
-  // New case modal
-  const [showModal, setShowModal] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [newSeverity, setNewSeverity] = useState<Severity>('medium');
   const [newAssignee, setNewAssignee] = useState('');
   const [newTags, setNewTags] = useState('');
   const [newAlertIds, setNewAlertIds] = useState('');
-  const [creating, setCreating] = useState(false);
-
-  // Close case modal
   const [closeCaseId, setCloseCaseId] = useState<string | null>(null);
   const [closeResolution, setCloseResolution] = useState<CaseResolution>('tp_contained');
   const [closeNote, setCloseNote] = useState('');
-
-  // Assign modal
   const [assignCaseId, setAssignCaseId] = useState<string | null>(null);
   const [assignName, setAssignName] = useState('');
 
-  const loadCases = async () => {
+  const loadCases = useCallback(async (showLoader: boolean) => {
+    if (showLoader) setLoading(true);
+    setError('');
     try {
-      setLoading(true);
-      const [casesResp, breachResp] = await Promise.all([
+      const [caseRows, breachRows] = await Promise.all([
         getCases().catch(() => []),
         getSlaBreaches().catch(() => []),
       ]);
-      setCases(casesResp ?? []);
-      setSlaBreaches(breachResp ?? []);
-      setError('');
+      setCases(caseRows ?? []);
+      setSlaBreaches(breachRows ?? []);
     } catch (err) {
       setError(String(err));
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  };
-
-  useEffect(() => {
-    loadCases();
   }, []);
 
-  const filteredCases = useMemo(() => {
-    if (filter === 'all') return cases;
-    return cases.filter((c) => c.status === filter);
-  }, [cases, filter]);
+  useEffect(() => { void loadCases(true); }, [loadCases]);
 
-  /* ── stats ─────────────────────────────────────── */
+  const filteredCases = useMemo(() => {
+    const search = searchValue.trim().toLowerCase();
+    return [...cases]
+      .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())
+      .filter((record) => {
+        if (filter !== 'all' && record.status !== filter) return false;
+        if (severityFilter !== 'all' && record.severity !== severityFilter) return false;
+        if (!search) return true;
+        const haystack = [
+          record.case_id,
+          record.title,
+          record.description,
+          record.assignee,
+          ...(record.tags ?? []),
+          ...(record.alert_ids ?? []),
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(search);
+      });
+  }, [cases, filter, severityFilter, searchValue]);
 
   const stats = useMemo(() => {
-    const open = cases.filter(c => c.status === 'open').length;
-    const inProgress = cases.filter(c => c.status === 'in_progress').length;
-    const resolved = cases.filter(c => c.status === 'resolved').length;
-    const closed = cases.filter(c => c.status === 'closed').length;
-    const unassigned = cases.filter(c => !c.assignee && c.status !== 'closed').length;
-    const breached = slaBreaches.length;
-    return { open, inProgress, resolved, closed, unassigned, breached };
+    const open = cases.filter((item) => item.status === 'open').length;
+    const inProgress = cases.filter((item) => item.status === 'in_progress').length;
+    const resolved = cases.filter((item) => item.status === 'resolved').length;
+    const unassigned = cases.filter((item) => !item.assignee && item.status !== 'closed').length;
+    return { open, inProgress, resolved, unassigned, breached: slaBreaches.length };
   }, [cases, slaBreaches]);
 
-  /* ── actions ───────────────────────────────────── */
+  const closeTarget = closeCaseId ? cases.find((item) => item.case_id === closeCaseId) ?? null : null;
+  const assignTarget = assignCaseId ? cases.find((item) => item.case_id === assignCaseId) ?? null : null;
+  const canSubmitAssign = Boolean(assignCaseId) && (assignName.trim().length > 0 || Boolean(assignTarget?.assignee));
 
-  const handleCreate = async () => {
+  const create = async () => {
     if (!newTitle.trim()) return;
     setCreating(true);
+    setMessage('Creating case...');
     try {
       const body: CaseCreateInput = {
         title: newTitle.trim(),
@@ -153,33 +191,46 @@ export function Cases() {
       };
       if (newDescription.trim()) body.description = newDescription.trim();
       if (newAssignee.trim()) body.assignee = newAssignee.trim();
-      if (newTags.trim()) body.tags = newTags.split(',').map((t) => t.trim()).filter(Boolean);
-      if (newAlertIds.trim()) body.alert_ids = newAlertIds.split(',').map((t) => t.trim()).filter(Boolean);
-      await createCase(body);
-      setShowModal(false);
-      setNewTitle(''); setNewDescription(''); setNewSeverity('medium');
-      setNewAssignee(''); setNewTags(''); setNewAlertIds('');
-      await loadCases();
-      setStatusText('Case created.');
+      if (newTags.trim()) body.tags = newTags.split(',').map((tag) => tag.trim()).filter(Boolean);
+      if (newAlertIds.trim()) body.alert_ids = newAlertIds.split(',').map((id) => id.trim()).filter(Boolean);
+      const created = await createCase(body);
+      setShowCreate(false);
+      setNewTitle('');
+      setNewDescription('');
+      setNewSeverity('medium');
+      setNewAssignee('');
+      setNewTags('');
+      setNewAlertIds('');
+      await loadCases(false);
+      setMessage('Case created.');
+      navigate(`/cases/${created.case_id}`);
     } catch (err) {
-      setError(String(err));
+      setMessage(String(err));
     } finally {
       setCreating(false);
     }
   };
 
-  const handleStatusChange = async (caseId: string, newStatus: CaseStatus) => {
+  const moveCase = async (caseId: string, status: CaseStatus) => {
+    if (status === 'closed') {
+      setCloseCaseId(caseId);
+      setCloseResolution('tp_contained');
+      setCloseNote('');
+      return;
+    }
+    setMessage(`Moving case to ${status.replace(/_/g, ' ')}...`);
     try {
-      await updateCase(caseId, { status: newStatus });
-      await loadCases();
-      setStatusText(`Case moved to ${newStatus.replace('_', ' ')}.`);
+      await updateCase(caseId, { status });
+      await loadCases(false);
+      setMessage(`Case moved to ${status.replace(/_/g, ' ')}.`);
     } catch (err) {
-      setError(String(err));
+      setMessage(String(err));
     }
   };
 
-  const handleCloseCase = async () => {
+  const closeCase = async () => {
     if (!closeCaseId) return;
+    setMessage('Closing case...');
     try {
       await updateCase(closeCaseId, {
         status: 'closed',
@@ -187,345 +238,342 @@ export function Cases() {
         close_note: closeNote.trim() || null,
       });
       setCloseCaseId(null);
-      setCloseResolution('tp_contained');
       setCloseNote('');
-      await loadCases();
-      setStatusText('Case closed.');
+      await loadCases(false);
+      setMessage('Case closed.');
     } catch (err) {
-      setError(String(err));
+      setMessage(String(err));
     }
   };
 
-  const handleAssign = async () => {
+  const assignCase = async () => {
     if (!assignCaseId) return;
-    const nextAssignee = assignName.trim();
-    const assignTarget = cases.find((c) => c.case_id === assignCaseId);
-    if (!nextAssignee && !assignTarget?.assignee) return;
+    const next = assignName.trim();
+    setMessage('Saving assignee...');
     try {
-      await updateCase(assignCaseId, { assignee: nextAssignee || null });
+      await updateCase(assignCaseId, { assignee: next || null });
       setAssignCaseId(null);
       setAssignName('');
-      await loadCases();
-      setStatusText(
-        nextAssignee ? `Case assigned to ${nextAssignee}.` : 'Case unassigned.',
-      );
+      await loadCases(false);
+      setMessage(next ? `Case assigned to ${next}.` : 'Case unassigned.');
     } catch (err) {
-      setError(String(err));
+      setMessage(String(err));
     }
   };
 
-  /* ── render ────────────────────────────────────── */
-
-  const tabs: { key: FilterTab; label: string; count: number }[] = [
-    { key: 'all', label: 'All Cases', count: cases.length },
-    { key: 'open', label: 'Open', count: stats.open },
-    { key: 'in_progress', label: 'In Progress', count: stats.inProgress },
-    { key: 'resolved', label: 'Resolved', count: stats.resolved },
-    { key: 'closed', label: 'Closed', count: stats.closed },
-  ];
-  const assignTarget = assignCaseId
-    ? cases.find((c) => c.case_id === assignCaseId) ?? null
-    : null;
-  const canSubmitAssign = Boolean(assignCaseId)
-    && (assignName.trim().length > 0 || Boolean(assignTarget?.assignee));
-
   return (
-    <div className="page">
-      {/* ── Header ─────────────────────────────────── */}
-      <div className="aq-header">
-        <div className="aq-header-left">
-          <h1 className="dash-page-title" style={{ margin: 0 }}>CASES</h1>
-          <span className="aq-count">{filteredCases.length} results</span>
-        </div>
-        <div className="aq-header-right">
-          <button className="dash-refresh-icon-btn" onClick={loadCases} title="Refresh">
-            {refreshIcon}
-          </button>
-          <button className="cs-new-btn" onClick={() => setShowModal(true)}>
-            {plusIcon} New Case
-          </button>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_360px]">
+        <Card className="overflow-hidden border-primary/15 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.15),transparent_40%),linear-gradient(145deg,hsl(var(--card)),hsl(var(--card)/0.85))]">
+          <CardContent className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(250px,0.85fr)]">
+            <div>
+              <div className="mb-4 flex flex-wrap gap-2">
+                <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">Case management workspace</Badge>
+                <Badge variant="secondary" className="bg-background/55">{filteredCases.length} visible</Badge>
+              </div>
+              <div className="max-w-2xl font-display text-4xl font-semibold leading-[0.96] tracking-[-0.05em] text-foreground sm:text-[3rem]">
+                Keep the investigation queue tight, visible, and moving.
+              </div>
+              <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
+                The new case board highlights SLA pressure, ownership gaps, and the cases that still need analyst momentum.
+              </p>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <Button type="button" onClick={() => setShowCreate(true)}>
+                  <Plus className="h-4 w-4" />
+                  New case
+                </Button>
+                <Button type="button" variant="outline" onClick={() => { setRefreshing(true); void loadCases(false); }} disabled={refreshing}>
+                  <RefreshCcw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
+                  Refresh board
+                </Button>
+              </div>
+            </div>
+            <div className="grid gap-3 rounded-[28px] border border-border/70 bg-background/35 p-4">
+              <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Pressure points</div>
+                <div className="mt-3 text-sm text-foreground">{stats.breached} SLA breach{stats.breached === 1 ? '' : 'es'} need attention.</div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Open</div>
+                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats.open}</div>
+                </div>
+                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">In Progress</div>
+                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats.inProgress}</div>
+                </div>
+                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Unassigned</div>
+                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats.unassigned}</div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
-      {/* ── SLA Breach Banner ──────────────────────── */}
-      {slaBreaches.length > 0 && (
-        <div className="cs-sla-banner">
-          <div className="cs-sla-content">
-            <span className="cs-sla-headline">
-              {slaBreaches.length} SLA {slaBreaches.length !== 1 ? 'BREACHES' : 'BREACH'} DETECTED
-            </span>
-            <span className="cs-sla-cases">
-              {slaBreaches.map((c, i) => (
-                <span key={c.case_id}>
-                  <span className="cs-sla-case-link" onClick={() => navigate(`/cases/${c.case_id}`)}>
-                    {c.title}
-                  </span>
-                  {i < slaBreaches.length - 1 && <span className="cs-sla-sep"> / </span>}
-                </span>
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle>Filters</CardTitle>
+            <CardDescription>Trim the board down to the exact set of cases you want to review.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid grid-cols-2 gap-3">
+              {FILTER_TABS.map((tab) => (
+                <Button
+                  key={tab}
+                  type="button"
+                  variant={filter === tab ? 'default' : 'outline'}
+                  className="rounded-[22px]"
+                  onClick={() => setFilter(tab)}
+                >
+                  {tab === 'all' ? 'All' : tab.replace(/_/g, ' ')}
+                </Button>
               ))}
-            </span>
-          </div>
-          <span className="cs-sla-badge">{slaBreaches.length}</span>
-        </div>
+            </div>
+            <div>
+              <div className="mb-2 text-sm font-medium text-foreground">Severity</div>
+              <Select value={severityFilter} onChange={(event) => setSeverityFilter(event.target.value as 'all' | Severity)}>
+                <option value="all">All severities</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </Select>
+            </div>
+            <div>
+              <div className="mb-2 text-sm font-medium text-foreground">Search</div>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input className="pl-11" value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="title, tag, assignee, alert ID..." />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+
+      {!!slaBreaches.length && (
+        <Card className="border-destructive/20 bg-[linear-gradient(120deg,hsl(var(--destructive)/0.12),transparent_60%)]">
+          <CardContent className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-medium text-destructive">
+                <ShieldAlert className="h-4 w-4" />
+                SLA breach detected
+              </div>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {slaBreaches.length} case{slaBreaches.length === 1 ? '' : 's'} have crossed their SLA boundary.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {slaBreaches.slice(0, 5).map((item) => (
+                <Button key={item.case_id} asChild size="sm" variant="outline">
+                  <Link to={`/cases/${item.case_id}`}>{item.title}</Link>
+                </Button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
-      {/* ── Filter Tabs ────────────────────────────── */}
-      <div className="aq-filter-bar">
-        <div className="aq-tabs">
-          {tabs.map((tab) => (
+      {message && <WorkspaceStatusBanner>{message}</WorkspaceStatusBanner>}
+      {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
+
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <WorkspaceMetricCard label="Open" value={String(stats.open)} hint="Fresh cases waiting for analyst ownership or action." icon={FolderKanban} />
+        <WorkspaceMetricCard label="In Progress" value={String(stats.inProgress)} hint="Active investigations currently moving." icon={RefreshCcw} />
+        <WorkspaceMetricCard label="Resolved" value={String(stats.resolved)} hint="Ready for closure or final review." icon={ShieldAlert} />
+        <WorkspaceMetricCard label="Unassigned" value={String(stats.unassigned)} hint="Cases that still need a named owner." icon={UserRound} />
+      </section>
+
+      <section className="space-y-4">
+        {loading ? (
+          <Card><CardContent className="h-[320px] animate-pulse p-6" /></Card>
+        ) : filteredCases.length === 0 ? (
+          <WorkspaceEmptyState title="No cases match the current view" body="Try widening the filter set or create a new case to seed the board." />
+        ) : (
+          filteredCases.map((item) => {
+            const sla = slaInfo(item.sla_due_at);
+            const nextStatuses = STATUS_TRANSITIONS[item.status] ?? [];
+            return (
+              <Card key={item.case_id} className="overflow-hidden">
+                <CardContent className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(240px,0.65fr)]">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant={severityVariant(item.severity)}>{item.severity}</Badge>
+                      <Badge variant={statusVariant(item.status)}>{item.status.replace(/_/g, ' ')}</Badge>
+                      {item.resolution && <Badge variant="outline">{RESOLUTION_LABELS[item.resolution]}</Badge>}
+                      {item.assignee && <Badge variant="secondary">{item.assignee}</Badge>}
+                    </div>
+                    <div className="mt-4 flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="font-display text-2xl font-semibold tracking-[-0.03em] text-foreground">{item.title}</div>
+                        {item.description && <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{item.description}</p>}
+                      </div>
+                      <Button asChild size="sm" variant="outline">
+                        <Link to={`/cases/${item.case_id}`}>
+                          Open case
+                          <ArrowRight className="h-4 w-4" />
+                        </Link>
+                      </Button>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {(item.tags ?? []).map((tag) => <Badge key={tag} variant="outline">{tag}</Badge>)}
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Alerts</div>
+                        <div className="mt-2 text-sm font-medium text-foreground">{item.alert_ids.length}</div>
+                      </div>
+                      <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Updated</div>
+                        <div className="mt-2 text-sm font-medium text-foreground">{rel(item.updated_at)}</div>
+                      </div>
+                      <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Assignee</div>
+                        <div className="mt-2 text-sm font-medium text-foreground">{item.assignee ?? 'Unassigned'}</div>
+                      </div>
+                      <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Created</div>
+                        <div className="mt-2 text-sm font-medium text-foreground">{rel(item.created_at)}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 rounded-[28px] border border-border/70 bg-background/35 p-4">
+                    <div>
+                      <div className="flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                        <span>SLA</span>
+                        <span className={cn(sla.breached ? 'text-destructive' : 'text-foreground')}>{sla.label}</span>
+                      </div>
+                      {item.sla_due_at && (
+                        <>
+                          <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted/60">
+                            <div className={cn('h-full rounded-full', sla.breached ? 'bg-destructive' : 'bg-primary')} style={{ width: `${Math.max(sla.pct, 4)}%` }} />
+                          </div>
+                          <div className="mt-2 text-sm text-muted-foreground">Due {abs(item.sla_due_at)}</div>
+                        </>
+                      )}
+                    </div>
+                    <div className="space-y-3">
+                      {nextStatuses.map((status) => (
+                        <Button key={status} type="button" variant="outline" className="w-full justify-center rounded-[22px]" onClick={() => void moveCase(item.case_id, status)}>
+                          {status.replace(/_/g, ' ')}
+                        </Button>
+                      ))}
+                      {item.status !== 'closed' && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="w-full justify-center rounded-[22px]"
+                          onClick={() => { setAssignCaseId(item.case_id); setAssignName(item.assignee ?? ''); }}
+                        >
+                          {item.assignee ? 'Reassign' : 'Assign'}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })
+        )}
+      </section>
+
+      <WorkspaceModal
+        open={showCreate}
+        title="Create case"
+        description="Stand up a fresh investigation container and optionally seed it with initial alert IDs."
+        onClose={() => setShowCreate(false)}
+        panelClassName="max-w-2xl"
+      >
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <div className="mb-2 text-sm font-medium text-foreground">Title</div>
+            <Input value={newTitle} onChange={(event) => setNewTitle(event.target.value)} placeholder="Suspicious workstation outbound beaconing" autoFocus />
+          </div>
+          <div className="md:col-span-2">
+            <div className="mb-2 text-sm font-medium text-foreground">Description</div>
+            <Textarea value={newDescription} onChange={(event) => setNewDescription(event.target.value)} rows={4} placeholder="Capture the scope, what triggered this case, and any first hypotheses." />
+          </div>
+          <div>
+            <div className="mb-2 text-sm font-medium text-foreground">Severity</div>
+            <Select value={newSeverity} onChange={(event) => setNewSeverity(event.target.value as Severity)}>
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </Select>
+          </div>
+          <div>
+            <div className="mb-2 text-sm font-medium text-foreground">Assignee</div>
+            <Input value={newAssignee} onChange={(event) => setNewAssignee(event.target.value)} placeholder="analyst-1" />
+          </div>
+          <div>
+            <div className="mb-2 text-sm font-medium text-foreground">Tags</div>
+            <Input value={newTags} onChange={(event) => setNewTags(event.target.value)} placeholder="phishing, workstation" />
+          </div>
+          <div>
+            <div className="mb-2 text-sm font-medium text-foreground">Alert IDs</div>
+            <Input value={newAlertIds} onChange={(event) => setNewAlertIds(event.target.value)} placeholder="alert-1, alert-2" />
+          </div>
+        </div>
+        <div className="flex flex-wrap justify-end gap-3">
+          <Button type="button" variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
+          <Button type="button" onClick={() => void create()} disabled={creating || !newTitle.trim()}>
+            {creating ? 'Creating...' : 'Create case'}
+          </Button>
+        </div>
+      </WorkspaceModal>
+
+      <WorkspaceModal
+        open={Boolean(closeCaseId)}
+        title="Close case"
+        description={`Choose a final resolution for ${closeTarget?.title ?? 'this case'} and capture a closing note.`}
+        onClose={() => setCloseCaseId(null)}
+        panelClassName="max-w-2xl"
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          {(Object.keys(RESOLUTION_LABELS) as CaseResolution[]).map((item) => (
             <button
-              key={tab.key}
-              className={`dash-tab${filter === tab.key ? ' dash-tab--active' : ''}`}
-              onClick={() => setFilter(tab.key)}
+              key={item}
+              type="button"
+              className={cn(
+                'rounded-[24px] border px-4 py-4 text-left transition-colors',
+                closeResolution === item ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-muted/40',
+              )}
+              onClick={() => setCloseResolution(item)}
             >
-              {tab.label}
-              <span className="aq-tab-count">{tab.count}</span>
+              <div className="font-medium text-foreground">{RESOLUTION_LABELS[item]}</div>
             </button>
           ))}
         </div>
-      </div>
-
-      {error && <div style={{ color: '#f45d5d', fontSize: 13 }}>{error}</div>}
-      {statusText && <div className="aq-status-toast">{statusText}</div>}
-
-      {/* ── Case Table ─────────────────────────────── */}
-      <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
-        <div className="cs-table-header">
-          <span className="cs-col-sev">Severity</span>
-          <span className="cs-col-title">Case</span>
-          <span className="cs-col-status">Status</span>
-          <span className="cs-col-assignee">Assignee</span>
-          <span className="cs-col-alerts">Alerts</span>
-          <span className="cs-col-sla">SLA</span>
-          <span className="cs-col-time">Updated</span>
-          <span className="cs-col-actions">Actions</span>
+        <div>
+          <div className="mb-2 text-sm font-medium text-foreground">Close note</div>
+          <Textarea value={closeNote} onChange={(event) => setCloseNote(event.target.value)} rows={4} placeholder="Summarize findings, containment, and any follow-up still required." />
         </div>
-
-        {loading ? (
-          <p className="empty-state">Loading cases...</p>
-        ) : filteredCases.length === 0 ? (
-          <p className="empty-state">No cases match the current filter.</p>
-        ) : (
-          <div className="cs-table-body">
-            {filteredCases.map((c) => {
-              const severity = c.severity ?? 'medium';
-              const status = c.status ?? 'open';
-              const sla = slaInfo(c.sla_due_at);
-              const sevColor = SEVERITY_COLORS[severity] ?? '#4a9eda';
-              const resolution = c.resolution;
-              const closeNoteText = c.close_note;
-              const resLabel = resolution ? RESOLUTION_LABELS[resolution] : null;
-              const isOpen = status === 'open';
-              const isInProgress = status === 'in_progress';
-              const isResolved = status === 'resolved';
-
-              return (
-                <div
-                  key={c.case_id}
-                  className="cs-row"
-                  style={{ borderLeftColor: severity === 'critical' || severity === 'high' ? sevColor : 'transparent' }}
-                  onClick={() => navigate(`/cases/${c.case_id}`)}
-                >
-                  {/* Severity */}
-                  <span className="cs-col-sev">
-                    <span className={`dash-sev-badge dash-sev-badge--${severity}`}>
-                      {severity.toUpperCase()}
-                    </span>
-                  </span>
-
-                  {/* Title + description + tags */}
-                  <span className="cs-col-title">
-                    <span className="cs-case-title">{c.title}</span>
-                    {c.description && (
-                      <span className="cs-case-desc">{c.description}</span>
-                    )}
-                    {(c.tags ?? []).length > 0 && (
-                      <span className="cs-tag-row">
-                        {(c.tags ?? []).slice(0, 3).map(t => (
-                          <span key={t} className="aq-tag">{t}</span>
-                        ))}
-                        {(c.tags ?? []).length > 3 && <span className="aq-dim">+{(c.tags ?? []).length - 3}</span>}
-                      </span>
-                    )}
-                    {resLabel && (
-                      <span className="cs-resolution" style={{ color: resLabel.color }}>
-                        {resLabel.label}
-                        {closeNoteText && <span className="cs-close-note"> — {closeNoteText}</span>}
-                      </span>
-                    )}
-                  </span>
-
-                  {/* Status */}
-                  <span className="cs-col-status">
-                    <span className={`cs-status-badge cs-status-badge--${status}`}>
-                      {status.replace('_', ' ')}
-                    </span>
-                  </span>
-
-                  {/* Assignee */}
-                  <span className="cs-col-assignee">
-                    {c.assignee ? (
-                      <span className="cs-assignee">{c.assignee}</span>
-                    ) : (
-                      <span className="cs-unassigned">Unassigned</span>
-                    )}
-                  </span>
-
-                  {/* Alert count */}
-                  <span className="cs-col-alerts">
-                    <span className="cs-alert-count">{(c.alert_ids ?? []).length}</span>
-                  </span>
-
-                  {/* SLA */}
-                  <span className="cs-col-sla">
-                    <span className="cs-sla-label" style={{ color: sla.color }}>{sla.label}</span>
-                    {c.sla_due_at && (
-                      <span className="cs-sla-bar">
-                        <span className="cs-sla-fill" style={{ width: `${Math.max(0, sla.pct)}%`, background: sla.color }} />
-                      </span>
-                    )}
-                  </span>
-
-                  {/* Time */}
-                  <span className="cs-col-time">{timeAgo(c.updated_at)}</span>
-
-                  {/* Actions */}
-                  <span className="cs-col-actions" onClick={e => e.stopPropagation()}>
-                    {isOpen && (
-                      <>
-                        <button className="aq-action-btn aq-action-btn--ack" onClick={() => handleStatusChange(c.case_id, 'in_progress')}>Investigate</button>
-                        <button className="aq-action-btn aq-action-btn--assign" onClick={() => { setAssignCaseId(c.case_id); setAssignName(c.assignee ?? ''); }}>Assign</button>
-                      </>
-                    )}
-                    {isInProgress && (
-                      <>
-                        <button className="aq-action-btn aq-action-btn--ack" onClick={() => handleStatusChange(c.case_id, 'resolved')}>Resolve</button>
-                        <button className="aq-action-btn aq-action-btn--assign" onClick={() => { setAssignCaseId(c.case_id); setAssignName(c.assignee ?? ''); }}>Reassign</button>
-                      </>
-                    )}
-                    {isResolved && (
-                      <>
-                        <button className="aq-action-btn aq-action-btn--close" onClick={() => { setCloseCaseId(c.case_id); setCloseResolution('tp_contained'); setCloseNote(''); }}>Close</button>
-                        <button className="aq-action-btn aq-action-btn--assign" onClick={() => { setAssignCaseId(c.case_id); setAssignName(c.assignee ?? ''); }}>Reassign</button>
-                      </>
-                    )}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ── Close Case Modal (with resolution) ──── */}
-      {closeCaseId && (
-        <div className="aq-modal-backdrop" onClick={() => setCloseCaseId(null)}>
-          <div className="panel aq-modal" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
-            <h3 className="aq-modal-title">Close Case</h3>
-            <div className="stack">
-              <label>
-                Resolution
-                <select value={closeResolution} onChange={e => setCloseResolution(e.target.value as CaseResolution)}>
-                  <option value="tp_contained">True Positive — Contained</option>
-                  <option value="tp_not_contained">True Positive — Not Contained</option>
-                  <option value="benign_tp">Benign True Positive</option>
-                  <option value="false_positive">False Positive</option>
-                  <option value="duplicate">Duplicate</option>
-                </select>
-              </label>
-              <label>
-                Closing Note
-                <textarea value={closeNote} onChange={e => setCloseNote(e.target.value)} rows={3} placeholder="Summary of investigation findings and actions taken..." />
-              </label>
-              <div className="aq-modal-actions">
-                <button className="aq-action-btn" onClick={() => setCloseCaseId(null)}>Cancel</button>
-                <button className="aq-action-btn aq-action-btn--close" style={{ fontWeight: 700 }} onClick={handleCloseCase}>
-                  Close Case
-                </button>
-              </div>
-            </div>
-          </div>
+        <div className="flex flex-wrap justify-end gap-3">
+          <Button type="button" variant="outline" onClick={() => setCloseCaseId(null)}>Cancel</Button>
+          <Button type="button" onClick={() => void closeCase()}>Close case</Button>
         </div>
-      )}
+      </WorkspaceModal>
 
-      {/* ── Assign Modal ───────────────────────────── */}
-      {assignCaseId && (
-        <div className="aq-modal-backdrop" onClick={() => setAssignCaseId(null)}>
-          <div className="panel aq-modal" onClick={e => e.stopPropagation()}>
-            <h3 className="aq-modal-title">Assign Case</h3>
-            <div className="stack">
-              <label>
-                Assignee
-                <input value={assignName} onChange={e => setAssignName(e.target.value)} placeholder="e.g. analyst-1" autoFocus />
-              </label>
-              <div className="aq-modal-actions">
-                <button className="aq-action-btn" onClick={() => setAssignCaseId(null)}>Cancel</button>
-                <button
-                  className="aq-action-btn aq-action-btn--assign"
-                  style={{ fontWeight: 700, opacity: canSubmitAssign ? 1 : 0.4 }}
-                  disabled={!canSubmitAssign}
-                  onClick={handleAssign}
-                >
-                  {assignName.trim() ? 'Assign' : 'Clear Assignment'}
-                </button>
-              </div>
-            </div>
-          </div>
+      <WorkspaceModal
+        open={Boolean(assignCaseId)}
+        title="Assign case"
+        description={`Set ownership for ${assignTarget?.title ?? 'this case'} or clear the current assignee.`}
+        onClose={() => setAssignCaseId(null)}
+        panelClassName="max-w-2xl"
+      >
+        <div>
+          <div className="mb-2 text-sm font-medium text-foreground">Assignee</div>
+          <Input value={assignName} onChange={(event) => setAssignName(event.target.value)} placeholder="analyst-1" autoFocus />
         </div>
-      )}
-
-      {/* ── New Case Modal ─────────────────────────── */}
-      {showModal && (
-        <div className="aq-modal-backdrop" onClick={() => setShowModal(false)}>
-          <div className="panel aq-modal" style={{ maxWidth: 540 }} onClick={e => e.stopPropagation()}>
-            <h3 className="aq-modal-title">New Case</h3>
-            <div className="stack">
-              <label>
-                Title *
-                <input value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="Case title" autoFocus />
-              </label>
-              <label>
-                Description
-                <textarea rows={3} value={newDescription} onChange={e => setNewDescription(e.target.value)} placeholder="Case description" />
-              </label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <label>
-                  Severity
-                  <select value={newSeverity} onChange={e => setNewSeverity(e.target.value as Severity)}>
-                    <option value="critical">Critical</option>
-                    <option value="high">High</option>
-                    <option value="medium">Medium</option>
-                    <option value="low">Low</option>
-                  </select>
-                </label>
-                <label>
-                  Assignee
-                  <input value={newAssignee} onChange={e => setNewAssignee(e.target.value)} placeholder="e.g. analyst-1" />
-                </label>
-              </div>
-              <label>
-                Tags (comma-separated)
-                <input value={newTags} onChange={e => setNewTags(e.target.value)} placeholder="e.g. malware, phishing" />
-              </label>
-              <label>
-                Alert IDs (comma-separated)
-                <input value={newAlertIds} onChange={e => setNewAlertIds(e.target.value)} placeholder="e.g. a001, a002" />
-              </label>
-              <div className="aq-modal-actions">
-                <button className="aq-action-btn" onClick={() => setShowModal(false)}>Cancel</button>
-                <button
-                  className="cs-new-btn"
-                  onClick={handleCreate}
-                  disabled={creating || !newTitle.trim()}
-                  style={{ opacity: newTitle.trim() ? 1 : 0.4 }}
-                >
-                  {creating ? 'Creating...' : 'Create Case'}
-                </button>
-              </div>
-            </div>
-          </div>
+        <div className="flex flex-wrap justify-end gap-3">
+          <Button type="button" variant="outline" onClick={() => setAssignCaseId(null)}>Cancel</Button>
+          <Button type="button" onClick={() => void assignCase()} disabled={!canSubmitAssign}>
+            {assignName.trim() ? 'Save assignee' : 'Clear assignee'}
+          </Button>
         </div>
-      )}
+      </WorkspaceModal>
     </div>
   );
 }

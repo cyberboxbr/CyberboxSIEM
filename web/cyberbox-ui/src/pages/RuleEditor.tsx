@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  BacktestResult,
-  DetectionMode,
-  DetectionRule,
-  DryRunResult,
-  RuleVersion,
-  Severity,
-  TuneRuleResult,
+  Bot,
+  FlaskConical,
+  History,
+  Plus,
+  RefreshCcw,
+  Save,
+  Search,
+  Shield,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
+
+import {
   backtestRule,
   createRule,
   deleteRule,
@@ -17,62 +23,36 @@ import {
   restoreRuleVersion,
   tuneRule,
   updateRule,
-} from '../api/client';
+  type BacktestResult,
+  type DetectionMode,
+  type DetectionRule,
+  type DryRunResult,
+  type RuleVersion,
+  type Severity,
+  type TuneRuleResult,
+} from '@/api/client';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { WorkspaceMetricCard } from '@/components/workspace/metric-card';
+import { WorkspaceStatusBanner } from '@/components/workspace/status-banner';
+import { cn } from '@/lib/utils';
 
-/* ── SVG Icons ────────────────────────────────────── */
+const fieldClass = 'flex h-11 w-full rounded-2xl border border-border/80 bg-background/45 px-4 py-2 text-sm text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background';
 
-const plusIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-  </svg>
-);
-const sparkleIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M12 2l3 7h7l-5.5 4.5 2 7L12 16l-6.5 4.5 2-7L2 9h7z"/>
-  </svg>
-);
-const playIcon = (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polygon points="5 3 19 12 5 21 5 3"/>
-  </svg>
-);
-const historyIcon = (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
-  </svg>
-);
-const trashIcon = (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-  </svg>
-);
-const saveIcon = (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
-  </svg>
-);
-const refreshIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-  </svg>
-);
-const searchIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-  </svg>
-);
-const checkIcon = (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="20 6 9 17 4 12"/>
-  </svg>
-);
-const xIcon = (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-  </svg>
-);
+function ruleName(rule: DetectionRule) {
+  const title = (rule.compiled_plan as Record<string, unknown>)?.title;
+  return typeof title === 'string' && title ? title : `Rule ${rule.rule_id.slice(0, 8)}`;
+}
 
-/* ── Component ────────────────────────────────────── */
+function sevVariant(severity: Severity): 'destructive' | 'warning' | 'info' | 'secondary' {
+  if (severity === 'critical') return 'destructive';
+  if (severity === 'high') return 'warning';
+  if (severity === 'medium') return 'info';
+  return 'secondary';
+}
 
 export function RuleEditor() {
   const [rules, setRules] = useState<DetectionRule[]>([]);
@@ -96,58 +76,35 @@ export function RuleEditor() {
   const [sampleEvent, setSampleEvent] = useState('{\n  "event_code": 1,\n  "process_name": "powershell.exe",\n  "cmdline": "powershell -enc AAAA"\n}');
   const [dryRunResult, setDryRunResult] = useState<DryRunResult | null>(null);
   const [dryRunning, setDryRunning] = useState(false);
-
   const [btFrom, setBtFrom] = useState('');
   const [btTo, setBtTo] = useState('');
   const [btResult, setBtResult] = useState<BacktestResult | null>(null);
   const [backtesting, setBacktesting] = useState(false);
-
   const [versions, setVersions] = useState<RuleVersion[]>([]);
-  const [showVersions, setShowVersions] = useState(false);
+  const [activeTab, setActiveTab] = useState<'dryrun' | 'backtest' | 'versions'>('dryrun');
 
   const [showGenerate, setShowGenerate] = useState(false);
   const [generateDesc, setGenerateDesc] = useState('');
-  const [generating, setGenerating] = useState(false);
   const [generateExplanation, setGenerateExplanation] = useState('');
-
+  const [generating, setGenerating] = useState(false);
   const [tuneResult, setTuneResult] = useState<TuneRuleResult | null>(null);
   const [tuning, setTuning] = useState(false);
-
-  // Active right tab
-  const [activeTab, setActiveTab] = useState<'dryrun' | 'backtest' | 'versions'>('dryrun');
 
   const loadRules = useCallback(async () => {
     try {
       setLoading(true);
-      const r = await getRules();
-      setRules(r);
+      setRules(await getRules());
       setError('');
-    } catch (err) {
-      setError(String(err));
+    } catch (cause) {
+      setError(String(cause));
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { loadRules(); }, [loadRules]);
+  useEffect(() => { void loadRules(); }, [loadRules]);
 
-  const filteredRules = useMemo(() => {
-    return rules.filter((r) => {
-      if (filterMode && r.schedule_or_stream !== filterMode) return false;
-      if (filterSeverity && r.severity !== filterSeverity) return false;
-      if (filterEnabled === 'true' && !r.enabled) return false;
-      if (filterEnabled === 'false' && r.enabled) return false;
-      if (searchText) {
-        const title = String((r.compiled_plan as Record<string, unknown>)?.title ?? '');
-        const source = r.sigma_source ?? '';
-        const q = searchText.toLowerCase();
-        if (!title.toLowerCase().includes(q) && !source.toLowerCase().includes(q) && !r.rule_id.toLowerCase().includes(q)) return false;
-      }
-      return true;
-    });
-  }, [rules, filterMode, filterSeverity, filterEnabled, searchText]);
-
-  const selectRule = (rule: DetectionRule) => {
+  const selectRule = useCallback((rule: DetectionRule) => {
     setSelectedRuleId(rule.rule_id);
     setSigmaSource(rule.sigma_source ?? '');
     setSeverity(rule.severity);
@@ -158,101 +115,124 @@ export function RuleEditor() {
     setDryRunResult(null);
     setBtResult(null);
     setVersions([]);
-    setShowVersions(false);
     setTuneResult(null);
     setGenerateExplanation('');
-  };
+  }, []);
 
-  const handleNewRule = () => {
+  useEffect(() => {
+    if (!selectedRuleId && !sigmaSource && rules.length > 0) selectRule(rules[0]);
+  }, [rules, selectedRuleId, selectRule, sigmaSource]);
+
+  const filteredRules = useMemo(() => rules.filter((rule) => {
+    if (filterMode && rule.schedule_or_stream !== filterMode) return false;
+    if (filterSeverity && rule.severity !== filterSeverity) return false;
+    if (filterEnabled === 'true' && !rule.enabled) return false;
+    if (filterEnabled === 'false' && rule.enabled) return false;
+    if (!searchText) return true;
+    const q = searchText.toLowerCase();
+    return ruleName(rule).toLowerCase().includes(q) || rule.sigma_source.toLowerCase().includes(q) || rule.rule_id.toLowerCase().includes(q);
+  }), [filterEnabled, filterMode, filterSeverity, rules, searchText]);
+
+  const stats = useMemo(() => ({
+    total: rules.length,
+    enabled: rules.filter((r) => r.enabled).length,
+    stream: rules.filter((r) => r.schedule_or_stream === 'stream').length,
+    scheduled: rules.filter((r) => r.schedule_or_stream === 'scheduled').length,
+  }), [rules]);
+
+  const newRule = () => {
     setSelectedRuleId(null);
     setSigmaSource('title: New Rule\nstatus: experimental\nlogsource:\n  product: windows\n  service: sysmon\ndetection:\n  selection:\n    EventID: 1\n  condition: selection\nlevel: medium');
     setSeverity('medium');
     setMode('stream');
     setEnabled(true);
+    setIntervalSeconds(300);
+    setLookbackSeconds(600);
     setDryRunResult(null);
     setBtResult(null);
     setVersions([]);
-    setShowVersions(false);
     setTuneResult(null);
+    setGenerateExplanation('');
   };
 
-  const handleSave = async () => {
+  const saveRule = async () => {
     setSaving(true);
     try {
-      if (selectedRuleId) {
-        await updateRule(selectedRuleId, {
-          sigma_source: sigmaSource, severity,
-          schedule_or_stream: mode, enabled,
-          schedule: mode === 'scheduled' ? { interval_seconds: intervalSeconds, lookback_seconds: lookbackSeconds } : undefined,
-        });
-      } else {
-        const created = await createRule({
-          sigma_source: sigmaSource, severity,
-          schedule_or_stream: mode, enabled,
-          schedule: mode === 'scheduled' ? { interval_seconds: intervalSeconds, lookback_seconds: lookbackSeconds } : undefined,
-        });
-        setSelectedRuleId(created.rule_id);
-      }
+      const payload = {
+        sigma_source: sigmaSource,
+        severity,
+        schedule_or_stream: mode,
+        enabled,
+        schedule: mode === 'scheduled' ? { interval_seconds: intervalSeconds, lookback_seconds: lookbackSeconds } : undefined,
+      };
+      if (selectedRuleId) await updateRule(selectedRuleId, payload);
+      else setSelectedRuleId((await createRule(payload)).rule_id);
       await loadRules();
       setError('');
-    } catch (err) { setError(String(err)); }
-    finally { setSaving(false); }
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleDelete = async () => {
-    if (!selectedRuleId || !confirm('Delete this rule?')) return;
+  const removeRule = async () => {
+    if (!selectedRuleId || !window.confirm('Delete this rule?')) return;
     setDeleting(true);
     try {
       await deleteRule(selectedRuleId);
-      setSelectedRuleId(null);
-      setSigmaSource('');
+      newRule();
       await loadRules();
-    } catch (err) { setError(String(err)); }
-    finally { setDeleting(false); }
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setDeleting(false);
+    }
   };
 
-  const handleDryRun = async () => {
+  const runDry = async () => {
     setDryRunning(true);
     try {
-      const result = await dryRunRule({ sigma_source: sigmaSource, severity, sample_event: JSON.parse(sampleEvent) });
-      setDryRunResult(result);
-    } catch (err) { setError(String(err)); }
-    finally { setDryRunning(false); }
+      setDryRunResult(await dryRunRule({ sigma_source: sigmaSource, severity, sample_event: JSON.parse(sampleEvent) }));
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setDryRunning(false);
+    }
   };
 
-  const handleBacktest = async () => {
+  const runBacktest = async () => {
     if (!selectedRuleId || !btFrom || !btTo) return;
     setBacktesting(true);
     try {
-      const result = await backtestRule(selectedRuleId, { from: new Date(btFrom).toISOString(), to: new Date(btTo).toISOString() });
-      setBtResult(result);
-    } catch (err) { setError(String(err)); }
-    finally { setBacktesting(false); }
+      setBtResult(await backtestRule(selectedRuleId, { from: new Date(btFrom).toISOString(), to: new Date(btTo).toISOString() }));
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setBacktesting(false);
+    }
   };
 
-  const handleLoadVersions = async () => {
+  const loadVersions = async () => {
     if (!selectedRuleId) return;
     try {
-      const v = await getRuleVersions(selectedRuleId);
-      setVersions(v);
-      setShowVersions(true);
-      setActiveTab('versions');
-    } catch (err) { setError(String(err)); }
+      setVersions(await getRuleVersions(selectedRuleId));
+    } catch (cause) {
+      setError(String(cause));
+    }
   };
 
-  const handleRestore = async (version: number) => {
+  const restoreVersion = async (version: number) => {
     if (!selectedRuleId) return;
     try {
-      const restored = await restoreRuleVersion(selectedRuleId, version);
-      setSigmaSource(restored.sigma_source ?? '');
-      setSeverity(restored.severity);
-      setMode(restored.schedule_or_stream);
-      setEnabled(restored.enabled);
+      selectRule(await restoreRuleVersion(selectedRuleId, version));
       await loadRules();
-    } catch (err) { setError(String(err)); }
+    } catch (cause) {
+      setError(String(cause));
+    }
   };
 
-  const handleGenerate = async () => {
+  const generate = async () => {
     if (!generateDesc.trim()) return;
     setGenerating(true);
     try {
@@ -260,391 +240,106 @@ export function RuleEditor() {
       setSigmaSource(result.sigma_source);
       setGenerateExplanation(result.explanation);
       setShowGenerate(false);
-    } catch (err) { setError(String(err)); }
-    finally { setGenerating(false); }
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setGenerating(false);
+    }
   };
 
-  const handleTune = async () => {
+  const tune = async () => {
     if (!selectedRuleId) return;
     setTuning(true);
     try {
-      const result = await tuneRule(selectedRuleId);
-      setTuneResult(result);
-    } catch (err) { setError(String(err)); }
-    finally { setTuning(false); }
+      setTuneResult(await tuneRule(selectedRuleId));
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setTuning(false);
+    }
   };
 
-  /* ── Stats ──────────────────────────────────────── */
-  const stats = useMemo(() => {
-    const s = { total: rules.length, stream: 0, scheduled: 0, enabled: 0, disabled: 0 };
-    rules.forEach((r) => {
-      if (r.schedule_or_stream === 'stream') s.stream++;
-      else s.scheduled++;
-      if (r.enabled) s.enabled++;
-      else s.disabled++;
-    });
-    return s;
-  }, [rules]);
-
   return (
-    <div className="page re-page">
-      {/* ── Header ──────────────────────────────── */}
-      <div className="re-header">
-        <div className="re-header-left">
-          <h1 className="re-title">Detection Engineering</h1>
-          <div className="re-stats">
-            <span className="re-stat">{stats.total} rules</span>
-            <span className="re-stat-sep" />
-            <span className="re-stat">{stats.stream} stream</span>
-            <span className="re-stat">{stats.scheduled} scheduled</span>
-            <span className="re-stat-sep" />
-            <span className="re-stat re-stat--good">{stats.enabled} enabled</span>
-            <span className="re-stat re-stat--dim">{stats.disabled} disabled</span>
-          </div>
+    <div className="flex flex-col gap-6">
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <WorkspaceMetricCard label="Rules" value={String(stats.total)} hint="Detection rules currently available in the catalog." icon={Shield} />
+        <WorkspaceMetricCard label="Enabled" value={String(stats.enabled)} hint="Rules that can currently execute and generate detections." icon={Sparkles} />
+        <WorkspaceMetricCard label="Stream" value={String(stats.stream)} hint="Rules evaluating events continuously as they arrive." icon={FlaskConical} />
+        <WorkspaceMetricCard label="Scheduled" value={String(stats.scheduled)} hint="Rules running on an interval or lookback schedule." icon={History} />
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <Card>
+          <CardHeader>
+            <div className="flex items-start justify-between gap-3">
+              <div><CardTitle>Detection catalog</CardTitle><CardDescription>Search, filter, and jump between live rules.</CardDescription></div>
+              <Button type="button" variant="outline" size="icon" onClick={() => void loadRules()}><RefreshCcw className="h-4 w-4" /></Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="relative"><Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-11" value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="Search rules..." /></div>
+            <div className="grid gap-3">
+              <select className={fieldClass} value={filterMode} onChange={(e) => setFilterMode(e.target.value as '' | DetectionMode)}><option value="">All modes</option><option value="stream">Stream</option><option value="scheduled">Scheduled</option></select>
+              <select className={fieldClass} value={filterSeverity} onChange={(e) => setFilterSeverity(e.target.value as '' | Severity)}><option value="">All severities</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select>
+              <select className={fieldClass} value={filterEnabled} onChange={(e) => setFilterEnabled(e.target.value as '' | 'true' | 'false')}><option value="">All states</option><option value="true">Enabled</option><option value="false">Disabled</option></select>
+            </div>
+            <Button type="button" className="w-full" onClick={newRule}><Plus className="h-4 w-4" />New rule</Button>
+            <div className="max-h-[720px] space-y-3 overflow-y-auto pr-1">
+              {loading ? <div className="rounded-[20px] border border-border/70 bg-background/35 px-4 py-6 text-sm text-muted-foreground">Loading rules...</div> : filteredRules.map((rule) => <button key={rule.rule_id} type="button" className={cn('w-full rounded-[22px] border p-4 text-left transition-colors', selectedRuleId === rule.rule_id ? 'border-primary/30 bg-primary/10' : 'border-border/70 bg-background/35 hover:bg-muted/45')} onClick={() => selectRule(rule)}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate font-medium text-foreground">{ruleName(rule)}</div><div className="mt-2 flex flex-wrap gap-2"><Badge variant={sevVariant(rule.severity)}>{rule.severity}</Badge><Badge variant="outline">{rule.schedule_or_stream}</Badge>{!rule.enabled && <Badge variant="secondary">disabled</Badge>}</div></div><Shield className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" /></div></button>)}
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="space-y-4">
+          {error && <WorkspaceStatusBanner tone="danger">{error}</WorkspaceStatusBanner>}
+
+          <Card>
+            <CardHeader>
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div><CardTitle>{selectedRuleId ? 'Edit rule' : 'New rule'}</CardTitle><CardDescription>{selectedRuleId ? selectedRuleId : 'Create a new detection with Sigma source and execution settings.'}</CardDescription></div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" onClick={() => setShowGenerate((v) => !v)}><Sparkles className="h-4 w-4" />AI generate</Button>
+                  {selectedRuleId && <Button type="button" variant="outline" onClick={() => void tune()} disabled={tuning}><Bot className="h-4 w-4" />{tuning ? 'Tuning...' : 'AI tune'}</Button>}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {showGenerate && <div className="grid gap-3 rounded-[24px] border border-border/70 bg-background/35 p-4 lg:grid-cols-[minmax(0,1fr)_auto]"><Input value={generateDesc} onChange={(e) => setGenerateDesc(e.target.value)} placeholder="Describe the detection you want to generate..." /><Button type="button" onClick={() => void generate()} disabled={generating}>{generating ? 'Generating...' : 'Generate'}</Button></div>}
+                  {generateExplanation && <WorkspaceStatusBanner>{generateExplanation}</WorkspaceStatusBanner>}
+              <Textarea value={sigmaSource} onChange={(e) => setSigmaSource(e.target.value)} className="min-h-[360px] font-mono text-[13px]" spellCheck={false} />
+              <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-5">
+                <div><div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Severity</div><select className={fieldClass} value={severity} onChange={(e) => setSeverity(e.target.value as Severity)}><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></div>
+                <div><div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Mode</div><select className={fieldClass} value={mode} onChange={(e) => setMode(e.target.value as DetectionMode)}><option value="stream">Stream</option><option value="scheduled">Scheduled</option></select></div>
+                <div><div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">State</div><button type="button" className={cn('flex h-11 w-full items-center justify-center rounded-2xl border text-sm font-medium transition-colors', enabled ? 'border-primary/30 bg-primary/12 text-primary' : 'border-border/80 bg-background/45 text-muted-foreground')} onClick={() => setEnabled((v) => !v)}>{enabled ? 'Enabled' : 'Disabled'}</button></div>
+                {mode === 'scheduled' && <><div><div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Interval</div><Input type="number" value={intervalSeconds} onChange={(e) => setIntervalSeconds(Number(e.target.value))} min={1} /></div><div><div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Lookback</div><Input type="number" value={lookbackSeconds} onChange={(e) => setLookbackSeconds(Number(e.target.value))} min={1} /></div></>}
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <Button type="button" onClick={() => void saveRule()} disabled={saving}><Save className="h-4 w-4" />{saving ? 'Saving...' : 'Save rule'}</Button>
+                {selectedRuleId && <Button type="button" variant="destructive" onClick={() => void removeRule()} disabled={deleting}><Trash2 className="h-4 w-4" />{deleting ? 'Deleting...' : 'Delete'}</Button>}
+              </div>
+            </CardContent>
+          </Card>
+
+          {tuneResult && <Card><CardHeader><CardTitle>AI tune suggestion</CardTitle><CardDescription>{tuneResult.explanation}</CardDescription></CardHeader><CardContent className="space-y-4">{tuneResult.changes.length > 0 && <div className="space-y-2">{tuneResult.changes.map((change) => <div key={change} className="rounded-[18px] border border-border/70 bg-background/35 px-4 py-3 text-sm text-foreground">{change}</div>)}</div>}<div className="grid gap-4 xl:grid-cols-2"><div><div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Current</div><pre className="overflow-x-auto rounded-[22px] border border-border/70 bg-background/35 p-4 text-xs text-foreground">{sigmaSource}</pre></div><div><div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Suggested</div><pre className="overflow-x-auto rounded-[22px] border border-primary/20 bg-primary/10 p-4 text-xs text-foreground">{tuneResult.suggested_sigma_source}</pre></div></div><div className="flex flex-wrap gap-2"><Button type="button" onClick={() => { setSigmaSource(tuneResult.suggested_sigma_source); setTuneResult(null); }}>Accept suggestion</Button><Button type="button" variant="outline" onClick={() => setTuneResult(null)}>Dismiss</Button></div></CardContent></Card>}
+
+          <Card>
+            <CardHeader><CardTitle>Rule lab</CardTitle><CardDescription>Dry-run the Sigma, backtest it, and restore older versions.</CardDescription></CardHeader>
+            <CardContent className="space-y-5">
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant={activeTab === 'dryrun' ? 'default' : 'outline'} size="sm" onClick={() => setActiveTab('dryrun')}><FlaskConical className="h-4 w-4" />Dry run</Button>
+                {selectedRuleId && <Button type="button" variant={activeTab === 'backtest' ? 'default' : 'outline'} size="sm" onClick={() => setActiveTab('backtest')}><History className="h-4 w-4" />Backtest</Button>}
+                {selectedRuleId && <Button type="button" variant={activeTab === 'versions' ? 'default' : 'outline'} size="sm" onClick={() => { setActiveTab('versions'); void loadVersions(); }}><History className="h-4 w-4" />Versions</Button>}
+              </div>
+
+              {activeTab === 'dryrun' && <div className="space-y-4"><Textarea value={sampleEvent} onChange={(e) => setSampleEvent(e.target.value)} className="min-h-[180px] font-mono text-[13px]" spellCheck={false} /><div className="flex flex-wrap items-center gap-3"><Button type="button" onClick={() => void runDry()} disabled={dryRunning}>{dryRunning ? 'Running...' : 'Run dry test'}</Button>{dryRunResult && <Badge variant={dryRunResult.matched ? 'success' : 'secondary'}>{dryRunResult.matched ? 'matched' : 'no match'}</Badge>}</div>{dryRunResult && <div className="rounded-[22px] border border-border/70 bg-background/35 p-4 text-sm">{dryRunResult.matched_conditions.length > 0 && <div className="mb-2 text-foreground">Conditions: {dryRunResult.matched_conditions.join(', ')}</div>}{dryRunResult.error && <div className="text-destructive">{dryRunResult.error}</div>}</div>}</div>}
+
+              {activeTab === 'backtest' && selectedRuleId && <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"><Input type="datetime-local" value={btFrom} onChange={(e) => setBtFrom(e.target.value)} /><Input type="datetime-local" value={btTo} onChange={(e) => setBtTo(e.target.value)} /><Button type="button" className="lg:self-end" onClick={() => void runBacktest()} disabled={backtesting || !btFrom || !btTo}>{backtesting ? 'Running...' : 'Run backtest'}</Button>{btResult && <div className="lg:col-span-3 grid gap-3 sm:grid-cols-4">{[{ label: 'Events', value: btResult.total_events_scanned }, { label: 'Matched', value: btResult.matched_count }, { label: 'Rate', value: Number(btResult.match_rate_pct.toFixed(2)) }, { label: 'Samples', value: btResult.sample_event_ids.length }].map((item) => <div key={item.label} className="rounded-[20px] border border-border/70 bg-background/35 p-4"><div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">{item.label}</div><div className="mt-2 text-xl font-semibold text-foreground">{item.label === 'Rate' ? `${item.value}%` : item.value}</div></div>)}</div>}</div>}
+
+              {activeTab === 'versions' && selectedRuleId && <div className="space-y-3">{versions.length === 0 ? <div className="rounded-[20px] border border-border/70 bg-background/35 px-4 py-6 text-sm text-muted-foreground">No versions recorded yet.</div> : versions.map((version) => <div key={version.version} className="flex flex-col gap-3 rounded-[22px] border border-border/70 bg-background/35 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex flex-wrap items-center gap-2"><Badge variant="outline">v{version.version}</Badge><Badge variant={sevVariant(version.severity)}>{version.severity}</Badge><Badge variant={version.enabled ? 'success' : 'secondary'}>{version.enabled ? 'enabled' : 'disabled'}</Badge><span className="text-sm text-muted-foreground">{new Date(version.created_at).toLocaleString()}</span></div><Button type="button" variant="outline" size="sm" onClick={() => void restoreVersion(version.version)}>Restore</Button></div>)}</div>}
+            </CardContent>
+          </Card>
         </div>
-        <div className="re-header-actions">
-          <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={loadRules}>
-            {refreshIcon} Refresh
-          </button>
-          <button type="button" className="cd-action-btn cd-action-btn--primary" onClick={handleNewRule}>
-            {plusIcon} New Rule
-          </button>
-        </div>
-      </div>
-
-      {error && <div className="cd-error">{error}</div>}
-
-      {/* ── Main Layout ─────────────────────────── */}
-      <div className="re-layout">
-        {/* ── Sidebar: Rule List ─────────────────── */}
-        <div className="re-sidebar">
-          <div className="re-search-wrap">
-            {searchIcon}
-            <input
-              className="re-search"
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              placeholder="Search rules..."
-            />
-          </div>
-
-          <div className="re-filters">
-            <select className="re-filter-select" value={filterMode} onChange={(e) => setFilterMode(e.target.value as '' | DetectionMode)}>
-              <option value="">All modes</option>
-              <option value="stream">Stream</option>
-              <option value="scheduled">Scheduled</option>
-            </select>
-            <select className="re-filter-select" value={filterSeverity} onChange={(e) => setFilterSeverity(e.target.value as '' | Severity)}>
-              <option value="">All sev</option>
-              <option value="critical">Critical</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
-            <select className="re-filter-select" value={filterEnabled} onChange={(e) => setFilterEnabled(e.target.value as '' | 'true' | 'false')}>
-              <option value="">All</option>
-              <option value="true">Enabled</option>
-              <option value="false">Disabled</option>
-            </select>
-          </div>
-
-          <div className="re-rule-list">
-            {loading ? (
-              <p className="empty-state">Loading...</p>
-            ) : filteredRules.length === 0 ? (
-              <p className="empty-state">No rules found.</p>
-            ) : (
-              filteredRules.map((r) => {
-                const title = String((r.compiled_plan as Record<string, unknown>)?.title ?? r.rule_id.slice(0, 12));
-                const isSelected = r.rule_id === selectedRuleId;
-                return (
-                  <div
-                    key={r.rule_id}
-                    className={`re-rule-item ${isSelected ? 're-rule-item--selected' : ''}`}
-                    onClick={() => selectRule(r)}
-                  >
-                    <div className="re-rule-sev-dot" data-severity={r.severity} />
-                    <div className="re-rule-info">
-                      <span className="re-rule-name">{title}</span>
-                      <div className="re-rule-meta">
-                        <span className="re-rule-mode">{r.schedule_or_stream}</span>
-                        <span className={`re-rule-status ${r.enabled ? 're-rule-status--on' : ''}`}>
-                          {r.enabled ? 'ON' : 'OFF'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-
-        {/* ── Main Editor Area ───────────────────── */}
-        <div className="re-main">
-          {/* Editor Panel */}
-          <div className="re-panel">
-            <div className="re-panel-header">
-              <div className="cd-panel-title">
-                <span>{selectedRuleId ? 'EDIT RULE' : 'NEW RULE'}</span>
-                {selectedRuleId && (
-                  <span className="re-rule-id">{selectedRuleId.slice(0, 8)}</span>
-                )}
-              </div>
-              <div className="re-ai-btns">
-                <button type="button" className="re-ai-btn" onClick={() => setShowGenerate(!showGenerate)}>
-                  {sparkleIcon} AI Generate
-                </button>
-                {selectedRuleId && (
-                  <button type="button" className="re-ai-btn" onClick={handleTune} disabled={tuning}>
-                    {sparkleIcon} {tuning ? 'Tuning...' : 'AI Tune'}
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* AI Generate input */}
-            {showGenerate && (
-              <div className="re-ai-generate">
-                <input
-                  className="re-ai-input"
-                  value={generateDesc}
-                  onChange={(e) => setGenerateDesc(e.target.value)}
-                  placeholder="Describe the detection rule in natural language..."
-                />
-                <button type="button" className="cd-action-btn cd-action-btn--primary" onClick={handleGenerate} disabled={generating}>
-                  {generating ? 'Generating...' : 'Generate'}
-                </button>
-              </div>
-            )}
-
-            {generateExplanation && (
-              <div className="re-ai-explanation">{generateExplanation}</div>
-            )}
-
-            {/* YAML Editor */}
-            <textarea
-              className="re-code-editor"
-              value={sigmaSource}
-              onChange={(e) => setSigmaSource(e.target.value)}
-              rows={18}
-              spellCheck={false}
-            />
-
-            {/* Metadata row */}
-            <div className="re-meta-row">
-              <div className="re-meta-field">
-                <label className="re-meta-label">Severity</label>
-                <select className="re-meta-select" value={severity} onChange={(e) => setSeverity(e.target.value as Severity)}>
-                  <option value="critical">Critical</option>
-                  <option value="high">High</option>
-                  <option value="medium">Medium</option>
-                  <option value="low">Low</option>
-                </select>
-              </div>
-              <div className="re-meta-field">
-                <label className="re-meta-label">Mode</label>
-                <select className="re-meta-select" value={mode} onChange={(e) => setMode(e.target.value as DetectionMode)}>
-                  <option value="stream">Stream</option>
-                  <option value="scheduled">Scheduled</option>
-                </select>
-              </div>
-              <div className="re-meta-field re-meta-toggle">
-                <label className="re-toggle-label">
-                  <div className={`re-toggle ${enabled ? 're-toggle--on' : ''}`} onClick={() => setEnabled(!enabled)}>
-                    <div className="re-toggle-thumb" />
-                  </div>
-                  <span>{enabled ? 'Enabled' : 'Disabled'}</span>
-                </label>
-              </div>
-              {mode === 'scheduled' && (
-                <>
-                  <div className="re-meta-field">
-                    <label className="re-meta-label">Interval (s)</label>
-                    <input className="re-meta-input" type="number" value={intervalSeconds} onChange={(e) => setIntervalSeconds(Number(e.target.value))} min={1} />
-                  </div>
-                  <div className="re-meta-field">
-                    <label className="re-meta-label">Lookback (s)</label>
-                    <input className="re-meta-input" type="number" value={lookbackSeconds} onChange={(e) => setLookbackSeconds(Number(e.target.value))} min={1} />
-                  </div>
-                </>
-              )}
-            </div>
-
-            {/* Action buttons */}
-            <div className="re-editor-actions">
-              <button type="button" className="cd-action-btn cd-action-btn--primary" onClick={handleSave} disabled={saving}>
-                {saveIcon} {saving ? 'Saving...' : 'Save Rule'}
-              </button>
-              {selectedRuleId && (
-                <button type="button" className="cd-action-btn cd-action-btn--close" onClick={handleDelete} disabled={deleting}>
-                  {trashIcon} {deleting ? 'Deleting...' : 'Delete'}
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* AI Tune Diff Panel */}
-          {tuneResult && (
-            <div className="re-panel re-tune-panel">
-              <div className="re-panel-header">
-                <div className="cd-panel-title">
-                  {sparkleIcon} <span>AI TUNE SUGGESTION</span>
-                </div>
-              </div>
-              <div className="re-tune-explanation">{tuneResult.explanation}</div>
-              {tuneResult.changes.length > 0 && (
-                <ul className="re-tune-changes">
-                  {tuneResult.changes.map((ch, i) => <li key={i}>{ch}</li>)}
-                </ul>
-              )}
-              <div className="re-tune-diff">
-                <div className="re-tune-col">
-                  <span className="re-tune-col-label">CURRENT</span>
-                  <pre className="re-tune-code">{sigmaSource}</pre>
-                </div>
-                <div className="re-tune-col">
-                  <span className="re-tune-col-label re-tune-col-label--new">SUGGESTED</span>
-                  <pre className="re-tune-code">{tuneResult.suggested_sigma_source}</pre>
-                </div>
-              </div>
-              <div className="re-tune-actions">
-                <button type="button" className="cd-action-btn cd-action-btn--primary" onClick={() => { setSigmaSource(tuneResult.suggested_sigma_source); setTuneResult(null); }}>
-                  {checkIcon} Accept
-                </button>
-                <button type="button" className="cd-action-btn cd-action-btn--secondary" onClick={() => setTuneResult(null)}>
-                  {xIcon} Dismiss
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ── Testing Tabs ─────────────────────── */}
-          <div className="re-panel">
-            <div className="re-tabs">
-              <button className={`re-tab ${activeTab === 'dryrun' ? 're-tab--active' : ''}`} onClick={() => setActiveTab('dryrun')}>
-                {playIcon} Dry-Run
-              </button>
-              {selectedRuleId && (
-                <button className={`re-tab ${activeTab === 'backtest' ? 're-tab--active' : ''}`} onClick={() => setActiveTab('backtest')}>
-                  {historyIcon} Backtest
-                </button>
-              )}
-              {selectedRuleId && (
-                <button className={`re-tab ${activeTab === 'versions' ? 're-tab--active' : ''}`} onClick={() => { setActiveTab('versions'); if (!showVersions) handleLoadVersions(); }}>
-                  {historyIcon} Versions
-                </button>
-              )}
-            </div>
-
-            {/* Dry-Run */}
-            {activeTab === 'dryrun' && (
-              <div className="re-tab-content">
-                <label className="re-meta-label" style={{ marginBottom: 6, display: 'block' }}>Sample Event (JSON)</label>
-                <textarea
-                  className="re-code-editor re-code-editor--small"
-                  value={sampleEvent}
-                  onChange={(e) => setSampleEvent(e.target.value)}
-                  rows={5}
-                  spellCheck={false}
-                />
-                <div className="re-dryrun-actions">
-                  <button type="button" className="cd-action-btn cd-action-btn--primary" onClick={handleDryRun} disabled={dryRunning}>
-                    {playIcon} {dryRunning ? 'Running...' : 'Run Test'}
-                  </button>
-                  {dryRunResult && (
-                    <div className={`re-dryrun-result ${dryRunResult.matched ? 're-dryrun-result--match' : 're-dryrun-result--miss'}`}>
-                      <span className="re-dryrun-badge">
-                        {dryRunResult.matched ? checkIcon : xIcon}
-                        {dryRunResult.matched ? 'MATCHED' : 'NO MATCH'}
-                      </span>
-                      {dryRunResult.matched_conditions.length > 0 && (
-                        <span className="re-dryrun-conditions">
-                          {dryRunResult.matched_conditions.join(', ')}
-                        </span>
-                      )}
-                      {dryRunResult.error && (
-                        <span className="re-dryrun-error">{dryRunResult.error}</span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Backtest */}
-            {activeTab === 'backtest' && selectedRuleId && (
-              <div className="re-tab-content">
-                <div className="re-backtest-inputs">
-                  <div className="re-meta-field">
-                    <label className="re-meta-label">From</label>
-                    <input className="re-meta-input" type="datetime-local" value={btFrom} onChange={(e) => setBtFrom(e.target.value)} />
-                  </div>
-                  <div className="re-meta-field">
-                    <label className="re-meta-label">To</label>
-                    <input className="re-meta-input" type="datetime-local" value={btTo} onChange={(e) => setBtTo(e.target.value)} />
-                  </div>
-                  <button type="button" className="cd-action-btn cd-action-btn--primary" onClick={handleBacktest} disabled={backtesting || !btFrom || !btTo} style={{ alignSelf: 'flex-end' }}>
-                    {playIcon} {backtesting ? 'Running...' : 'Run Backtest'}
-                  </button>
-                </div>
-                {btResult && (
-                  <div className="re-backtest-results">
-                    <div className="re-bt-stat">
-                      <span className="re-bt-value">{btResult.total_events_scanned.toLocaleString()}</span>
-                      <span className="re-bt-label">Events Scanned</span>
-                    </div>
-                    <div className="re-bt-stat">
-                      <span className="re-bt-value re-bt-value--warn">{btResult.matched_count}</span>
-                      <span className="re-bt-label">Matched</span>
-                    </div>
-                    <div className="re-bt-stat">
-                      <span className="re-bt-value re-bt-value--accent">{btResult.match_rate_pct.toFixed(2)}%</span>
-                      <span className="re-bt-label">Match Rate</span>
-                    </div>
-                    <div className="re-bt-stat">
-                      <span className="re-bt-value">{btResult.sample_event_ids.length}</span>
-                      <span className="re-bt-label">Samples</span>
-                    </div>
-                    {btResult.sample_event_ids.length > 0 && (
-                      <div className="re-bt-samples">
-                        Sample IDs: {btResult.sample_event_ids.map((id) => id.slice(0, 8)).join(', ')}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Versions */}
-            {activeTab === 'versions' && selectedRuleId && (
-              <div className="re-tab-content">
-                {versions.length === 0 ? (
-                  <p className="empty-state">No versions recorded.</p>
-                ) : (
-                  <div className="re-version-list">
-                    {versions.map((v) => (
-                      <div key={v.version} className="re-version-item">
-                        <div className="re-version-info">
-                          <span className="re-version-num">v{v.version}</span>
-                          <span className={`cd-sev-badge cd-sev-badge--${v.severity}`}>{v.severity.toUpperCase()}</span>
-                          <span className={`re-rule-status ${v.enabled ? 're-rule-status--on' : ''}`}>
-                            {v.enabled ? 'enabled' : 'disabled'}
-                          </span>
-                          <span className="re-version-time">{new Date(v.created_at).toLocaleString()}</span>
-                        </div>
-                        <button type="button" className="cd-action-btn cd-action-btn--small" onClick={() => handleRestore(v.version)}>
-                          Restore
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+      </section>
     </div>
   );
 }

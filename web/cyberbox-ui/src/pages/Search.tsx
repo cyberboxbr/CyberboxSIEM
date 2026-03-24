@@ -1,471 +1,155 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import {
-  connectEventSSE,
-  naturalLanguageQuery,
-  NlqResponse,
-  runSearch,
-  SearchQueryResponse,
-  TimeRange,
-} from '../api/client';
+import { Bot, Columns3, Download, Pause, Play, Radio, RefreshCcw, Search as SearchIcon, Sparkles, Square, X } from 'lucide-react';
 
-/* ── SVG Icons ──────────────────────────────────── */
+import { connectEventSSE, naturalLanguageQuery, runSearch, type SearchQueryResponse, type TimeRange } from '@/api/client';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { WorkspaceMetricCard } from '@/components/workspace/metric-card';
+import { WorkspaceStatusBanner } from '@/components/workspace/status-banner';
+import { WorkspaceTableShell } from '@/components/workspace/table-shell';
+import { cn } from '@/lib/utils';
 
-const searchIcon = (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-  </svg>
-);
-const playIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polygon points="5 3 19 12 5 21 5 3"/>
-  </svg>
-);
-const clockIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-  </svg>
-);
-const expandIcon = (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
-  </svg>
-);
-const collapseIcon = (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/>
-  </svg>
-);
-const downloadIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-  </svg>
-);
-const columnsIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>
-  </svg>
-);
-const chevronDown = (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="6 9 12 15 18 9"/>
-  </svg>
-);
-const chevronRight = (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="9 18 15 12 9 6"/>
-  </svg>
-);
-const xIcon = (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-  </svg>
-);
-const terminalIcon = (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
-  </svg>
-);
-const sparkleIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M12 2l2.09 6.26L20 10l-5.91 1.74L12 18l-2.09-6.26L4 10l5.91-1.74L12 2z"/>
-  </svg>
-);
-
-const radioIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-  </svg>
-);
-const pauseIcon = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
-  </svg>
-);
-const stopIcon = (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="3" width="18" height="18" rx="2"/>
-  </svg>
-);
-
-/* ── Constants ──────────────────────────────────── */
+type Mode = 'sql' | 'nlq' | 'live';
+type HistoryEntry = { mode: 'sql' | 'nlq'; query: string; ts: number };
 
 const HISTORY_KEY = 'cyberbox-search-history';
 const MAX_HISTORY = 20;
 const LIVE_TAIL_MAX = 500;
-
-const QUICK_RANGES = [
-  { label: '15m', hours: 0.25 },
-  { label: '1h', hours: 1 },
-  { label: '4h', hours: 4 },
-  { label: '12h', hours: 12 },
-  { label: '24h', hours: 24 },
-  { label: '7d', hours: 168 },
-  { label: '30d', hours: 720 },
-];
-
+const QUICK_RANGES = [{ label: '15m', hours: 0.25 }, { label: '1h', hours: 1 }, { label: '4h', hours: 4 }, { label: '12h', hours: 12 }, { label: '24h', hours: 24 }, { label: '7d', hours: 168 }, { label: '30d', hours: 720 }];
 const SAVED_QUERIES = [
   { label: 'Failed Logins', sql: "raw_payload LIKE '%login%' AND raw_payload LIKE '%failed%'" },
   { label: 'Suspicious Processes', sql: "raw_payload LIKE '%mimikatz%' OR raw_payload LIKE '%certutil%' OR raw_payload LIKE '%rundll32%' OR raw_payload LIKE '%wmic%'" },
   { label: 'Lateral Movement', sql: "raw_payload LIKE '%445%' OR raw_payload LIKE '%3389%' OR raw_payload LIKE '%5985%'" },
-  { label: 'DNS Exfiltration', sql: "source = 'dns' AND raw_payload LIKE '%query%'" },
   { label: 'Encoded PowerShell', sql: "raw_payload LIKE '%powershell%' AND raw_payload LIKE '%-enc%'" },
-  { label: 'High Severity Events', sql: "raw_payload LIKE '%critical%' OR raw_payload LIKE '%high%'" },
 ];
+const fieldClass = 'flex h-11 w-full rounded-2xl border border-border/80 bg-background/45 px-4 py-2 text-sm text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background';
 
-/* ── Helpers ────────────────────────────────────── */
-
-interface HistoryEntry {
-  mode: 'sql' | 'nlq';
-  query: string;
-  ts: number;
+function loadHistory(): HistoryEntry[] { try { return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]') as HistoryEntry[]; } catch { return []; } }
+function saveHistory(entries: HistoryEntry[]) { localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, MAX_HISTORY))); }
+function defaultRange() { const now = new Date(); const from = new Date(now.getTime() - 3600000); const fmt = (d: Date) => d.toISOString().slice(0, 16); return { from: fmt(from), to: fmt(now) }; }
+function normalizeLocal(value: string | null, fallback: string) { const parsed = value ? new Date(value) : null; return parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString().slice(0, 16) : fallback; }
+function parseCursor(cursor?: string) { const page = Number.parseInt(cursor ?? '1', 10); return Number.isFinite(page) && page > 0 ? page : 1; }
+function relativeTime(ts: number) { const diff = Date.now() - ts; if (diff < 60000) return 'just now'; if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`; if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`; return `${Math.floor(diff / 86400000)}d ago`; }
+function searchError(error: unknown) { const message = error instanceof Error ? error.message : String(error); return message.toLowerCase().includes('authentication') || message.includes('API 401') ? 'Your session expired or you are not authorized to search.' : message; }
+function formatTimestamp(ts: string) { try { const d = new Date(ts); return `${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} ${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}`; } catch { return ts; } }
+function exportCsv(rows: Array<Record<string, unknown>>, columns: string[]) { const header = columns.join(','); const body = rows.map((row) => columns.map((col) => { const value = row[col]; const text = typeof value === 'object' ? JSON.stringify(value) : String(value ?? ''); return text.includes(',') || text.includes('"') ? `"${text.replace(/"/g, '""')}"` : text; }).join(',')).join('\n'); const blob = new Blob([`${header}\n${body}`], { type: 'text/csv' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `cyberbox-search-${Date.now()}.csv`; link.click(); }
+function filterRows(rows: Array<Record<string, unknown>>, value: string) { if (!value.trim()) return rows; const query = value.toLowerCase(); return rows.filter((row) => Object.values(row).some((item) => String(item ?? '').toLowerCase().includes(query))); }
+function sevVariant(value: string): 'destructive' | 'warning' | 'info' | 'secondary' { if (value === 'critical') return 'destructive'; if (value === 'high') return 'warning'; if (value === 'medium') return 'info'; return 'secondary'; }
+function DetailDrawer({ row, columns, onClose }: { row: Record<string, unknown>; columns: string[]; onClose: () => void }) {
+  return <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm" onClick={onClose}><div className="absolute inset-y-4 right-4 w-[min(48rem,calc(100vw-2rem))] overflow-auto rounded-[28px] border border-border/80 bg-popover/95 p-5 shadow-shell backdrop-blur-2xl" onClick={(e) => e.stopPropagation()}><div className="mb-4 flex items-center justify-between gap-3"><div><div className="font-display text-2xl font-semibold text-popover-foreground">Event detail</div><div className="text-sm text-muted-foreground">Inspect the raw fields for this result row.</div></div><Button type="button" variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button></div><div className="space-y-3">{columns.map((col) => <div key={col} className="rounded-[20px] border border-border/70 bg-background/35 p-4"><div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">{col}</div>{row[col] !== null && typeof row[col] === 'object' ? <pre className="overflow-x-auto text-xs text-foreground">{JSON.stringify(row[col], null, 2)}</pre> : <div className="break-all text-sm text-foreground">{String(row[col] ?? '')}</div>}</div>)}</div></div></div>;
 }
-
-function loadHistory(): HistoryEntry[] {
-  try {
-    const raw = localStorage.getItem(HISTORY_KEY);
-    return raw ? (JSON.parse(raw) as HistoryEntry[]) : [];
-  } catch { return []; }
-}
-
-function saveHistory(entries: HistoryEntry[]) {
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, MAX_HISTORY)));
-}
-
-function relativeTime(ts: number): string {
-  const diff = Date.now() - ts;
-  if (diff < 60_000) return 'just now';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return `${Math.floor(diff / 86_400_000)}d ago`;
-}
-
-function defaultTimeRange(): { from: string; to: string } {
-  const now = new Date();
-  const from = new Date(now.getTime() - 3_600_000);
-  const fmt = (d: Date) => d.toISOString().slice(0, 16);
-  return { from: fmt(from), to: fmt(now) };
-}
-
-function normalizeDateTimeLocal(value: string | null, fallback: string): string {
-  if (!value) return fallback;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return fallback;
-  }
-  return parsed.toISOString().slice(0, 16);
-}
-
-function parsePageCursor(cursor?: string): number {
-  if (!cursor) return 1;
-  const page = Number.parseInt(cursor, 10);
-  if (!Number.isFinite(page) || page < 1) {
-    return 1;
-  }
-  return page;
-}
-
-function formatSearchError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  const normalized = message.toLowerCase();
-  if (message.includes('API 401') || normalized.includes('authentication failed')) {
-    return 'Your session expired or you are not authorized to search. Please sign in again and retry.';
-  }
-  return message;
-}
-
-function formatTimestamp(ts: string): string {
-  try {
-    const d = new Date(ts);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-      + ' ' + d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-  } catch { return ts; }
-}
-
-function severityClass(sev: string): string {
-  switch (sev?.toLowerCase()) {
-    case 'critical': return 'sq-sev sq-sev--critical';
-    case 'high': return 'sq-sev sq-sev--high';
-    case 'medium': return 'sq-sev sq-sev--medium';
-    case 'low': return 'sq-sev sq-sev--low';
-    default: return 'sq-sev sq-sev--info';
-  }
-}
-
-function exportCsv(rows: Array<Record<string, unknown>>, columns: string[]) {
-  const header = columns.join(',');
-  const lines = rows.map((r) =>
-    columns.map((c) => {
-      const v = r[c];
-      const s = typeof v === 'object' ? JSON.stringify(v) : String(v ?? '');
-      return s.includes(',') || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s;
-    }).join(','),
-  );
-  const blob = new Blob([header + '\n' + lines.join('\n')], { type: 'text/csv' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `cyberbox-search-${Date.now()}.csv`;
-  a.click();
-}
-
-/* ── Row Detail Drawer ─────────────────────────── */
-
-function RowDetail({ row, columns, onClose }: {
-  row: Record<string, unknown>;
-  columns: string[];
-  onClose: () => void;
-}) {
-  return (
-    <div className="sq-drawer-overlay" onClick={onClose}>
-      <div className="sq-drawer" onClick={(e) => e.stopPropagation()}>
-        <div className="sq-drawer-header">
-          <span className="sq-drawer-title">Event Detail</span>
-          <button type="button" className="sq-drawer-close" onClick={onClose}>{xIcon}</button>
-        </div>
-        <div className="sq-drawer-body">
-          {columns.map((col) => {
-            const val = row[col];
-            const isObj = val !== null && typeof val === 'object';
-            return (
-              <div key={col} className="sq-field-row">
-                <span className="sq-field-key">{col}</span>
-                {isObj ? (
-                  <pre className="sq-field-json">{JSON.stringify(val, null, 2)}</pre>
-                ) : (
-                  <span className="sq-field-val">{String(val ?? '')}</span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ── CellValue ─────────────────────────────────── */
-
-function CellValue({ value, col }: { value: unknown; col: string }) {
-  if (value === null || value === undefined) {
-    return <span className="sq-null">null</span>;
-  }
-  if (col === 'severity' && typeof value === 'string') {
-    return <span className={severityClass(value)}>{value}</span>;
-  }
-  if ((col === '_time' || col === 'event_time') && typeof value === 'string') {
-    return <span className="sq-time-val">{formatTimestamp(value)}</span>;
-  }
-  if (typeof value === 'object') {
-    return <span className="sq-json-badge">{'{...}'}</span>;
-  }
-  return <span>{String(value)}</span>;
-}
-
-/* ── Component ──────────────────────────────────── */
-
 export function Search() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const defaults = useMemo(defaultRange, []);
   const queryParam = searchParams.get('q') ?? '';
   const queryFromParam = searchParams.get('from');
   const queryToParam = searchParams.get('to');
-  const [mode, setMode] = useState<'sql' | 'nlq' | 'live'>('sql');
+  const [mode, setMode] = useState<Mode>('sql');
   const [sqlText, setSqlText] = useState(queryParam);
   const [nlqText, setNlqText] = useState('');
-  const defaults = useMemo(defaultTimeRange, []);
-  const [timeFrom, setTimeFrom] = useState(() => normalizeDateTimeLocal(queryFromParam, defaults.from));
-  const [timeTo, setTimeTo] = useState(() => normalizeDateTimeLocal(queryToParam, defaults.to));
-  const [activeQuickRange, setActiveQuickRange] = useState<string>('1h');
+  const [timeFrom, setTimeFrom] = useState(() => normalizeLocal(queryFromParam, defaults.from));
+  const [timeTo, setTimeTo] = useState(() => normalizeLocal(queryToParam, defaults.to));
+  const [activeQuickRange, setActiveQuickRange] = useState('1h');
   const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
   const [hasMore, setHasMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | undefined>();
   const [total, setTotal] = useState<number | undefined>();
-  const [generatedSql, setGeneratedSql] = useState<string | null>(null);
-  const [genSqlOpen, setGenSqlOpen] = useState(true);
+  const [generatedFilter, setGeneratedFilter] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [history, setHistory] = useState<HistoryEntry[]>(loadHistory);
-  const [historyOpen, setHistoryOpen] = useState(false);
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
   const [selectedRow, setSelectedRow] = useState<Record<string, unknown> | null>(null);
-  const [editorExpanded, setEditorExpanded] = useState(false);
   const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set());
-  const [colPickerOpen, setColPickerOpen] = useState(false);
+  const [columnPanelOpen, setColumnPanelOpen] = useState(false);
   const [queryDuration, setQueryDuration] = useState<number | null>(null);
-  const [savedQueriesOpen, setSavedQueriesOpen] = useState(false);
-
-  // Live tail state
   const [liveTailActive, setLiveTailActive] = useState(false);
   const [liveTailPaused, setLiveTailPaused] = useState(false);
   const [liveTailFilter, setLiveTailFilter] = useState('');
   const [liveTailCount, setLiveTailCount] = useState(0);
   const [liveTailEps, setLiveTailEps] = useState(0);
-  const liveTailRows = useRef<Array<Record<string, unknown>>>([]);
+  const liveRowsRef = useRef<Array<Record<string, unknown>>>([]);
   const sseRef = useRef<EventSource | null>(null);
-  const epsWindow = useRef<number[]>([]);
+  const epsWindowRef = useRef<number[]>([]);
+  const liveFilterRef = useRef(liveTailFilter);
+  const livePausedRef = useRef(liveTailPaused);
   const autoRunQueryRef = useRef<string | null>(null);
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
   useEffect(() => { saveHistory(history); }, [history]);
+  useEffect(() => { liveFilterRef.current = liveTailFilter; if (mode === 'live') setRows(filterRows(liveRowsRef.current, liveTailFilter)); }, [liveTailFilter, mode]);
+  useEffect(() => { livePausedRef.current = liveTailPaused; }, [liveTailPaused]);
 
-  const buildTimeRange = useCallback((): TimeRange => ({
-    start: new Date(timeFrom).toISOString(),
-    end: new Date(timeTo).toISOString(),
-  }), [timeFrom, timeTo]);
+  const buildTimeRange = useCallback((): TimeRange => ({ start: new Date(timeFrom).toISOString(), end: new Date(timeTo).toISOString() }), [timeFrom, timeTo]);
+  const pushHistory = useCallback((nextMode: 'sql' | 'nlq', query: string) => setHistory((curr) => [{ mode: nextMode, query, ts: Date.now() }, ...curr.filter((entry) => entry.query !== query)].slice(0, MAX_HISTORY)), []);
 
-  const pushHistory = useCallback((m: 'sql' | 'nlq', q: string) => {
-    setHistory((prev) => {
-      const next = [{ mode: m, query: q, ts: Date.now() }, ...prev.filter((h) => h.query !== q)];
-      return next.slice(0, MAX_HISTORY);
-    });
-  }, []);
-
-  // Live tail management
+  const stopLiveTail = useCallback(() => { if (sseRef.current) sseRef.current.close(); sseRef.current = null; setLiveTailActive(false); setLiveTailPaused(false); setLiveTailEps(0); }, []);
   const startLiveTail = useCallback(async () => {
-    if (sseRef.current) sseRef.current.close();
-    liveTailRows.current = [];
+    stopLiveTail();
+    liveRowsRef.current = [];
+    epsWindowRef.current = [];
     setRows([]);
     setLiveTailCount(0);
     setLiveTailEps(0);
-    epsWindow.current = [];
     setLiveTailActive(true);
-    setLiveTailPaused(false);
     setError('');
-
     try {
       const sse = await connectEventSSE();
       sseRef.current = sse;
-
-      sse.onmessage = (msg) => {
+      sse.onmessage = (message) => {
         try {
-          const event = JSON.parse(msg.data) as Record<string, unknown>;
-          // Apply filter if set
-          if (liveTailFilter) {
-            const filterLc = liveTailFilter.toLowerCase();
-            const matches = Object.values(event).some((v) =>
-              String(v ?? '').toLowerCase().includes(filterLc),
-            );
-            if (!matches) return;
-          }
-
-          // Track EPS
-          epsWindow.current.push(Date.now());
-          const oneSecAgo = Date.now() - 1000;
-          epsWindow.current = epsWindow.current.filter((t) => t > oneSecAgo);
-          setLiveTailEps(epsWindow.current.length);
-
-          setLiveTailCount((c) => c + 1);
-
-          // Prepend (newest first), cap at LIVE_TAIL_MAX
-          liveTailRows.current = [event, ...liveTailRows.current].slice(0, LIVE_TAIL_MAX);
-          if (!liveTailPaused) {
-            setRows([...liveTailRows.current]);
-          }
-        } catch { /* ignore parse errors */ }
+          const event = JSON.parse(message.data) as Record<string, unknown>;
+          liveRowsRef.current = [event, ...liveRowsRef.current].slice(0, LIVE_TAIL_MAX);
+          epsWindowRef.current.push(Date.now());
+          epsWindowRef.current = epsWindowRef.current.filter((ts) => ts > Date.now() - 1000);
+          setLiveTailEps(epsWindowRef.current.length);
+          setLiveTailCount((value) => value + 1);
+          if (!livePausedRef.current) setRows(filterRows(liveRowsRef.current, liveFilterRef.current));
+        } catch {}
       };
-
       sse.onerror = () => {
         setError('Live tail connection lost. Reconnecting...');
-        // Close broken connection and re-establish with a new token
         if (sseRef.current) sseRef.current.close();
         sseRef.current = null;
-        setTimeout(() => { startLiveTail(); }, 2000);
+        window.setTimeout(() => { void startLiveTail(); }, 2000);
       };
     } catch {
-      setError('Failed to start live tail — API may be unreachable');
+      setError('Failed to start live tail. The API may be unreachable.');
       setLiveTailActive(false);
     }
-  }, [liveTailFilter, liveTailPaused]);
+  }, [stopLiveTail]);
 
-  const stopLiveTail = useCallback(() => {
-    if (sseRef.current) {
-      sseRef.current.close();
-      sseRef.current = null;
-    }
-    setLiveTailActive(false);
-    setLiveTailPaused(false);
-    setLiveTailEps(0);
-  }, []);
-
-  const togglePauseLiveTail = useCallback(() => {
-    setLiveTailPaused((p) => {
-      if (p) {
-        // Resuming — sync display with buffer
-        setRows([...liveTailRows.current]);
-      }
-      return !p;
-    });
-  }, []);
-
-  // Cleanup SSE on unmount
-  useEffect(() => {
-    return () => {
-      if (sseRef.current) sseRef.current.close();
-    };
-  }, []);
-
-  // Auto-start live tail when entering live mode, stop when leaving
-  useEffect(() => {
-    if (mode === 'live' && !liveTailActive) {
-      startLiveTail();
-    } else if (mode !== 'live' && liveTailActive) {
-      stopLiveTail();
-    }
-  }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { if (sseRef.current) sseRef.current.close(); }, []);
+  useEffect(() => { if (mode === 'live' && !liveTailActive) void startLiveTail(); if (mode !== 'live' && liveTailActive) stopLiveTail(); }, [liveTailActive, mode, startLiveTail, stopLiveTail]);
 
   const applyQuickRange = (hours: number, label: string) => {
     const now = new Date();
-    const from = new Date(now.getTime() - hours * 3_600_000);
+    const from = new Date(now.getTime() - hours * 3600000);
     const fmt = (d: Date) => d.toISOString().slice(0, 16);
     setTimeFrom(fmt(from));
     setTimeTo(fmt(now));
     setActiveQuickRange(label);
   };
 
-  const executeSqlSearch = useCallback(async (
-    query: string,
-    page = 1,
-    append = false,
-    updateUrl = true,
-    timeRangeOverride?: TimeRange,
-  ) => {
+  const executeSqlSearch = useCallback(async (query: string, page = 1, append = false, updateUrl = true, override?: TimeRange) => {
     const startedAt = Date.now();
-    const effectiveTimeRange = timeRangeOverride ?? buildTimeRange();
     setLoading(true);
     setError('');
     try {
-      const resp: SearchQueryResponse = await runSearch({
-        sql: query,
-        time_range: effectiveTimeRange,
-        pagination: { page, page_size: 50 },
-      });
-      if (append) {
-        setRows((prev) => [...prev, ...resp.rows]);
-      } else {
-        setRows(resp.rows);
-        pushHistory('sql', query);
-      }
-      setHasMore(resp.has_more);
-      setNextCursor(resp.next_cursor);
-      setTotal(resp.total);
-      setGeneratedSql(null);
-      if (updateUrl) {
-        if (query) {
-          setSearchParams(
-            {
-              q: query,
-              from: new Date(timeFrom).toISOString(),
-              to: new Date(timeTo).toISOString(),
-            },
-            { replace: true },
-          );
-        } else {
-          setSearchParams(new URLSearchParams(), { replace: true });
-        }
-      }
-    } catch (err) {
-      setError(formatSearchError(err));
+      const response: SearchQueryResponse = await runSearch({ sql: query, time_range: override ?? buildTimeRange(), pagination: { page, page_size: 50 } });
+      setRows((current) => append ? [...current, ...response.rows] : response.rows);
+      setHasMore(response.has_more);
+      setNextCursor(response.next_cursor);
+      setTotal(response.total);
+      setGeneratedFilter(null);
+      if (!append) pushHistory('sql', query);
+      if (updateUrl) query ? setSearchParams({ q: query, from: new Date(timeFrom).toISOString(), to: new Date(timeTo).toISOString() }, { replace: true }) : setSearchParams(new URLSearchParams(), { replace: true });
+    } catch (cause) {
+      setError(searchError(cause));
     } finally {
       setLoading(false);
       setQueryDuration(Date.now() - startedAt);
@@ -477,20 +161,16 @@ export function Search() {
     setLoading(true);
     setError('');
     try {
-      const resp: NlqResponse = await naturalLanguageQuery({
-        query,
-        time_range: buildTimeRange(),
-      });
-      setRows(resp.rows);
-      setGeneratedSql(resp.generated_where);
-      setGenSqlOpen(true);
+      const response = await naturalLanguageQuery({ query, time_range: buildTimeRange() });
+      setRows(response.rows);
       setHasMore(false);
       setNextCursor(undefined);
-      setTotal(resp.total);
+      setTotal(response.total);
+      setGeneratedFilter(response.generated_where);
       pushHistory('nlq', query);
       setSearchParams(new URLSearchParams(), { replace: true });
-    } catch (err) {
-      setError(formatSearchError(err));
+    } catch (cause) {
+      setError(searchError(cause));
     } finally {
       setLoading(false);
       setQueryDuration(Date.now() - startedAt);
@@ -498,510 +178,88 @@ export function Search() {
   }, [buildTimeRange, pushHistory, setSearchParams]);
 
   const executeSearch = useCallback(async (cursor?: string) => {
-    if (mode === 'sql') {
-      await executeSqlSearch(sqlText, parsePageCursor(cursor), Boolean(cursor));
-      return;
-    }
-    if (mode === 'nlq') {
-      await executeNlqSearch(nlqText);
-    }
-  }, [mode, sqlText, nlqText, executeSqlSearch, executeNlqSearch]);
-
-  const onSubmit = (e: FormEvent) => { e.preventDefault(); void executeSearch(); };
-  const onLoadMore = () => { if (nextCursor) { void executeSearch(nextCursor); } };
-
-  const onHistorySelect = (entry: HistoryEntry) => {
-    if (entry.mode === 'sql') { setMode('sql'); setSqlText(entry.query); }
-    else { setMode('nlq'); setNlqText(entry.query); }
-    setHistoryOpen(false);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      e.preventDefault();
-      void executeSearch();
-    }
-  };
+    if (mode === 'sql') await executeSqlSearch(sqlText, parseCursor(cursor), Boolean(cursor));
+    else if (mode === 'nlq') await executeNlqSearch(nlqText);
+  }, [executeNlqSearch, executeSqlSearch, mode, nlqText, sqlText]);
 
   useEffect(() => {
-    if (!queryParam) {
-      autoRunQueryRef.current = null;
-      return;
-    }
-
-    if (queryParam === autoRunQueryRef.current) {
-      return;
-    }
-
+    if (!queryParam) { autoRunQueryRef.current = null; return; }
+    if (autoRunQueryRef.current === queryParam) return;
     autoRunQueryRef.current = queryParam;
-    const nextFrom = normalizeDateTimeLocal(queryFromParam, defaults.from);
-    const nextTo = normalizeDateTimeLocal(queryToParam, defaults.to);
+    const nextFrom = normalizeLocal(queryFromParam, defaults.from);
+    const nextTo = normalizeLocal(queryToParam, defaults.to);
     setMode('sql');
     setSqlText(queryParam);
     setTimeFrom(nextFrom);
     setTimeTo(nextTo);
     setActiveQuickRange('');
-    void executeSqlSearch(queryParam, 1, false, false, {
-      start: new Date(nextFrom).toISOString(),
-      end: new Date(nextTo).toISOString(),
-    });
-  }, [
-    defaults.from,
-    defaults.to,
-    executeSqlSearch,
-    queryFromParam,
-    queryParam,
-    queryToParam,
-  ]);
+    void executeSqlSearch(queryParam, 1, false, false, { start: new Date(nextFrom).toISOString(), end: new Date(nextTo).toISOString() });
+  }, [defaults.from, defaults.to, executeSqlSearch, queryFromParam, queryParam, queryToParam]);
 
-  // Column discovery + sorting
   const columns = useMemo(() => {
     const keys = new Set<string>();
-    rows.forEach((r) => Object.keys(r).forEach((k) => keys.add(k)));
-    // Put the primary timestamp first, then sort the rest.
-    const sorted = Array.from(keys)
-      .filter((k) => k !== '_time' && k !== 'event_time')
-      .sort();
-    if (keys.has('_time')) sorted.unshift('_time');
-    else if (keys.has('event_time')) sorted.unshift('event_time');
+    rows.forEach((row) => Object.keys(row).forEach((key) => keys.add(key)));
+    const sorted = Array.from(keys).filter((key) => key !== '_time' && key !== 'event_time').sort();
+    if (keys.has('_time')) sorted.unshift('_time'); else if (keys.has('event_time')) sorted.unshift('event_time');
     return sorted;
   }, [rows]);
+  const visibleColumns = useMemo(() => columns.filter((column) => !hiddenCols.has(column)), [columns, hiddenCols]);
+  const sortedRows = useMemo(() => !sortCol ? rows : [...rows].sort((left, right) => { const a = left[sortCol] ?? ''; const b = right[sortCol] ?? ''; const cmp = String(a).localeCompare(String(b), undefined, { numeric: true }); return sortAsc ? cmp : -cmp; }), [rows, sortAsc, sortCol]);
+  const uniqueHosts = useMemo(() => new Set(rows.map((row) => String(row.hostname ?? '')).filter(Boolean)).size, [rows]);
+  const uniqueSources = useMemo(() => new Set(rows.map((row) => String(row.source ?? row.log_source ?? '')).filter(Boolean)).size, [rows]);
+  const severityCounts = useMemo(() => rows.reduce<Record<string, number>>((acc, row) => { const sev = String(row.severity ?? '').toLowerCase(); if (sev) acc[sev] = (acc[sev] ?? 0) + 1; return acc; }, {}), [rows]);
 
-  const visibleColumns = useMemo(() => columns.filter((c) => !hiddenCols.has(c)), [columns, hiddenCols]);
-
-  const sortedRows = useMemo(() => {
-    if (!sortCol) return rows;
-    return [...rows].sort((a, b) => {
-      const va = a[sortCol] ?? '';
-      const vb = b[sortCol] ?? '';
-      const cmp = String(va).localeCompare(String(vb), undefined, { numeric: true });
-      return sortAsc ? cmp : -cmp;
-    });
-  }, [rows, sortCol, sortAsc]);
-
-  const onSort = (col: string) => {
-    if (sortCol === col) setSortAsc((v) => !v);
-    else { setSortCol(col); setSortAsc(true); }
-  };
-
-  const toggleCol = (col: string) => {
-    setHiddenCols((prev) => {
-      const next = new Set(prev);
-      if (next.has(col)) next.delete(col); else next.add(col);
-      return next;
-    });
-  };
-
-  // Stats
-  const uniqueHosts = useMemo(() => {
-    const s = new Set<string>();
-    rows.forEach((r) => { if (r.hostname) s.add(String(r.hostname)); });
-    return s.size;
-  }, [rows]);
-  const uniqueSources = useMemo(() => {
-    const s = new Set<string>();
-    rows.forEach((r) => {
-      const source = r.source ?? r.log_source;
-      if (source) s.add(String(source));
-    });
-    return s.size;
-  }, [rows]);
-  const severityCounts = useMemo(() => {
-    const m: Record<string, number> = {};
-    rows.forEach((r) => {
-      const sev = String(r.severity ?? 'unknown').toLowerCase();
-      m[sev] = (m[sev] || 0) + 1;
-    });
-    return m;
-  }, [rows]);
+  const onSubmit = (event: FormEvent) => { event.preventDefault(); void executeSearch(); };
+  const onHistorySelect = (entry: HistoryEntry) => { if (entry.mode === 'sql') { setMode('sql'); setSqlText(entry.query); } else { setMode('nlq'); setNlqText(entry.query); } };
+  const toggleColumn = (column: string) => setHiddenCols((current) => { const next = new Set(current); if (next.has(column)) next.delete(column); else next.add(column); return next; });
 
   return (
-    <div className="page sq-page">
-      {/* ── Header ────────────────────────────────── */}
-      <div className="re-header">
-        <div className="re-header-left">
-          <h1 className="re-title">Event Search</h1>
-          <div className="re-stats">
-            <span className="re-stat">{terminalIcon} Threat Hunting &amp; Forensics</span>
-          </div>
+    <div className="flex flex-col gap-6">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_340px]">
+        <Card className="overflow-hidden border-primary/15 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.16),transparent_40%),linear-gradient(145deg,hsl(var(--card)),hsl(var(--card)/0.82))]">
+          <CardContent className="p-6">
+            <form onSubmit={onSubmit} className="space-y-5">
+              <div className="flex flex-wrap items-center gap-2">{(['sql', 'nlq', 'live'] as Mode[]).map((value) => <Button key={value} type="button" variant={mode === value ? 'default' : 'outline'} size="sm" className="rounded-full" onClick={() => setMode(value)}>{value === 'sql' ? 'SQL' : value === 'nlq' ? 'AI ask' : 'Live tail'}{value === 'live' && liveTailActive && <span className="ml-1 h-2 w-2 rounded-full bg-primary" />}</Button>)}</div>
+              {mode === 'sql' && <Textarea value={sqlText} onChange={(e) => setSqlText(e.target.value)} className="min-h-[180px] font-mono text-[13px]" placeholder="Leave empty for all events, or write a filter like: raw_payload LIKE '%failed%'" spellCheck={false} onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); void executeSearch(); } }} />}
+              {mode === 'nlq' && <Textarea value={nlqText} onChange={(e) => setNlqText(e.target.value)} className="min-h-[120px]" placeholder="Show me failed SSH logins from external IPs in the last four hours." spellCheck={false} onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); void executeSearch(); } }} />}
+              {mode === 'live' && <Input value={liveTailFilter} onChange={(e) => setLiveTailFilter(e.target.value)} placeholder="Filter live events by hostname, IP, process, or user..." />}
+              {mode !== 'live' ? <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"><div className="space-y-3 lg:col-span-2"><div className="flex flex-wrap gap-2">{QUICK_RANGES.map((range) => <Button key={range.label} type="button" variant={activeQuickRange === range.label ? 'default' : 'outline'} size="sm" className="rounded-full" onClick={() => applyQuickRange(range.hours, range.label)}>{range.label}</Button>)}</div><div className="grid gap-3 sm:grid-cols-2"><Input type="datetime-local" value={timeFrom} onChange={(e) => { setTimeFrom(e.target.value); setActiveQuickRange(''); }} /><Input type="datetime-local" value={timeTo} onChange={(e) => { setTimeTo(e.target.value); setActiveQuickRange(''); }} /></div></div><Button type="submit" className="lg:self-end" disabled={loading}><SearchIcon className="h-4 w-4" />{loading ? 'Running...' : mode === 'sql' ? 'Run search' : 'Ask AI'}</Button></div> : <div className="flex flex-wrap items-center justify-between gap-3 rounded-[22px] border border-border/70 bg-background/35 p-4"><div className="flex flex-wrap items-center gap-2"><Badge variant={liveTailActive ? 'success' : 'outline'}>{liveTailActive ? 'Live' : 'Stopped'}</Badge><Badge variant="secondary">{liveTailEps} eps</Badge><Badge variant="secondary">{liveTailCount.toLocaleString()} events</Badge></div><div className="flex flex-wrap gap-2">{liveTailActive && <Button type="button" variant="outline" onClick={() => setLiveTailPaused((value) => { if (value) setRows(filterRows(liveRowsRef.current, liveFilterRef.current)); return !value; })}>{liveTailPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}{liveTailPaused ? 'Resume' : 'Pause'}</Button>}{!liveTailActive ? <Button type="button" onClick={() => void startLiveTail()}><Radio className="h-4 w-4" />Start tail</Button> : <Button type="button" variant="destructive" onClick={stopLiveTail}><Square className="h-4 w-4" />Stop</Button>}</div></div>}
+            </form>
+          </CardContent>
+        </Card>
+
+        <div className="grid gap-4">
+          <Card><CardHeader><CardTitle>Saved queries</CardTitle><CardDescription>Reusable starting points for common hunts.</CardDescription></CardHeader><CardContent className="space-y-3">{SAVED_QUERIES.map((query) => <button key={query.label} type="button" className="w-full rounded-[20px] border border-border/70 bg-background/35 p-4 text-left transition-colors hover:bg-muted/45" onClick={() => { setMode('sql'); setSqlText(query.sql); }}><div className="font-medium text-foreground">{query.label}</div><div className="mt-2 line-clamp-2 text-sm text-muted-foreground">{query.sql}</div></button>)}</CardContent></Card>
+          <Card><CardHeader><CardTitle>Recent queries</CardTitle><CardDescription>Local query history for this browser session.</CardDescription></CardHeader><CardContent className="space-y-3">{history.length === 0 ? <div className="rounded-[20px] border border-border/70 bg-background/35 px-4 py-6 text-sm text-muted-foreground">No recent queries yet.</div> : history.map((entry, index) => <button key={`${entry.query}-${entry.ts}-${index}`} type="button" className="w-full rounded-[20px] border border-border/70 bg-background/35 p-4 text-left transition-colors hover:bg-muted/45" onClick={() => onHistorySelect(entry)}><div className="flex items-center gap-2"><Badge variant={entry.mode === 'sql' ? 'outline' : 'info'}>{entry.mode}</Badge><span className="text-xs text-muted-foreground">{relativeTime(entry.ts)}</span></div><div className="mt-2 line-clamp-2 text-sm text-foreground">{entry.query}</div></button>)}</CardContent></Card>
         </div>
-        <div className="re-header-actions">
-          <button
-            type="button"
-            className={`cd-action-btn cd-action-btn--secondary ${savedQueriesOpen ? 'active' : ''}`}
-            onClick={() => setSavedQueriesOpen((v) => !v)}
-          >
-            {searchIcon} Saved Queries
-          </button>
-          <button
-            type="button"
-            className={`cd-action-btn cd-action-btn--secondary ${historyOpen ? 'active' : ''}`}
-            onClick={() => setHistoryOpen((v) => !v)}
-          >
-            {clockIcon} History ({history.length})
-          </button>
-        </div>
-      </div>
+      </section>
 
-      {/* ── Saved Queries Dropdown ────────────────── */}
-      {savedQueriesOpen && (
-        <div className="sq-dropdown-panel">
-          <div className="sq-dropdown-title">Saved Queries</div>
-          <div className="sq-dropdown-list">
-            {SAVED_QUERIES.map((q, i) => (
-              <div
-                key={i}
-                className="sq-dropdown-item"
-                onClick={() => {
-                  setMode('sql');
-                  setSqlText(q.sql);
-                  setSavedQueriesOpen(false);
-                }}
-              >
-                <span className="sq-dropdown-item-label">{q.label}</span>
-                <span className="sq-dropdown-item-sql">{q.sql.slice(0, 80)}...</span>
-              </div>
-            ))}
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <WorkspaceMetricCard label="Results" value={rows.length.toLocaleString()} hint={total && total > rows.length ? `of ${total.toLocaleString()} total` : 'current page or live window'} />
+        <WorkspaceMetricCard label="Hosts" value={uniqueHosts.toLocaleString()} hint="distinct hostnames in current results" />
+        <WorkspaceMetricCard label="Sources" value={uniqueSources.toLocaleString()} hint="distinct sources represented" />
+        <WorkspaceMetricCard label="Latency" value={queryDuration != null ? `${queryDuration}ms` : 'n/a'} hint="last completed search duration" />
+      </section>
+
+      {generatedFilter && <Card><CardHeader><CardTitle>AI-generated filter</CardTitle><CardDescription>The NLQ layer translated your request into this search filter.</CardDescription></CardHeader><CardContent><pre className="overflow-x-auto rounded-[22px] border border-border/70 bg-background/35 p-4 text-xs text-foreground">{generatedFilter}</pre></CardContent></Card>}
+      {error && <WorkspaceStatusBanner tone="danger">{error}</WorkspaceStatusBanner>}
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div><CardTitle>Search results</CardTitle><CardDescription>Inspect events, sort columns, export current rows, or open the full record inspector.</CardDescription></div>
+            <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" onClick={() => setColumnPanelOpen((value) => !value)}><Columns3 className="h-4 w-4" />Columns</Button><Button type="button" variant="outline" size="sm" onClick={() => exportCsv(rows, visibleColumns)} disabled={rows.length === 0}><Download className="h-4 w-4" />Export CSV</Button><Button type="button" variant="outline" size="sm" onClick={() => void executeSearch()} disabled={mode === 'live' || loading}><RefreshCcw className="h-4 w-4" />Refresh</Button></div>
           </div>
-        </div>
-      )}
+          {Object.keys(severityCounts).length > 0 && <div className="flex flex-wrap gap-2">{Object.entries(severityCounts).map(([severity, count]) => <Badge key={severity} variant={sevVariant(severity)}>{count} {severity}</Badge>)}</div>}
+          {columnPanelOpen && <div className="grid gap-2 rounded-[22px] border border-border/70 bg-background/35 p-4 sm:grid-cols-2 xl:grid-cols-4">{columns.map((column) => <label key={column} className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card/70 px-3 py-2 text-sm text-foreground"><input type="checkbox" checked={!hiddenCols.has(column)} onChange={() => toggleColumn(column)} /><span>{column}</span></label>)}</div>}
+        </CardHeader>
+        <CardContent>
+          {rows.length === 0 && !loading ? <div className="flex min-h-[260px] flex-col items-center justify-center rounded-[24px] border border-dashed border-border/80 bg-background/30 px-6 text-center"><div className="font-display text-2xl font-semibold text-foreground">Run a query to explore events</div><p className="mt-3 max-w-md text-sm text-muted-foreground">Use SQL, natural language, or live tail to inspect tenant-scoped telemetry.</p></div> : loading && rows.length === 0 ? <div className="flex min-h-[220px] items-center justify-center text-sm text-muted-foreground">Searching events...</div> : <WorkspaceTableShell className="bg-transparent"><table className="min-w-full divide-y divide-border/70 text-sm"><thead className="bg-background/50"><tr><th className="px-4 py-3 text-left text-xs uppercase tracking-[0.24em] text-muted-foreground">#</th>{visibleColumns.map((column) => <th key={column} className="px-4 py-3 text-left text-xs uppercase tracking-[0.24em] text-muted-foreground cursor-pointer" onClick={() => { if (sortCol === column) setSortAsc((value) => !value); else { setSortCol(column); setSortAsc(true); } }}>{column}{sortCol === column && <span className="ml-2">{sortAsc ? '▲' : '▼'}</span>}</th>)}</tr></thead><tbody className="divide-y divide-border/60">{sortedRows.map((row, index) => <tr key={`${index}-${String(row._time ?? row.event_time ?? '')}`} className="cursor-pointer bg-card/30 transition-colors hover:bg-muted/40" onClick={() => setSelectedRow(row)}><td className="px-4 py-3 text-muted-foreground">{index + 1}</td>{visibleColumns.map((column) => <td key={column} className="max-w-[280px] px-4 py-3 align-top text-foreground">{column === 'severity' && typeof row[column] === 'string' ? <Badge variant={sevVariant(String(row[column]))}>{String(row[column])}</Badge> : (column === '_time' || column === 'event_time') && typeof row[column] === 'string' ? formatTimestamp(String(row[column])) : row[column] !== null && typeof row[column] === 'object' ? <span className="text-muted-foreground">{'{...}'}</span> : <span className="line-clamp-2 break-all">{String(row[column] ?? '')}</span>}</td>)}</tr>)}</tbody></table></WorkspaceTableShell>}
+          {hasMore && nextCursor && <div className="mt-5 flex justify-center"><Button type="button" variant="outline" onClick={() => void executeSqlSearch(sqlText, parseCursor(nextCursor), true)} disabled={loading}>{loading ? 'Loading...' : 'Load more results'}</Button></div>}
+        </CardContent>
+      </Card>
 
-      {/* ── History Dropdown ──────────────────────── */}
-      {historyOpen && history.length > 0 && (
-        <div className="sq-dropdown-panel">
-          <div className="sq-dropdown-title">Recent Queries</div>
-          <div className="sq-dropdown-list">
-            {history.map((h, i) => (
-              <div key={i} className="sq-dropdown-item" onClick={() => onHistorySelect(h)}>
-                <span className={`sq-dropdown-mode sq-dropdown-mode--${h.mode}`}>{h.mode.toUpperCase()}</span>
-                <span className="sq-dropdown-item-sql">
-                  {h.query.length > 80 ? h.query.slice(0, 80) + '...' : h.query}
-                </span>
-                <span className="sq-dropdown-time">{relativeTime(h.ts)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Query Editor ─────────────────────────── */}
-      <form onSubmit={onSubmit} className={`sq-editor ${editorExpanded ? 'sq-editor--expanded' : ''}`}>
-        {/* Mode tabs */}
-        <div className="sq-editor-tabs">
-          <button
-            type="button"
-            className={`sq-tab ${mode === 'sql' ? 'sq-tab--active' : ''}`}
-            onClick={() => setMode('sql')}
-          >
-            {terminalIcon} SQL
-          </button>
-          <button
-            type="button"
-            className={`sq-tab ${mode === 'nlq' ? 'sq-tab--active' : ''}`}
-            onClick={() => setMode('nlq')}
-          >
-            {sparkleIcon} AI Ask
-          </button>
-          <button
-            type="button"
-            className={`sq-tab ${mode === 'live' ? 'sq-tab--active sq-tab--live' : ''}`}
-            onClick={() => setMode('live')}
-          >
-            {radioIcon} Live Tail
-            {liveTailActive && <span className="sq-live-dot" />}
-          </button>
-          <div className="sq-editor-tab-spacer" />
-          <button
-            type="button"
-            className="sq-expand-btn"
-            onClick={() => setEditorExpanded(!editorExpanded)}
-            title={editorExpanded ? 'Collapse' : 'Expand'}
-          >
-            {editorExpanded ? collapseIcon : expandIcon}
-          </button>
-        </div>
-
-        {/* Query input */}
-        <div className="sq-input-area">
-          {mode === 'sql' && (
-            <textarea
-              ref={textareaRef}
-              className="sq-textarea"
-              value={sqlText}
-              onChange={(e) => setSqlText(e.target.value)}
-              onKeyDown={handleKeyDown}
-              rows={editorExpanded ? 12 : 4}
-              placeholder="Leave empty for all events, or enter a filter like: raw_payload LIKE '%failed%'"
-              spellCheck={false}
-            />
-          )}
-          {mode === 'nlq' && (
-            <textarea
-              className="sq-textarea sq-textarea--nlq"
-              value={nlqText}
-              onChange={(e) => setNlqText(e.target.value)}
-              onKeyDown={handleKeyDown}
-              rows={2}
-              placeholder="Show me all failed SSH logins from external IPs in the last 4 hours"
-              spellCheck={false}
-            />
-          )}
-          {mode === 'live' && (
-            <div className="sq-live-controls">
-              <div className="sq-live-filter-row">
-                {searchIcon}
-                <input
-                  className="sq-live-filter-input"
-                  value={liveTailFilter}
-                  onChange={(e) => setLiveTailFilter(e.target.value)}
-                  placeholder="Filter events in real-time (hostname, IP, process, user...)"
-                />
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Time range + execute */}
-        <div className="sq-controls">
-          {mode !== 'live' ? (
-            <>
-              <div className="sq-quick-ranges">
-                {QUICK_RANGES.map((r) => (
-                  <button
-                    key={r.label}
-                    type="button"
-                    className={`sq-quick-btn ${activeQuickRange === r.label ? 'sq-quick-btn--active' : ''}`}
-                    onClick={() => applyQuickRange(r.hours, r.label)}
-                  >
-                    {r.label}
-                  </button>
-                ))}
-              </div>
-              <div className="sq-time-inputs">
-                <div className="sq-time-field">
-                  <label className="sq-time-label">From</label>
-                  <input
-                    type="datetime-local"
-                    className="sq-time-input"
-                    value={timeFrom}
-                    onChange={(e) => { setTimeFrom(e.target.value); setActiveQuickRange(''); }}
-                  />
-                </div>
-                <div className="sq-time-field">
-                  <label className="sq-time-label">To</label>
-                  <input
-                    type="datetime-local"
-                    className="sq-time-input"
-                    value={timeTo}
-                    onChange={(e) => { setTimeTo(e.target.value); setActiveQuickRange(''); }}
-                  />
-                </div>
-              </div>
-              <button type="submit" className="sq-run-btn" disabled={loading}>
-                {loading ? (
-                  <span className="sq-spinner" />
-                ) : playIcon}
-                {loading ? 'Running...' : mode === 'sql' ? 'Run Query' : 'Ask AI'}
-                {mode === 'sql' && <span className="sq-kbd">Ctrl+Enter</span>}
-              </button>
-            </>
-          ) : (
-            <>
-              <div className="sq-live-status">
-                {liveTailActive && (
-                  <>
-                    <span className="sq-live-indicator">
-                      <span className="sq-live-dot" />
-                      LIVE
-                    </span>
-                    <span className="sq-stats-chip">{liveTailEps} eps</span>
-                    <span className="sq-stats-chip">{liveTailCount.toLocaleString()} events received</span>
-                  </>
-                )}
-              </div>
-              <div className="sq-live-actions">
-                {liveTailActive && (
-                  <button
-                    type="button"
-                    className="cd-action-btn cd-action-btn--secondary"
-                    onClick={togglePauseLiveTail}
-                  >
-                    {liveTailPaused ? playIcon : pauseIcon}
-                    {liveTailPaused ? 'Resume' : 'Pause'}
-                  </button>
-                )}
-                {!liveTailActive ? (
-                  <button
-                    type="button"
-                    className="sq-run-btn"
-                    onClick={startLiveTail}
-                  >
-                    {radioIcon} Start Live Tail
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="sq-stop-btn"
-                    onClick={stopLiveTail}
-                  >
-                    {stopIcon} Stop
-                  </button>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-      </form>
-
-      {/* ── Generated SQL (NLQ) ──────────────────── */}
-      {generatedSql !== null && (
-        <div className="sq-gen-sql">
-          <div className="sq-gen-sql-header" onClick={() => setGenSqlOpen((v) => !v)}>
-            <span>{sparkleIcon} Generated Filter</span>
-            <span>{genSqlOpen ? chevronDown : chevronRight}</span>
-          </div>
-          {genSqlOpen && (
-            <pre className="sq-gen-sql-code">{generatedSql}</pre>
-          )}
-        </div>
-      )}
-
-      {/* ── Error ────────────────────────────────── */}
-      {error && <div className="cd-error">{error}</div>}
-
-      {/* ── Result Stats Bar ─────────────────────── */}
-      {rows.length > 0 && (
-        <div className="sq-stats-bar">
-          <div className="sq-stats-left">
-            <span className="sq-stats-count">
-              {rows.length.toLocaleString()} events
-              {total && total > rows.length ? ` of ${total.toLocaleString()}` : ''}
-            </span>
-            {queryDuration !== null && (
-              <span className="sq-stats-duration">{queryDuration}ms</span>
-            )}
-            {uniqueHosts > 0 && <span className="sq-stats-chip">{uniqueHosts} hosts</span>}
-            {uniqueSources > 0 && <span className="sq-stats-chip">{uniqueSources} sources</span>}
-            {Object.entries(severityCounts).map(([sev, count]) => (
-              <span key={sev} className={`sq-stats-sev ${severityClass(sev)}`}>
-                {count} {sev}
-              </span>
-            ))}
-          </div>
-          <div className="sq-stats-right">
-            <div className="sq-col-picker-wrap">
-              <button
-                type="button"
-                className="cd-action-btn cd-action-btn--secondary"
-                onClick={() => setColPickerOpen((v) => !v)}
-              >
-                {columnsIcon} Columns ({visibleColumns.length}/{columns.length})
-              </button>
-              {colPickerOpen && (
-                <div className="sq-col-picker">
-                  {columns.map((col) => (
-                    <label key={col} className="sq-col-picker-item">
-                      <input
-                        type="checkbox"
-                        checked={!hiddenCols.has(col)}
-                        onChange={() => toggleCol(col)}
-                      />
-                      <span>{col}</span>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-            <button
-              type="button"
-              className="cd-action-btn cd-action-btn--secondary"
-              onClick={() => exportCsv(rows, visibleColumns)}
-            >
-              {downloadIcon} Export CSV
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Results Table ────────────────────────── */}
-      <div className="sq-results-panel">
-        {rows.length === 0 && !loading ? (
-          <div className="sq-empty">
-            <div className="sq-empty-icon">{searchIcon}</div>
-            <h3 className="sq-empty-title">Run a query to explore events</h3>
-            <p className="sq-empty-desc">
-              Write SQL or ask a natural language question to search across all ingested events.
-              Use Ctrl+Enter to execute.
-            </p>
-          </div>
-        ) : rows.length === 0 && loading ? (
-          <div className="sq-loading">
-            <span className="sq-spinner sq-spinner--lg" />
-            <span>Searching events...</span>
-          </div>
-        ) : (
-          <div className="sq-table-wrap">
-            <table className="sq-table">
-              <thead>
-                <tr>
-                  <th className="sq-th sq-th--row-num">#</th>
-                  {visibleColumns.map((col) => (
-                    <th
-                      key={col}
-                      className={`sq-th ${sortCol === col ? 'sq-th--sorted' : ''}`}
-                      onClick={() => onSort(col)}
-                    >
-                      <span className="sq-th-label">{col}</span>
-                      {sortCol === col && (
-                        <span className="sq-th-arrow">{sortAsc ? '\u25B2' : '\u25BC'}</span>
-                      )}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {sortedRows.map((row, ri) => (
-                  <tr
-                    key={ri}
-                    className={`sq-tr ${ri % 2 === 1 ? 'sq-tr--alt' : ''}`}
-                    onClick={() => setSelectedRow(row)}
-                  >
-                    <td className="sq-td sq-td--row-num">{ri + 1}</td>
-                    {visibleColumns.map((col) => (
-                      <td key={col} className="sq-td">
-                        <CellValue value={row[col]} col={col} />
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Load More */}
-        {hasMore && nextCursor && (
-          <div className="sq-load-more">
-            <button
-              type="button"
-              className="cd-action-btn cd-action-btn--primary"
-              onClick={onLoadMore}
-              disabled={loading}
-            >
-              {loading ? 'Loading...' : `Load more events (${rows.length} of ${total?.toLocaleString() ?? '?'})`}
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* ── Row Detail Drawer ────────────────────── */}
-      {selectedRow && (
-        <RowDetail
-          row={selectedRow}
-          columns={columns}
-          onClose={() => setSelectedRow(null)}
-        />
-      )}
+      {selectedRow && <DetailDrawer row={selectedRow} columns={columns} onClose={() => setSelectedRow(null)} />}
     </div>
   );
 }
