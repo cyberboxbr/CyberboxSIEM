@@ -17,6 +17,7 @@ import { Select } from '@/components/ui/select';
 import { WorkspaceEmptyState } from '@/components/workspace/empty-state';
 import { WorkspaceMetricCard } from '@/components/workspace/metric-card';
 import { WorkspaceStatusBanner } from '@/components/workspace/status-banner';
+import { cn } from '@/lib/utils';
 
 const TACTICS = [
   'initial-access',
@@ -137,86 +138,34 @@ export function MitreCoverage() {
   }
 
   return (
-    <div className="space-y-6">
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_360px]">
-        <Card className="overflow-hidden border-primary/15 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.15),transparent_40%),linear-gradient(145deg,hsl(var(--card)),hsl(var(--card)/0.85))]">
-          <CardContent className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(250px,0.85fr)]">
-            <div>
-              <div className="mb-4 flex flex-wrap gap-2">
-                <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">ATT&CK coverage workspace</Badge>
-                <Badge variant="secondary" className="bg-background/55">{report.total_covered} mapped techniques</Badge>
-              </div>
-              <div className="max-w-2xl font-display text-4xl font-semibold leading-[0.96] tracking-[-0.05em] text-foreground sm:text-[3rem]">
-                See where your detections already reach and where coverage is still thin.
-              </div>
-              <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
-                The ATT&CK board highlights which tactics are covered, which techniques have the heaviest rule backing, and where the biggest gaps still live.
-              </p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <Button type="button" variant="outline" onClick={() => { setRefreshing(true); void loadCoverage(false); }} disabled={refreshing}>
-                  <RefreshCcw className={refreshing ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
-                  Refresh coverage
-                </Button>
-              </div>
-            </div>
-            <div className="grid gap-3 rounded-xl border border-border/70 bg-background/35 p-4">
-              <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Framework coverage</div>
-                <div className={`mt-3 font-display text-4xl font-semibold tracking-[-0.04em] ${coverageTone(report.coverage_pct)}`}>
-                  {report.coverage_pct.toFixed(1)}%
-                </div>
-              </div>
-              <div className="rounded-full bg-muted/60">
-                <div
-                  className={`h-2 rounded-full ${report.coverage_pct >= 50 ? 'bg-emerald-400' : report.coverage_pct >= 25 ? 'bg-amber-300' : 'bg-rose-400'}`}
-                  style={{ width: `${Math.max(report.coverage_pct, 4)}%` }}
-                />
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Covered</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{report.total_covered}</div>
-                </div>
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Framework total</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{report.total_in_framework}</div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+    <div className="flex flex-col gap-3">
+      {/* ── Toolbar ──────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2">
+        {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
+        <span className="text-xs text-muted-foreground">{filteredTechniques.length} techniques</span>
 
-        <Card>
-          <CardHeader className="pb-4">
-            <CardTitle>Filters</CardTitle>
-            <CardDescription>Focus on a tactic lane or search for a technique, rule ID, or ATT&CK identifier.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div>
-              <div className="mb-2 text-sm font-medium text-foreground">Tactic</div>
-              <Select value={tacticFilter} onChange={(event) => setTacticFilter(event.target.value)}>
-                <option value="all">All tactics</option>
-                {TACTICS.map((tactic) => <option key={tactic} value={tactic}>{TACTIC_LABELS[tactic]}</option>)}
-              </Select>
-            </div>
-            <div>
-              <div className="mb-2 text-sm font-medium text-foreground">Search</div>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input className="pl-11" value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="T1059, PowerShell, rule id..." />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </section>
+        <div className="relative ml-2">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input type="text" value={searchValue} onChange={(e) => setSearchValue(e.target.value)} placeholder="T1059, PowerShell..." className="h-7 rounded-md border border-border/70 bg-card/60 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+        </div>
 
-      {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
+        <div className="ml-auto flex items-center gap-2">
+          <select value={tacticFilter} onChange={(e) => setTacticFilter(e.target.value)} className="h-7 rounded-md border border-border/70 bg-card/60 px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring">
+            <option value="all">All tactics</option>
+            {TACTICS.map((tactic) => <option key={tactic} value={tactic}>{TACTIC_LABELS[tactic]}</option>)}
+          </select>
+          <Button type="button" size="sm" variant="outline" onClick={() => { setRefreshing(true); void loadCoverage(false); }} disabled={refreshing}>
+            <RefreshCcw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} /> Refresh
+          </Button>
+        </div>
+      </div>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <WorkspaceMetricCard label="Coverage" value={`${report.coverage_pct.toFixed(1)}%`} hint="Mapped techniques versus the total ATT&CK framework set." icon={Shield} />
-        <WorkspaceMetricCard label="Techniques" value={String(report.total_covered)} hint="Techniques currently backed by one or more rules." icon={Crosshair} />
-        <WorkspaceMetricCard label="Visible" value={String(filteredTechniques.length)} hint="Techniques matching the active filter set." icon={Search} />
-        <WorkspaceMetricCard label="Tactics hit" value={String(tacticCounts.filter((item) => item.count > 0).length)} hint="Tactic lanes with at least one mapped technique." icon={Activity} />
+      {/* ── KPI row ──────────────────────────────────────────────────── */}
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <WorkspaceMetricCard label="Coverage" value={`${report.coverage_pct.toFixed(1)}%`} hint={`${report.total_covered} of ${report.total_in_framework}`} />
+        <WorkspaceMetricCard label="Techniques" value={String(report.total_covered)} hint="Backed by rules" />
+        <WorkspaceMetricCard label="Visible" value={String(filteredTechniques.length)} hint="Matching filters" />
+        <WorkspaceMetricCard label="Tactics hit" value={String(tacticCounts.filter((item) => item.count > 0).length)} hint="With coverage" />
       </section>
 
       <Card>
@@ -267,7 +216,7 @@ export function MitreCoverage() {
         </CardContent>
       </Card>
 
-      <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_340px]">
         <Card>
           <CardHeader className="pb-4">
             <CardTitle>Coverage by tactic</CardTitle>

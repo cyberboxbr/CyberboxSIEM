@@ -166,83 +166,38 @@ export function LookupTables() {
   };
 
   return (
-    <div className="space-y-6">
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_360px]">
-        <Card className="overflow-hidden border-primary/15 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.15),transparent_40%),linear-gradient(145deg,hsl(var(--card)),hsl(var(--card)/0.85))]">
-          <CardContent className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(250px,0.85fr)]">
-            <div>
-              <div className="mb-4 flex flex-wrap gap-2">
-                <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">Lookup table workspace</Badge>
-                <Badge variant="secondary" className="bg-background/55">{tables.length} tables</Badge>
-              </div>
-              <div className="max-w-2xl font-display text-4xl font-semibold leading-[0.96] tracking-[-0.05em] text-foreground sm:text-[3rem]">
-                Keep enrichment data editable, searchable, and close to the detections that use it.
-              </div>
-              <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
-                This board gives you a faster way to browse lookup schemas, edit rows, and keep enrichment sources current without dropping back to raw JSON.
-              </p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <Button type="button" onClick={() => setShowCreate(true)}>
-                  <Plus className="h-4 w-4" />
-                  New table
-                </Button>
-                <Button type="button" variant="outline" onClick={() => void loadTables()} disabled={loading}>
-                  <RefreshCcw className={loading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
-                  Refresh tables
-                </Button>
-              </div>
-            </div>
-            <div className="grid gap-3 rounded-xl border border-border/70 bg-background/35 p-4">
-              <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Total rows</div>
-                <div className="mt-3 font-display text-4xl font-semibold tracking-[-0.04em] text-foreground">{totalRows.toLocaleString()}</div>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Tables</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{tables.length}</div>
-                </div>
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Selected rows</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{selectedMeta?.row_count ?? 0}</div>
-                </div>
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Columns</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{columns.length}</div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+    <div className="flex flex-col gap-3">
+      {/* ── Toolbar ──────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2">
+        {message && <WorkspaceStatusBanner>{message}</WorkspaceStatusBanner>}
+        {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
 
-        <Card>
-          <CardHeader className="pb-4">
-            <CardTitle>Table search</CardTitle>
-            <CardDescription>Find a table by name and jump directly into its row set.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div>
-              <div className="mb-2 text-sm font-medium text-foreground">Search tables</div>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input className="pl-11" value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="approved_binaries, suspicious_ips..." />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <span className="text-xs text-muted-foreground">{tables.length} tables · {totalRows.toLocaleString()} rows</span>
+
+        <div className="relative ml-2">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="Search tables..." className="h-7 rounded-md border border-border/70 bg-card/60 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+        </div>
+
+        <div className="ml-auto flex items-center gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={() => void loadTables()} disabled={loading}>
+            <RefreshCcw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} /> Refresh
+          </Button>
+          <Button type="button" size="sm" onClick={() => setShowCreate(true)}>
+            <Plus className="h-3.5 w-3.5" /> New table
+          </Button>
+        </div>
+      </div>
+
+      {/* ── KPI row ──────────────────────────────────────────────────── */}
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <WorkspaceMetricCard label="Tables" value={String(tables.length)} hint="Lookup schemas" />
+        <WorkspaceMetricCard label="Rows" value={totalRows.toLocaleString()} hint="Total records" />
+        <WorkspaceMetricCard label="Visible" value={String(filteredTables.length)} hint="Matching search" />
+        <WorkspaceMetricCard label="Columns" value={String(columns.length)} hint={selectedTable ?? 'Select a table'} />
       </section>
 
-      {message && <WorkspaceStatusBanner>{message}</WorkspaceStatusBanner>}
-      {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
-
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <WorkspaceMetricCard label="Tables" value={String(tables.length)} hint="Lookup schemas available to enrich detections and search." icon={Database} />
-        <WorkspaceMetricCard label="Rows" value={totalRows.toLocaleString()} hint="Total records stored across every lookup table." icon={Table2} />
-        <WorkspaceMetricCard label="Visible" value={String(filteredTables.length)} hint="Tables matching the current search query." icon={Search} />
-        <WorkspaceMetricCard label="Selected columns" value={String(columns.length)} hint={selectedTable ? `Schema for ${selectedTable}` : 'Pick a table to inspect its schema.'} icon={PencilLine} />
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+      <section className="grid gap-3 xl:grid-cols-[280px_minmax(0,1fr)]">
         <Card className="overflow-hidden">
           <CardHeader className="pb-4">
             <CardTitle>Tables</CardTitle>

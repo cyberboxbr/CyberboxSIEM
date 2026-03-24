@@ -40,7 +40,7 @@ import { WorkspaceMetricCard } from '@/components/workspace/metric-card';
 import { WorkspaceStatusBanner } from '@/components/workspace/status-banner';
 import { cn } from '@/lib/utils';
 
-const fieldClass = 'flex h-11 w-full rounded-2xl border border-border/80 bg-background/45 px-4 py-2 text-sm text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background';
+const fieldClass = 'flex h-8 w-full rounded-lg border border-border/80 bg-background/45 px-3 py-1 text-xs text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
 
 function ruleName(rule: DetectionRule) {
   const title = (rule.compiled_plan as Record<string, unknown>)?.title;
@@ -260,15 +260,15 @@ export function RuleEditor() {
   };
 
   return (
-    <div className="flex flex-col gap-6">
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <WorkspaceMetricCard label="Rules" value={String(stats.total)} hint="Detection rules currently available in the catalog." icon={Shield} />
-        <WorkspaceMetricCard label="Enabled" value={String(stats.enabled)} hint="Rules that can currently execute and generate detections." icon={Sparkles} />
-        <WorkspaceMetricCard label="Stream" value={String(stats.stream)} hint="Rules evaluating events continuously as they arrive." icon={FlaskConical} />
-        <WorkspaceMetricCard label="Scheduled" value={String(stats.scheduled)} hint="Rules running on an interval or lookback schedule." icon={History} />
+    <div className="flex flex-col gap-3">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <WorkspaceMetricCard label="Rules" value={String(stats.total)} hint="Total in catalog" />
+        <WorkspaceMetricCard label="Enabled" value={String(stats.enabled)} hint="Active detections" />
+        <WorkspaceMetricCard label="Stream" value={String(stats.stream)} hint="Real-time evaluation" />
+        <WorkspaceMetricCard label="Scheduled" value={String(stats.scheduled)} hint="Interval-based" />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+      <section className="grid gap-3 xl:grid-cols-[280px_minmax(0,1fr)]">
         <Card>
           <CardHeader>
             <div className="flex items-start justify-between gap-3">
