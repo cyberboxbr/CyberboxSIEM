@@ -84,7 +84,6 @@ services:
       CYBERBOX__AUTH_DISABLED: "false"
       CYBERBOX__OIDC_ISSUER: "https://login.microsoftonline.com/a8014c28-79d4-4695-8890-0ed0bf766668/v2.0"
       CYBERBOX__OIDC_AUDIENCE: "api://3fd8922e-d137-4d50-b160-b552ceda18c1"
-      CYBERBOX__TENANT_ID_OVERRIDE: "safebox"
       CYBERBOX__INGEST_API_KEY: ${INGEST_API_KEY}
       # NLQ (Natural Language Query — Claude or OpenAI)
       CYBERBOX__NLQ_ENABLED: "true"
