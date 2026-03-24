@@ -465,7 +465,7 @@ export function CaseDetail() {
           <Card>
             <CardHeader className="pb-4"><CardTitle>MITRE ATT&CK</CardTitle><CardDescription>Techniques surfaced across all linked alerts.</CardDescription></CardHeader>
             <CardContent className="space-y-3">
-              {!mitre.length ? <WorkspaceEmptyState title="No ATT&CK mapping yet" body="Technique coverage appears here once linked alerts include MITRE enrichment." className="min-h-[220px]" /> : mitre.map((item) => <div key={item.technique_id} className="rounded-lg border border-border/70 bg-background/35 px-4 py-3"><div className="font-medium text-foreground">{item.technique_id}</div><div className="mt-1 text-sm text-muted-foreground">{item.technique_name}</div><div className="mt-1 text-xs uppercase tracking-[0.2em] text-muted-foreground">{item.tactic.replace(/-/g, ' ')}</div></div>)}
+              {!mitre.length ? <WorkspaceEmptyState title="No ATT&CK mapping yet" body="Technique coverage appears here once linked alerts include MITRE enrichment." className="min-h-[220px]" /> : mitre.map((item) => <div key={item.technique_id} className="rounded-lg border border-border/70 bg-background/35 px-4 py-3"><div className="font-medium text-foreground">{item.technique_id}</div><div className="mt-1 text-sm text-muted-foreground">{item.technique_name}</div><div className="mt-1 text-xs uppercase tracking-[0.2em] text-muted-foreground">{(item.tactic ?? '').replace(/-/g, ' ')}</div></div>)}
             </CardContent>
           </Card>
 
