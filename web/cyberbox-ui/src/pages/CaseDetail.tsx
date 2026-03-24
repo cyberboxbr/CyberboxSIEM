@@ -150,7 +150,7 @@ function slaCountdown(slaDueAt?: string): { label: string; pct: number; breached
 function ChipRow({ label, values }: { label: string; values: string[] }) {
   if (!values.length) return null;
   return (
-    <div className="rounded-[24px] border border-border/70 bg-background/35 p-4">
+    <div className="rounded-lg border border-border/70 bg-background/35 p-4">
       <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">{label}</div>
       <div className="mt-3 flex flex-wrap gap-2">
         {values.map((value) => (
@@ -422,14 +422,14 @@ export function CaseDetail() {
                       destinationPort: (alert as AlertRecord & { dst_port?: string | number }).dst_port ? String((alert as AlertRecord & { dst_port?: string | number }).dst_port) : undefined,
                     });
                     return (
-                      <Link key={alert.alert_id} to={`/alerts/${alert.alert_id}`} className="block rounded-[24px] border border-border/70 bg-background/35 p-4 transition-colors hover:bg-muted/45">
+                      <Link key={alert.alert_id} to={`/alerts/${alert.alert_id}`} className="block rounded-lg border border-border/70 bg-background/35 p-4 transition-colors hover:bg-muted/45">
                         <div className="flex flex-wrap items-center gap-2"><Badge variant={severityVariant(alert.severity)}>{alert.severity}</Badge><Badge variant={statusVariant(alert.status as unknown as CaseStatus)}>{alert.status.replace(/_/g, ' ')}</Badge></div>
                         <div className="mt-3 font-medium text-foreground">{title}</div>
                         <div className="mt-2 flex flex-wrap gap-3 text-sm text-muted-foreground"><span>{host}</span>{user && <span>{user}</span>}{process && <span>{process}</span>}{network && <span>{network}</span>}<span>{rel(alert.last_seen)}</span></div>
                       </Link>
                     );
                   })}
-                  {caseData.alert_ids.filter((id) => !alerts.find((alert) => alert.alert_id === id)).map((id) => <div key={id} className="rounded-[24px] border border-border/70 bg-background/35 p-4 text-sm text-muted-foreground">{id} is linked but its detail record could not be resolved.</div>)}
+                  {caseData.alert_ids.filter((id) => !alerts.find((alert) => alert.alert_id === id)).map((id) => <div key={id} className="rounded-lg border border-border/70 bg-background/35 p-4 text-sm text-muted-foreground">{id} is linked but its detail record could not be resolved.</div>)}
                 </>
               )}
             </CardContent>
@@ -438,7 +438,7 @@ export function CaseDetail() {
             <CardHeader className="pb-4"><CardTitle>Activity timeline</CardTitle><CardDescription>Recent audit and linked-alert activity associated with this case.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
               {!timeline.length ? <WorkspaceEmptyState title="No activity yet" body="Case and linked alert actions will appear here as the investigation progresses." className="min-h-[220px]" /> : timeline.map((entry) => (
-                <div key={entry.audit_id} className="flex gap-4 rounded-[24px] border border-border/70 bg-background/35 p-4">
+                <div key={entry.audit_id} className="flex gap-4 rounded-lg border border-border/70 bg-background/35 p-4">
                   <div className="mt-1 flex h-9 w-9 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary"><History className="h-4 w-4" /></div>
                   <div className="min-w-0">
                     <div className="font-medium text-foreground">{entry.action}</div>
@@ -455,31 +455,31 @@ export function CaseDetail() {
           <Card>
             <CardHeader className="pb-4"><CardTitle>Case context</CardTitle><CardDescription>Assignment, tags, and close-state details for the current investigation container.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
-              <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Assignee</div><div className="mt-2 text-sm text-foreground">{caseData.assignee ?? 'Unassigned'}</div></div>
-              <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Tags</div><div className="mt-3 flex flex-wrap gap-2">{caseData.tags.length ? caseData.tags.map((tag) => <Badge key={tag} variant="outline">{tag}</Badge>) : <span className="text-sm text-muted-foreground">No tags set.</span>}</div></div>
-              {caseData.close_note && <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Close note</div><div className="mt-2 text-sm text-muted-foreground">{caseData.close_note}</div></div>}
-              {caseData.sla_due_at && <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">SLA health</div><div className="mt-3 h-2 overflow-hidden rounded-full bg-muted/60"><div className={cn('h-full rounded-full', sla.breached ? 'bg-destructive' : 'bg-primary')} style={{ width: `${Math.max(sla.pct, 4)}%` }} /></div><div className="mt-2 text-sm text-muted-foreground">{sla.breached ? 'SLA breached' : `${sla.label} remaining`}</div></div>}
+              <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Assignee</div><div className="mt-2 text-sm text-foreground">{caseData.assignee ?? 'Unassigned'}</div></div>
+              <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Tags</div><div className="mt-3 flex flex-wrap gap-2">{caseData.tags.length ? caseData.tags.map((tag) => <Badge key={tag} variant="outline">{tag}</Badge>) : <span className="text-sm text-muted-foreground">No tags set.</span>}</div></div>
+              {caseData.close_note && <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Close note</div><div className="mt-2 text-sm text-muted-foreground">{caseData.close_note}</div></div>}
+              {caseData.sla_due_at && <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">SLA health</div><div className="mt-3 h-2 overflow-hidden rounded-full bg-muted/60"><div className={cn('h-full rounded-full', sla.breached ? 'bg-destructive' : 'bg-primary')} style={{ width: `${Math.max(sla.pct, 4)}%` }} /></div><div className="mt-2 text-sm text-muted-foreground">{sla.breached ? 'SLA breached' : `${sla.label} remaining`}</div></div>}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="pb-4"><CardTitle>MITRE ATT&CK</CardTitle><CardDescription>Techniques surfaced across all linked alerts.</CardDescription></CardHeader>
             <CardContent className="space-y-3">
-              {!mitre.length ? <WorkspaceEmptyState title="No ATT&CK mapping yet" body="Technique coverage appears here once linked alerts include MITRE enrichment." className="min-h-[220px]" /> : mitre.map((item) => <div key={item.technique_id} className="rounded-[20px] border border-border/70 bg-background/35 px-4 py-3"><div className="font-medium text-foreground">{item.technique_id}</div><div className="mt-1 text-sm text-muted-foreground">{item.technique_name}</div><div className="mt-1 text-xs uppercase tracking-[0.2em] text-muted-foreground">{item.tactic.replace(/-/g, ' ')}</div></div>)}
+              {!mitre.length ? <WorkspaceEmptyState title="No ATT&CK mapping yet" body="Technique coverage appears here once linked alerts include MITRE enrichment." className="min-h-[220px]" /> : mitre.map((item) => <div key={item.technique_id} className="rounded-lg border border-border/70 bg-background/35 px-4 py-3"><div className="font-medium text-foreground">{item.technique_id}</div><div className="mt-1 text-sm text-muted-foreground">{item.technique_name}</div><div className="mt-1 text-xs uppercase tracking-[0.2em] text-muted-foreground">{item.tactic.replace(/-/g, ' ')}</div></div>)}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="pb-4"><CardTitle>Affected assets</CardTitle><CardDescription>Hosts currently implicated by the alerts attached to this case.</CardDescription></CardHeader>
             <CardContent className="space-y-3">
-              {!assets.length ? <WorkspaceEmptyState title="No assets identified" body="Host context appears here once linked alerts carry agent or event-host metadata." className="min-h-[220px]" /> : assets.map(([hostname, info]) => <div key={hostname} className="flex items-center gap-3 rounded-[20px] border border-border/70 bg-background/35 px-4 py-3"><div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border/70 bg-card/70 text-primary"><Monitor className="h-4 w-4" /></div><div><div className="font-medium text-foreground">{hostname}</div><div className="text-sm text-muted-foreground">{info.os}{info.ip ? ` · ${info.ip}` : ''}</div></div></div>)}
+              {!assets.length ? <WorkspaceEmptyState title="No assets identified" body="Host context appears here once linked alerts carry agent or event-host metadata." className="min-h-[220px]" /> : assets.map(([hostname, info]) => <div key={hostname} className="flex items-center gap-3 rounded-lg border border-border/70 bg-background/35 px-4 py-3"><div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border/70 bg-card/70 text-primary"><Monitor className="h-4 w-4" /></div><div><div className="font-medium text-foreground">{hostname}</div><div className="text-sm text-muted-foreground">{info.os}{info.ip ? ` · ${info.ip}` : ''}</div></div></div>)}
             </CardContent>
           </Card>
         </div>
       </section>
 
       <WorkspaceModal open={showClose} title="Close case" description="Pick the final case resolution and capture any closing note for the record." onClose={() => setShowClose(false)} panelClassName="max-w-xl">
-        <div className="grid gap-3 sm:grid-cols-2">{(Object.keys(RESOLUTION_LABELS) as CaseResolution[]).map((item) => <button key={item} type="button" className={cn('rounded-[24px] border px-4 py-4 text-left transition-colors', resolution === item ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-muted/40')} onClick={() => setResolution(item)}><div className="font-medium text-foreground">{RESOLUTION_LABELS[item]}</div></button>)}</div>
+        <div className="grid gap-3 sm:grid-cols-2">{(Object.keys(RESOLUTION_LABELS) as CaseResolution[]).map((item) => <button key={item} type="button" className={cn('rounded-lg border px-4 py-4 text-left transition-colors', resolution === item ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-muted/40')} onClick={() => setResolution(item)}><div className="font-medium text-foreground">{RESOLUTION_LABELS[item]}</div></button>)}</div>
         <div><div className="mb-2 text-sm font-medium text-foreground">Close note</div><Textarea value={closeNote} onChange={(event) => setCloseNote(event.target.value)} rows={4} placeholder="Summarize findings, containment, and remaining follow-up." /></div>
         <div className="flex flex-wrap justify-end gap-3"><Button type="button" variant="outline" onClick={() => setShowClose(false)}>Cancel</Button><Button type="button" onClick={() => void handleClose()}>Close case</Button></div>
       </WorkspaceModal>

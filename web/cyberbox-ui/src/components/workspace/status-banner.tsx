@@ -28,7 +28,7 @@ export function WorkspaceStatusBanner({
     <div
       role={tone === 'danger' || tone === 'warning' ? 'alert' : 'status'}
       className={cn(
-        'rounded-[24px] border px-4 py-3 text-sm',
+        'rounded-lg border px-3 py-2 text-xs',
         toneClassName[tone],
         className,
       )}

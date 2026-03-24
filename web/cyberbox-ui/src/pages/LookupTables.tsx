@@ -192,21 +192,21 @@ export function LookupTables() {
                 </Button>
               </div>
             </div>
-            <div className="grid gap-3 rounded-[28px] border border-border/70 bg-background/35 p-4">
-              <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+            <div className="grid gap-3 rounded-xl border border-border/70 bg-background/35 p-4">
+              <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Total rows</div>
                 <div className="mt-3 font-display text-4xl font-semibold tracking-[-0.04em] text-foreground">{totalRows.toLocaleString()}</div>
               </div>
               <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Tables</div>
                   <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{tables.length}</div>
                 </div>
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Selected rows</div>
                   <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{selectedMeta?.row_count ?? 0}</div>
                 </div>
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Columns</div>
                   <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{columns.length}</div>
                 </div>
@@ -259,7 +259,7 @@ export function LookupTables() {
                   key={table.name}
                   type="button"
                   className={cn(
-                    'w-full rounded-[24px] border px-4 py-4 text-left transition-colors',
+                    'w-full rounded-lg border px-4 py-4 text-left transition-colors',
                     selectedTable === table.name
                       ? 'border-primary/30 bg-primary/10'
                       : 'border-border/70 bg-background/35 hover:bg-muted/40',

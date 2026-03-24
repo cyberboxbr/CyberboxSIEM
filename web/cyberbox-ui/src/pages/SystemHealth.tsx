@@ -187,18 +187,18 @@ export function SystemHealth() {
                 </Button>
               </div>
             </div>
-            <div className="grid gap-3 rounded-[28px] border border-border/70 bg-background/35 p-4">
-              <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+            <div className="grid gap-3 rounded-xl border border-border/70 bg-background/35 p-4">
+              <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">System status</div>
                 <div className="mt-3 font-display text-4xl font-semibold tracking-[-0.04em] text-foreground">{healthLabel}</div>
                 <div className="mt-2 text-sm text-muted-foreground">Server time: {formatTimestamp(health?.time)}</div>
               </div>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Sources</div>
                   <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{sourceStats.total}</div>
                 </div>
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Active</div>
                   <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{sourceStats.active}</div>
                 </div>
@@ -223,7 +223,7 @@ export function SystemHealth() {
               </WorkspaceStatusBanner>
             )}
             {tickError && <WorkspaceStatusBanner tone="warning">{tickError}</WorkspaceStatusBanner>}
-            <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+            <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
               <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Last refresh</div>
               <div className="mt-2 flex items-center gap-2 text-sm font-medium text-foreground">
                 <Clock3 className="h-4 w-4 text-muted-foreground" />
@@ -301,7 +301,7 @@ export function SystemHealth() {
             {!metricsRaw ? (
               <WorkspaceEmptyState title="Metrics are not available" body="Refresh the page or verify the metrics endpoint if you expected Prometheus output here." />
             ) : (
-              <pre className="max-h-[560px] overflow-auto rounded-[24px] border border-border/70 bg-background/35 p-4 font-mono text-xs leading-6 text-muted-foreground whitespace-pre-wrap break-all">
+              <pre className="max-h-[560px] overflow-auto rounded-lg border border-border/70 bg-background/35 p-4 font-mono text-xs leading-6 text-muted-foreground whitespace-pre-wrap break-all">
                 {metricsRaw}
               </pre>
             )}

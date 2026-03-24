@@ -210,18 +210,18 @@ export function AuditLogs() {
                 </Button>
               </div>
             </div>
-            <div className="grid gap-3 rounded-[28px] border border-border/70 bg-background/35 p-4">
-              <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+            <div className="grid gap-3 rounded-xl border border-border/70 bg-background/35 p-4">
+              <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Diff coverage</div>
                 <div className="mt-3 font-display text-4xl font-semibold tracking-[-0.04em] text-foreground">{stats.changedFields}</div>
                 <div className="mt-2 text-sm text-muted-foreground">Field-level changes surfaced in the current result set.</div>
               </div>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Actors</div>
                   <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats.actors}</div>
                 </div>
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Actions</div>
                   <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats.actions}</div>
                 </div>
@@ -325,19 +325,19 @@ export function AuditLogs() {
                   </div>
 
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                    <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
                       <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Actor</div>
                       <div className="mt-2 text-sm font-medium text-foreground">{entry.actor}</div>
                     </div>
-                    <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                    <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
                       <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Entity ID</div>
                       <code className="mt-2 block break-all text-sm text-foreground">{entry.entity_id}</code>
                     </div>
-                    <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                    <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
                       <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Changed fields</div>
                       <div className="mt-2 text-sm font-medium text-foreground">{diffRows.length}</div>
                     </div>
-                    <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                    <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
                       <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Recorded</div>
                       <div className="mt-2 flex items-center gap-2 text-sm font-medium text-foreground">
                         <Clock3 className="h-4 w-4 text-muted-foreground" />
@@ -347,7 +347,7 @@ export function AuditLogs() {
                   </div>
 
                   {isExpanded && (
-                    <div className="rounded-[24px] border border-border/70 bg-background/35 p-4">
+                    <div className="rounded-lg border border-border/70 bg-background/35 p-4">
                       <div className="mb-4 flex items-center justify-between gap-3">
                         <div>
                           <div className="font-medium text-foreground">Field-level diff</div>
@@ -363,19 +363,19 @@ export function AuditLogs() {
                       ) : (
                         <div className="space-y-3">
                           {diffRows.map((row) => (
-                            <div key={row.path} className="grid gap-3 rounded-[22px] border border-border/70 bg-card/65 p-4 lg:grid-cols-[minmax(180px,0.7fr)_minmax(0,1fr)_auto_minmax(0,1fr)] lg:items-start">
+                            <div key={row.path} className="grid gap-3 rounded-lg border border-border/70 bg-card/65 p-4 lg:grid-cols-[minmax(180px,0.7fr)_minmax(0,1fr)_auto_minmax(0,1fr)] lg:items-start">
                               <div>
                                 <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Path</div>
                                 <code className="mt-2 block break-all text-sm text-foreground">{row.path}</code>
                               </div>
                               <div>
                                 <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Before</div>
-                                <div className="mt-2 break-all rounded-[18px] border border-border/60 bg-background/35 px-3 py-3 font-mono text-xs text-muted-foreground">{row.before}</div>
+                                <div className="mt-2 break-all rounded-lg border border-border/60 bg-background/35 px-3 py-3 font-mono text-xs text-muted-foreground">{row.before}</div>
                               </div>
                               <div className="hidden items-center justify-center text-sm font-semibold text-muted-foreground lg:flex">to</div>
                               <div>
                                 <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">After</div>
-                                <div className="mt-2 break-all rounded-[18px] border border-primary/20 bg-primary/10 px-3 py-3 font-mono text-xs text-foreground">{row.after}</div>
+                                <div className="mt-2 break-all rounded-lg border border-primary/20 bg-primary/10 px-3 py-3 font-mono text-xs text-foreground">{row.after}</div>
                               </div>
                             </div>
                           ))}

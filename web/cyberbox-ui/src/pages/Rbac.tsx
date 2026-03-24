@@ -41,10 +41,10 @@ function RoleEditor({
   };
 
   return (
-    <div className="space-y-4 rounded-[24px] border border-border/70 bg-background/35 p-4">
+    <div className="space-y-4 rounded-lg border border-border/70 bg-background/35 p-4">
       <div className="grid gap-3 sm:grid-cols-2">
         {ALL_ROLES.map((role) => (
-          <label key={role} className="flex items-center gap-3 rounded-[18px] border border-border/70 bg-card/65 px-3 py-3 text-sm text-foreground">
+          <label key={role} className="flex items-center gap-3 rounded-lg border border-border/70 bg-card/65 px-3 py-3 text-sm text-foreground">
             <input type="checkbox" checked={selected.has(role)} onChange={() => toggle(role)} />
             <span>{role}</span>
           </label>
@@ -102,7 +102,7 @@ function CreateUserModal({
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         {ALL_ROLES.map((role) => (
-          <label key={role} className="flex items-center gap-3 rounded-[18px] border border-border/70 bg-card/65 px-3 py-3 text-sm text-foreground">
+          <label key={role} className="flex items-center gap-3 rounded-lg border border-border/70 bg-card/65 px-3 py-3 text-sm text-foreground">
             <input type="checkbox" checked={roles.has(role)} onChange={() => toggle(role)} />
             <span>{role}</span>
           </label>
@@ -215,17 +215,17 @@ export function Rbac() {
                 </Button>
               </div>
             </div>
-            <div className="grid gap-3 rounded-[28px] border border-border/70 bg-background/35 p-4">
-              <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+            <div className="grid gap-3 rounded-xl border border-border/70 bg-background/35 p-4">
+              <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">User entries</div>
                 <div className="mt-3 font-display text-4xl font-semibold tracking-[-0.04em] text-foreground">{users.length}</div>
               </div>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Admins</div>
                   <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats.admins}</div>
                 </div>
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Analysts</div>
                   <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats.analysts}</div>
                 </div>

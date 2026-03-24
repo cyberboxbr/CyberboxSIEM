@@ -9,7 +9,7 @@ interface WorkspaceTableShellProps {
 
 export function WorkspaceTableShell({ children, className }: WorkspaceTableShellProps) {
   return (
-    <div className={cn('overflow-x-auto rounded-[24px] border border-border/70 bg-background/35', className)}>
+    <div className={cn('overflow-x-auto rounded-lg border border-border/70 bg-background/35', className)}>
       {children}
     </div>
   );

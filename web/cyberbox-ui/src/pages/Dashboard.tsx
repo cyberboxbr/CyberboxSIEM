@@ -179,47 +179,47 @@ export function Dashboard({ onRefresh }: DashboardProps) {
   const activeCoverage = stats?.total_agents ? Math.round((stats.active_agents / stats.total_agents) * 100) : 0;
 
   return (
-    <div className="flex flex-col gap-6">
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.95fr)]">
+    <div className="flex flex-col gap-4">
+      <section className="grid gap-3 xl:grid-cols-[minmax(0,1.55fr)_minmax(280px,0.95fr)]">
         <Card className="overflow-hidden border-primary/15 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.16),transparent_38%),linear-gradient(145deg,hsl(var(--card)),hsl(var(--card)/0.82))]">
-          <CardContent className="grid gap-8 p-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(240px,0.8fr)]">
+          <CardContent className="grid gap-5 p-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(200px,0.8fr)]">
             <div>
-              <div className="mb-4 flex flex-wrap gap-2">
+              <div className="mb-3 flex flex-wrap gap-1.5">
                 <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">Live SOC workspace</Badge>
                 <Badge variant="secondary" className="bg-background/55">Auto refresh every 15s</Badge>
               </div>
-              <div className="max-w-2xl font-display text-4xl font-semibold leading-[0.96] tracking-[-0.05em] text-foreground sm:text-[3.1rem]">
+              <div className="max-w-2xl font-display text-2xl font-semibold leading-[0.96] tracking-[-0.04em] text-foreground sm:text-3xl">
                 A sharper shell for the Cyberbox command center.
               </div>
-              <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
                 The new dashboard leans into a shadcn-style block layout so the highest-signal telemetry is easier to scan, refresh, and act on.
               </p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <Button asChild>
-                  <Link to="/alerts">Open alert queue <ArrowRight className="h-4 w-4" /></Link>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button asChild size="sm">
+                  <Link to="/alerts">Open alert queue <ArrowRight className="h-3.5 w-3.5" /></Link>
                 </Button>
-                <Button asChild variant="outline">
-                  <Link to="/search">Hunt in search <Search className="h-4 w-4" /></Link>
+                <Button asChild variant="outline" size="sm">
+                  <Link to="/search">Hunt in search <Search className="h-3.5 w-3.5" /></Link>
                 </Button>
               </div>
             </div>
-            <div className="grid gap-3 rounded-[28px] border border-border/70 bg-background/35 p-4">
-              <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Sync state</div>
-                <div className="mt-3 text-sm text-foreground">Last update: <span className="font-medium">{lastUpdated ? lastUpdated.toLocaleTimeString() : 'waiting'}</span></div>
+            <div className="grid gap-2 rounded-lg border border-border/70 bg-background/35 p-3">
+              <div className="rounded-md border border-border/70 bg-card/70 px-3 py-2">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Sync state</div>
+                <div className="mt-1 text-xs text-foreground">Last update: <span className="font-medium">{lastUpdated ? lastUpdated.toLocaleTimeString() : 'waiting'}</span></div>
               </div>
-              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Current EPS</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats ? stats.current_eps.toFixed(1) : '0.0'}</div>
+              <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
+                <div className="rounded-md border border-border/70 bg-card/70 px-3 py-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Current EPS</div>
+                  <div className="mt-1 font-display text-xl font-semibold tracking-[-0.04em] text-foreground">{stats ? stats.current_eps.toFixed(1) : '0.0'}</div>
                 </div>
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">MTTR</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{formatDuration(stats?.mttr_seconds ?? null)}</div>
+                <div className="rounded-md border border-border/70 bg-card/70 px-3 py-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">MTTR</div>
+                  <div className="mt-1 font-display text-xl font-semibold tracking-[-0.04em] text-foreground">{formatDuration(stats?.mttr_seconds ?? null)}</div>
                 </div>
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Fleet coverage</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{activeCoverage}%</div>
+                <div className="rounded-md border border-border/70 bg-card/70 px-3 py-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Fleet coverage</div>
+                  <div className="mt-1 font-display text-xl font-semibold tracking-[-0.04em] text-foreground">{activeCoverage}%</div>
                 </div>
               </div>
             </div>
@@ -227,18 +227,18 @@ export function Dashboard({ onRefresh }: DashboardProps) {
         </Card>
 
         <Card>
-          <CardHeader className="pb-4">
+          <CardHeader className="pb-2">
             <CardTitle>Range and refresh</CardTitle>
             <CardDescription>Keep the board focused on the window you want to investigate.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="grid grid-cols-2 gap-3">
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
               {RANGE_OPTIONS.map((option) => (
                 <Button
                   key={option.value}
                   type="button"
                   variant={option.value === timeRange ? 'default' : 'outline'}
-                  className={cn('rounded-[22px]', option.value === timeRange && 'shadow-[0_14px_40px_-22px_hsl(var(--primary)/0.95)]')}
+                  className={cn('rounded-lg', option.value === timeRange && 'shadow-[0_14px_40px_-22px_hsl(var(--primary)/0.95)]')}
                   onClick={() => setTimeRange(option.value)}
                 >
                   {option.label}
@@ -246,7 +246,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
               ))}
             </div>
             {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
-            <Button type="button" className="w-full rounded-[22px]" onClick={handleRefresh} disabled={isRefreshing}>
+            <Button type="button" className="w-full rounded-lg" onClick={handleRefresh} disabled={isRefreshing}>
               <RefreshCcw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
               {isRefreshing ? 'Refreshing workspace' : `Refresh ${rangeLabel}`}
             </Button>
@@ -254,25 +254,25 @@ export function Dashboard({ onRefresh }: DashboardProps) {
         </Card>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <WorkspaceMetricCard label="Events" value={formatCompact(stats?.total_events ?? 0)} hint={`Across ${stats?.events_by_source.length ?? 0} active sources.`} icon={Activity} valueClassName="text-4xl" />
-        <WorkspaceMetricCard label="Open Alerts" value={String(stats?.open_alerts ?? 0)} hint={`${stats?.alerts_by_severity.critical ?? 0} critical and ${stats?.alerts_by_severity.high ?? 0} high.`} icon={AlertTriangle} valueClassName="text-4xl" />
-        <WorkspaceMetricCard label="Active Agents" value={`${stats?.active_agents ?? 0}/${stats?.total_agents ?? 0}`} hint={`${topAgents.filter((agent) => agent.status !== 'active').length} agents need attention.`} icon={ServerCog} valueClassName="text-4xl" />
-        <WorkspaceMetricCard label="Detections" value={String(stats?.active_rules ?? 0)} hint={`${topRules.length} rules contributed alerts in this window.`} icon={Shield} valueClassName="text-4xl" />
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <WorkspaceMetricCard label="Events" value={formatCompact(stats?.total_events ?? 0)} hint={`Across ${stats?.events_by_source.length ?? 0} active sources.`} icon={Activity} />
+        <WorkspaceMetricCard label="Open Alerts" value={String(stats?.open_alerts ?? 0)} hint={`${stats?.alerts_by_severity.critical ?? 0} critical and ${stats?.alerts_by_severity.high ?? 0} high.`} icon={AlertTriangle} />
+        <WorkspaceMetricCard label="Active Agents" value={`${stats?.active_agents ?? 0}/${stats?.total_agents ?? 0}`} hint={`${topAgents.filter((agent) => agent.status !== 'active').length} agents need attention.`} icon={ServerCog} />
+        <WorkspaceMetricCard label="Detections" value={String(stats?.active_rules ?? 0)} hint={`${topRules.length} rules contributed alerts in this window.`} icon={Shield} />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
-        <div className="grid gap-4">
+      <section className="grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+        <div className="grid gap-3">
           <Card>
             <CardHeader>
               <CardTitle>Event volume</CardTitle>
               <CardDescription>Telemetry throughput across the current {rangeLabel.toLowerCase()} window.</CardDescription>
             </CardHeader>
-            <CardContent className="h-[320px]">
+            <CardContent className="h-[240px]">
               {isLoading && !stats ? (
-                <WorkspaceEmptyState title="Loading telemetry" body="Pulling the latest event profile for this tenant." className="min-h-[220px]" />
+                <WorkspaceEmptyState title="Loading telemetry" body="Pulling the latest event profile for this tenant." />
               ) : eventVolume.length === 0 ? (
-                <WorkspaceEmptyState title="No event traffic yet" body="Once collectors begin sending data, this panel will fill in." className="min-h-[220px]" />
+                <WorkspaceEmptyState title="No event traffic yet" body="Once collectors begin sending data, this panel will fill in." />
               ) : (
                 <DashboardEventVolumeChart data={eventVolume} />
               )}
@@ -284,33 +284,31 @@ export function Dashboard({ onRefresh }: DashboardProps) {
               <CardTitle>Analyst queue</CardTitle>
               <CardDescription>Open alerts sorted so the riskiest work stays visible first.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-2">
               {alerts.length === 0 ? (
-                <WorkspaceEmptyState title="Queue is clear" body="New open alerts will land here as detections trigger." className="min-h-[220px]" />
+                <WorkspaceEmptyState title="Queue is clear" body="New open alerts will land here as detections trigger." />
               ) : (
                 alerts.map((alert) => (
                   <Link
                     key={alert.alert_id}
                     to={`/alerts/${alert.alert_id}`}
-                    className="group flex flex-col gap-3 rounded-[24px] border border-border/70 bg-background/35 p-4 transition-colors hover:bg-muted/55"
+                    className="group flex items-start justify-between gap-3 rounded-lg border border-border/70 bg-background/35 px-3 py-2.5 transition-colors hover:bg-muted/55"
                   >
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant={severityVariant(alert.severity)}>{alert.severity}</Badge>
-                          <span className="text-xs uppercase tracking-[0.22em] text-muted-foreground">{formatRelative(alert.first_seen)}</span>
-                        </div>
-                        <div className="mt-3 truncate font-display text-xl font-semibold tracking-[-0.03em] text-foreground">
-                          {alert.rule_title || `Rule ${alert.rule_id.slice(0, 8)}`}
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-3 text-sm text-muted-foreground">
-                          <span>{alert.agent_meta?.hostname ?? 'Unassigned asset'}</span>
-                          <span>{alert.hit_count} hits</span>
-                          <span>{alert.assignee ? `Owner: ${alert.assignee}` : 'Unassigned'}</span>
-                        </div>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge variant={severityVariant(alert.severity)}>{alert.severity}</Badge>
+                        <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">{formatRelative(alert.first_seen)}</span>
                       </div>
-                      <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1" />
+                      <div className="mt-1.5 truncate font-display text-sm font-semibold tracking-[-0.02em] text-foreground">
+                        {alert.rule_title || `Rule ${alert.rule_id.slice(0, 8)}`}
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                        <span>{alert.agent_meta?.hostname ?? 'Unassigned asset'}</span>
+                        <span>{alert.hit_count} hits</span>
+                        <span>{alert.assignee ? `Owner: ${alert.assignee}` : 'Unassigned'}</span>
+                      </div>
                     </div>
+                    <ArrowRight className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1" />
                   </Link>
                 ))
               )}
@@ -318,7 +316,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
           </Card>
         </div>
 
-        <div className="grid gap-4">
+        <div className="grid gap-3">
           <Card>
             <CardHeader>
               <CardTitle>Top ingest sources</CardTitle>
@@ -326,7 +324,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
             </CardHeader>
             <CardContent>
               {topSources.length === 0 ? (
-                <WorkspaceEmptyState title="No sources yet" body="Source activity will appear here once telemetry starts flowing." className="min-h-[220px]" />
+                <WorkspaceEmptyState title="No sources yet" body="Source activity will appear here once telemetry starts flowing." />
               ) : (
                 <div className="space-y-3">
                   {topSources.map((source, index) => {
@@ -354,23 +352,23 @@ export function Dashboard({ onRefresh }: DashboardProps) {
               <CardTitle>Top triggered rules</CardTitle>
               <CardDescription>The detections creating the most pressure right now.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-2">
               {topRules.length === 0 ? (
-                <WorkspaceEmptyState title="No rule activity yet" body="Triggered rules will show up here when alerts are flowing." className="min-h-[220px]" />
+                <WorkspaceEmptyState title="No rule activity yet" body="Triggered rules will show up here when alerts are flowing." />
               ) : (
                 topRules.map((rule) => (
-                  <div key={rule.rule_id} className="rounded-[22px] border border-border/70 bg-background/35 p-4">
-                    <div className="flex items-start justify-between gap-3">
+                  <div key={rule.rule_id} className="rounded-lg border border-border/70 bg-background/35 px-3 py-2.5">
+                    <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="truncate font-medium text-foreground">{rule.rule_title}</div>
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <div className="truncate text-sm font-medium text-foreground">{rule.rule_title}</div>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           <Badge variant={severityVariant((['critical', 'high', 'medium', 'low'].includes(rule.severity) ? rule.severity : 'medium') as Severity)}>
                             {rule.severity}
                           </Badge>
-                          <span className="text-sm text-muted-foreground">{rule.alert_count} alerts</span>
+                          <span className="text-xs text-muted-foreground">{rule.alert_count} alerts</span>
                         </div>
                       </div>
-                      <BellRing className="mt-1 h-4 w-4 shrink-0 text-primary" />
+                      <BellRing className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
                     </div>
                   </div>
                 ))
@@ -383,15 +381,15 @@ export function Dashboard({ onRefresh }: DashboardProps) {
               <CardTitle>Fleet health</CardTitle>
               <CardDescription>Collector readiness and the endpoints to watch first.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-2">
               {topAgents.length === 0 ? (
-                <WorkspaceEmptyState title="No agents registered" body="Agent health will appear here once the fleet is enrolled." className="min-h-[220px]" />
+                <WorkspaceEmptyState title="No agents registered" body="Agent health will appear here once the fleet is enrolled." />
               ) : (
                 topAgents.map((agent) => (
-                  <div key={agent.agent_id} className="flex items-center justify-between gap-3 rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                  <div key={agent.agent_id} className="flex items-center justify-between gap-2 rounded-lg border border-border/70 bg-background/35 px-3 py-2">
                     <div className="min-w-0">
-                      <div className="truncate font-medium text-foreground">{agent.hostname}</div>
-                      <div className="truncate text-sm text-muted-foreground">{agent.agent_id}</div>
+                      <div className="truncate text-sm font-medium text-foreground">{agent.hostname}</div>
+                      <div className="truncate text-xs text-muted-foreground">{agent.agent_id}</div>
                     </div>
                     <Badge variant={agent.status === 'active' ? 'success' : agent.status === 'stale' ? 'warning' : 'destructive'}>
                       {agent.status}

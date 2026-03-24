@@ -403,7 +403,7 @@ export function CommandPalette({ open, onClose, onOpenBypassEditor }: CommandPal
                           type="button"
                           data-palette-index={index}
                           className={cn(
-                            'flex w-full items-center gap-4 rounded-[22px] px-3 py-3 text-left transition-colors',
+                            'flex w-full items-center gap-4 rounded-lg px-3 py-3 text-left transition-colors',
                             active ? 'bg-primary/10 text-foreground' : 'text-foreground hover:bg-muted/50',
                           )}
                           onClick={() => selectItem(item)}

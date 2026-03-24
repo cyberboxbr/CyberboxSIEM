@@ -306,7 +306,7 @@ export function TopBar({
 
   return (
     <header className="sticky top-0 z-30 px-4 pt-4 sm:px-6 lg:px-8">
-      <div className="rounded-[30px] border border-border/70 bg-card/75 p-4 shadow-card backdrop-blur-2xl sm:p-5">
+      <div className="rounded-xl border border-border/70 bg-card/75 p-4 shadow-card backdrop-blur-2xl sm:p-5">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex items-start gap-3">
             <Button
@@ -342,7 +342,7 @@ export function TopBar({
             <button
               type="button"
               onClick={onOpenCommandPalette}
-              className="group flex w-full items-center gap-3 rounded-[24px] border border-border/80 bg-background/35 px-4 py-3 text-left transition-colors hover:bg-muted/60"
+              className="group flex w-full items-center gap-3 rounded-lg border border-border/80 bg-background/35 px-4 py-3 text-left transition-colors hover:bg-muted/60"
             >
               <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border/70 bg-card/80 text-muted-foreground">
                 <Search className="h-4 w-4" />
@@ -383,7 +383,7 @@ export function TopBar({
                   <button
                     type="button"
                     onClick={() => setMenuOpen((open) => !open)}
-                    className="flex items-center gap-3 rounded-[24px] border border-border/80 bg-background/35 px-3 py-2.5 text-left transition-colors hover:bg-muted/60"
+                    className="flex items-center gap-3 rounded-lg border border-border/80 bg-background/35 px-3 py-2.5 text-left transition-colors hover:bg-muted/60"
                   >
                     <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/15 font-semibold text-primary">
                       {initials || 'SU'}
@@ -396,8 +396,8 @@ export function TopBar({
                   </button>
 
                   {menuOpen && (
-                    <div className={`absolute right-0 top-[calc(100%+0.75rem)] z-50 rounded-[28px] border border-border/80 bg-popover/95 p-4 text-popover-foreground shadow-shell backdrop-blur-2xl ${authMode === 'bypass' ? 'w-[24rem]' : 'w-[22rem]'}`}>
-                      <div className="rounded-[24px] border border-border/70 bg-background/40 p-4">
+                    <div className={`absolute right-0 top-[calc(100%+0.75rem)] z-50 rounded-xl border border-border/80 bg-popover/95 p-4 text-popover-foreground shadow-shell backdrop-blur-2xl ${authMode === 'bypass' ? 'w-[24rem]' : 'w-[22rem]'}`}>
+                      <div className="rounded-lg border border-border/70 bg-background/40 p-4">
                         <div className="flex items-start gap-3">
                           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/15 font-semibold text-primary">
                             {initials || 'SU'}
@@ -442,7 +442,7 @@ export function TopBar({
                       </div>
 
                       {authMode === 'bypass' && bypassIdentity && (
-                        <div className="mt-4 rounded-[24px] border border-border/70 bg-background/35 p-4">
+                        <div className="mt-4 rounded-lg border border-border/70 bg-background/35 p-4">
                           <div className="mb-1 text-xs font-semibold uppercase tracking-[0.24em] text-primary">
                             Development Identity
                           </div>
@@ -550,7 +550,7 @@ export function TopBar({
                           setMenuOpen(false);
                           void signOut();
                         }}
-                        className="mt-4 flex w-full items-center justify-between rounded-[22px] border border-border/80 bg-background/35 px-4 py-3 text-sm font-medium transition-colors hover:bg-muted/60"
+                        className="mt-4 flex w-full items-center justify-between rounded-lg border border-border/80 bg-background/35 px-4 py-3 text-sm font-medium transition-colors hover:bg-muted/60"
                       >
                         <span className="flex items-center gap-2">
                           <LogOut className="h-4 w-4" />

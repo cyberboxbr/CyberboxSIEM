@@ -27,7 +27,7 @@
     --border: 216 18% 24%;
     --input: 217 18% 20%;
     --ring: 151 74% 48%;
-    --radius: 1.35rem;
+    --radius: 0.75rem;
     --sidebar: 228 32% 8%;
     --sidebar-foreground: 210 40% 95%;
     --sidebar-border: 222 22% 18%;
@@ -250,7 +250,7 @@
 
 @layer components {
   .cy-shell-panel {
-    @apply rounded-[28px] border border-border/70 bg-card/80 shadow-card backdrop-blur-xl;
+    @apply rounded-xl border border-border/70 bg-card/80 shadow-card backdrop-blur-xl;
   }
 
   .cy-shell-kicker {

@@ -257,21 +257,21 @@ export function AgentFleet() {
                 </Button>
               </div>
             </div>
-            <div className="grid gap-3 rounded-[28px] border border-border/70 bg-background/35 p-4">
-              <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+            <div className="grid gap-3 rounded-xl border border-border/70 bg-background/35 p-4">
+              <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Fleet size</div>
                 <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{agents.length}</div>
               </div>
               <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Active</div>
                   <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{counts.active}</div>
                 </div>
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Stale</div>
                   <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{counts.stale}</div>
                 </div>
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Offline</div>
                   <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{counts.offline}</div>
                 </div>
@@ -353,19 +353,19 @@ export function AgentFleet() {
                         {agent.group && <Badge variant="secondary">{agent.group}</Badge>}
                       </div>
                       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                        <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                        <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
                           <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Last seen</div>
                           <div className="mt-2 text-sm font-medium text-foreground">{rel(agent.last_seen)}</div>
                         </div>
-                        <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                        <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
                           <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">OS</div>
                           <div className="mt-2 text-sm font-medium text-foreground">{agent.os || 'Unknown'}</div>
                         </div>
-                        <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                        <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
                           <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">IP</div>
                           <div className="mt-2 text-sm font-medium text-foreground">{agent.ip || 'Not set'}</div>
                         </div>
-                        <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                        <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
                           <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Tags</div>
                           <div className="mt-2 text-sm font-medium text-foreground">{agent.tags.length ? agent.tags.join(', ') : 'None'}</div>
                         </div>
@@ -384,11 +384,11 @@ export function AgentFleet() {
                     <div className="mt-5 grid gap-5 border-t border-border/70 pt-5 xl:grid-cols-[minmax(0,1fr)_380px]">
                       <div className="space-y-5">
                         <div className="grid gap-4 sm:grid-cols-2">
-                          <div className="rounded-[24px] border border-border/70 bg-background/35 p-4">
+                          <div className="rounded-lg border border-border/70 bg-background/35 p-4">
                             <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Tenant</div>
                             <div className="mt-3 text-sm text-foreground">{expandedAgent.tenant_id}</div>
                           </div>
-                          <div className="rounded-[24px] border border-border/70 bg-background/35 p-4">
+                          <div className="rounded-lg border border-border/70 bg-background/35 p-4">
                             <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Heartbeat</div>
                             <div className="mt-3 text-sm text-foreground">{abs(expandedAgent.last_seen)}</div>
                           </div>
@@ -431,7 +431,7 @@ export function AgentFleet() {
                         </form>
                       </div>
 
-                      <div className="space-y-4 rounded-[28px] border border-border/70 bg-background/35 p-4">
+                      <div className="space-y-4 rounded-xl border border-border/70 bg-background/35 p-4">
                         <div>
                           <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Push config</div>
                           <p className="mt-2 text-sm text-muted-foreground">Send a TOML configuration payload directly to this agent.</p>
@@ -449,7 +449,7 @@ export function AgentFleet() {
                         </Button>
                         {configStatus && (
                           <div className={cn(
-                            'rounded-[22px] border px-4 py-3 text-sm',
+                            'rounded-lg border px-4 py-3 text-sm',
                             configStatus.startsWith('Error')
                               ? 'border-amber-500/20 bg-amber-500/10 text-amber-100'
                               : 'border-primary/20 bg-primary/10 text-primary',

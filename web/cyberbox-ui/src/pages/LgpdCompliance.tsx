@@ -186,19 +186,19 @@ export function LgpdCompliance() {
                 </Button>
               </div>
             </div>
-            <div className="grid gap-3 rounded-[28px] border border-border/70 bg-background/35 p-4">
-              <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+            <div className="grid gap-3 rounded-xl border border-border/70 bg-background/35 p-4">
+              <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Controller</div>
                 <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">
                   {config?.controller_name ?? 'Pending'}
                 </div>
               </div>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">DPO email</div>
                   <div className="mt-3 break-all text-sm font-medium text-foreground">{config?.dpo_email ?? 'Unavailable'}</div>
                 </div>
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Legal basis</div>
                   <div className="mt-3 text-sm font-medium text-foreground">{config?.legal_basis ?? 'Unavailable'}</div>
                 </div>
@@ -221,15 +221,15 @@ export function LgpdCompliance() {
               <WorkspaceStatusBanner tone="warning">{configError}</WorkspaceStatusBanner>
             ) : config ? (
               <>
-                <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Controller name</div>
                   <div className="mt-2 text-sm font-medium text-foreground">{config.controller_name}</div>
                 </div>
-                <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">DPO email</div>
                   <div className="mt-2 break-all text-sm font-medium text-foreground">{config.dpo_email}</div>
                 </div>
-                <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Legal basis</div>
                   <div className="mt-2 text-sm font-medium text-foreground">{config.legal_basis}</div>
                 </div>
@@ -369,7 +369,7 @@ export function LgpdCompliance() {
                   })}
                 </div>
               </div>
-              <label className="flex items-center gap-3 rounded-[22px] border border-border/70 bg-background/35 px-4 py-3 text-sm text-foreground">
+              <label className="flex items-center gap-3 rounded-lg border border-border/70 bg-background/35 px-4 py-3 text-sm text-foreground">
                 <input type="checkbox" checked={reportedToAnpd} onChange={(event) => setReportedToAnpd(event.target.checked)} />
                 Already reported to ANPD
               </label>

@@ -42,7 +42,7 @@ function DashboardRoute() {
 function RouteLoading() {
   return (
     <div className="flex min-h-[60vh] items-center justify-center px-6 py-12">
-      <div className="w-full max-w-md rounded-[28px] border border-border/70 bg-card/80 p-8 text-center shadow-card backdrop-blur-xl">
+      <div className="w-full max-w-md rounded-xl border border-border/70 bg-card/80 p-8 text-center shadow-card backdrop-blur-xl">
         <div className="font-display text-2xl font-semibold text-foreground">Loading workspace view</div>
         <div className="mt-3 text-sm text-muted-foreground">
           Pulling the next console surface into place.
@@ -59,7 +59,7 @@ function RequireRole({ allow, children }: { allow: 'admin' | 'analyst'; children
   if (!allowed) {
     return (
       <div className="mx-auto flex min-h-[70vh] max-w-3xl items-center justify-center px-6 py-12">
-        <div className="w-full rounded-[28px] border border-border/70 bg-card/80 p-10 text-center shadow-card backdrop-blur-xl">
+        <div className="w-full rounded-xl border border-border/70 bg-card/80 p-10 text-center shadow-card backdrop-blur-xl">
           <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-primary/20 bg-primary/12 text-3xl">
             Lock
           </div>
@@ -138,16 +138,16 @@ export function AuthenticatedApp() {
         onMobileClose={() => setMobileSidebarOpen(false)}
       />
 
-      <div className={`relative z-10 min-h-screen transition-[padding] duration-300 ${sidebarCollapsed ? 'lg:pl-[7rem]' : 'lg:pl-[18rem]'}`}>
+      <div className={`relative z-10 min-h-screen transition-[padding] duration-300 ${sidebarCollapsed ? 'lg:pl-[5rem]' : 'lg:pl-[15rem]'}`}>
         <TopBar
           onOpenSidebar={() => setMobileSidebarOpen(true)}
           onOpenCommandPalette={() => setCommandPaletteOpen(true)}
           openBypassEditorSignal={openBypassEditorSignal}
         />
 
-        <div className="px-4 pt-24 sm:px-6 lg:px-8">
+        <div className="px-3 pt-16 sm:px-4 lg:px-6">
           {activeBypassIdentity ? (
-            <div className="mb-4 rounded-[30px] border border-amber-300/20 bg-[linear-gradient(145deg,rgba(245,158,11,0.18),rgba(15,23,42,0.78))] p-4 shadow-card backdrop-blur-2xl sm:p-5">
+            <div className="mb-4 rounded-xl border border-amber-300/20 bg-[linear-gradient(145deg,rgba(245,158,11,0.18),rgba(15,23,42,0.78))] p-4 shadow-card backdrop-blur-2xl sm:p-5">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">

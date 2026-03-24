@@ -143,7 +143,7 @@ export function Sidebar({
       <aside
         className={cn(
           'fixed inset-y-0 left-0 z-50 flex h-screen flex-col border-r border-sidebar-border bg-[linear-gradient(180deg,hsl(var(--sidebar))_0%,hsl(228_34%_6%)_100%)] shadow-shell backdrop-blur-2xl transition-all duration-300',
-          desktopCollapsed ? 'w-24' : 'w-[18rem]',
+          desktopCollapsed ? 'w-20' : 'w-[15rem]',
           mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
         )}
       >
@@ -263,7 +263,7 @@ export function Sidebar({
                       )}
 
                       {desktopCollapsed && flyoutLabel === item.label && hasChildren && (
-                        <div className="absolute left-[calc(100%+0.75rem)] top-0 w-72 rounded-[24px] border border-border/70 bg-popover/95 p-3 shadow-shell backdrop-blur-2xl">
+                        <div className="absolute left-[calc(100%+0.75rem)] top-0 w-72 rounded-lg border border-border/70 bg-popover/95 p-3 shadow-shell backdrop-blur-2xl">
                           <div className="mb-2 px-3 pt-1 font-display text-lg font-semibold text-popover-foreground">
                             {item.label}
                           </div>
@@ -301,7 +301,7 @@ export function Sidebar({
           {activeBypassIdentity ? (
             <div
               className={cn(
-                'mb-3 rounded-[24px] border border-amber-300/20 bg-[linear-gradient(145deg,rgba(245,158,11,0.16),rgba(15,23,42,0.72))] p-3 text-xs text-amber-50/90',
+                'mb-3 rounded-lg border border-amber-300/20 bg-[linear-gradient(145deg,rgba(245,158,11,0.16),rgba(15,23,42,0.72))] p-3 text-xs text-amber-50/90',
                 desktopCollapsed && 'hidden',
               )}
             >
@@ -327,7 +327,7 @@ export function Sidebar({
               </div>
             </div>
           ) : (
-            <div className={cn('mb-3 rounded-[24px] border border-white/8 bg-white/5 p-3 text-xs text-sidebar-foreground/60', desktopCollapsed && 'hidden')}>
+            <div className={cn('mb-3 rounded-lg border border-white/8 bg-white/5 p-3 text-xs text-sidebar-foreground/60', desktopCollapsed && 'hidden')}>
               <div className="mb-1 font-semibold uppercase tracking-[0.22em] text-sidebar-accent">Live Console</div>
               <div>Blocks-ready shell with room to migrate pages incrementally.</div>
             </div>

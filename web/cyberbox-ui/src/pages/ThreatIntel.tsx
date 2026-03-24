@@ -181,21 +181,21 @@ export function ThreatIntel() {
                 </Button>
               </div>
             </div>
-            <div className="grid gap-3 rounded-[28px] border border-border/70 bg-background/35 p-4">
-              <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+            <div className="grid gap-3 rounded-xl border border-border/70 bg-background/35 p-4">
+              <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Total IOCs</div>
                 <div className="mt-3 font-display text-4xl font-semibold tracking-[-0.04em] text-foreground">{stats.totalIocs.toLocaleString()}</div>
               </div>
               <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Enabled</div>
                   <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats.enabled}</div>
                 </div>
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Manual</div>
                   <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats.manual}</div>
                 </div>
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Visible</div>
                   <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{filteredFeeds.length}</div>
                 </div>
@@ -253,26 +253,26 @@ export function ThreatIntel() {
                   <div className="mt-4 font-display text-2xl font-semibold tracking-[-0.03em] text-foreground">{feed.name}</div>
                   <div className="mt-2 break-all text-sm text-muted-foreground">{feed.url}</div>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                    <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
                       <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Last synced</div>
                       <div className="mt-2 text-sm font-medium text-foreground">{rel(feed.last_synced_at)}</div>
                     </div>
-                    <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                    <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
                       <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Sync interval</div>
                       <div className="mt-2 text-sm font-medium text-foreground">{feed.auto_sync_interval_secs > 0 ? `${feed.auto_sync_interval_secs}s` : 'Manual'}</div>
                     </div>
-                    <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                    <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
                       <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Enabled</div>
                       <div className="mt-2 text-sm font-medium text-foreground">{feed.enabled ? 'Yes' : 'No'}</div>
                     </div>
-                    <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                    <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
                       <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Feed ID</div>
                       <div className="mt-2 truncate text-sm font-medium text-foreground">{feed.feed_id}</div>
                     </div>
                   </div>
                 </div>
 
-                <div className="grid gap-4 rounded-[28px] border border-border/70 bg-background/35 p-4">
+                <div className="grid gap-4 rounded-xl border border-border/70 bg-background/35 p-4">
                   <div>
                     <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Sync health</div>
                     <div className="mt-3 text-sm text-muted-foreground">
@@ -280,11 +280,11 @@ export function ThreatIntel() {
                     </div>
                   </div>
                   <div className="space-y-3">
-                    <Button type="button" className="w-full justify-center rounded-[22px]" onClick={() => void onSync(feed.feed_id)} disabled={syncingId === feed.feed_id}>
+                    <Button type="button" className="w-full justify-center rounded-lg" onClick={() => void onSync(feed.feed_id)} disabled={syncingId === feed.feed_id}>
                       <RefreshCcw className={syncingId === feed.feed_id ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
                       {syncingId === feed.feed_id ? 'Syncing...' : 'Sync now'}
                     </Button>
-                    <Button type="button" variant="outline" className="w-full justify-center rounded-[22px]" onClick={() => void onDelete(feed.feed_id)}>
+                    <Button type="button" variant="outline" className="w-full justify-center rounded-lg" onClick={() => void onDelete(feed.feed_id)}>
                       <Trash2 className="h-4 w-4" />
                       Delete feed
                     </Button>
@@ -322,7 +322,7 @@ export function ThreatIntel() {
             <div className="mb-2 text-sm font-medium text-foreground">Sync interval (seconds)</div>
             <Input type="number" min={0} value={String(newInterval)} onChange={(event) => setNewInterval(Number(event.target.value))} />
           </div>
-          <label className="flex items-center gap-3 rounded-[22px] border border-border/70 bg-background/35 px-4 py-3 text-sm text-foreground">
+          <label className="flex items-center gap-3 rounded-lg border border-border/70 bg-background/35 px-4 py-3 text-sm text-foreground">
             <input type="checkbox" checked={newEnabled} onChange={(event) => setNewEnabled(event.target.checked)} />
             Enabled
           </label>

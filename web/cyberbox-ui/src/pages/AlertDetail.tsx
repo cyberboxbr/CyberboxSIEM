@@ -147,7 +147,7 @@ function ChipGroup({
 }) {
   if (!values.length) return null;
   return (
-    <div className="rounded-[24px] border border-border/70 bg-background/35 p-4">
+    <div className="rounded-lg border border-border/70 bg-background/35 p-4">
       <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
         <Icon className="h-4 w-4 text-primary" />
         <span>{label}</span>
@@ -373,7 +373,7 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
                     const ctx = evidenceById.get(eventId);
                     const params = new URLSearchParams({ q: `event_id = '${eventId.replace(/'/g, "''")}'`, from: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), to: new Date().toISOString() });
                     return (
-                      <div key={ref} className="flex flex-col gap-4 rounded-[24px] border border-border/70 bg-background/35 p-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div key={ref} className="flex flex-col gap-4 rounded-lg border border-border/70 bg-background/35 p-4 lg:flex-row lg:items-start lg:justify-between">
                         <div className="min-w-0">
                           <div className="text-xs uppercase tracking-[0.22em] text-muted-foreground">{ref}</div>
                           <div className="mt-2 font-medium text-foreground">{ctx?.summary ?? 'Reference captured, matching event row not loaded yet.'}</div>
@@ -395,7 +395,7 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
                     <div className="space-y-4">
                       {!evidenceContexts.length && !evidenceLoading && <WorkspaceEmptyState title="No matching events found" body="The references exist, but no matching event rows were found in the last seven days." className="min-h-[220px]" />}
                       {evidenceContexts.map((ctx, index) => (
-                        <div key={ctx.eventId ?? `${ctx.summary}-${index}`} className="rounded-[24px] border border-border/70 bg-background/35 p-4">
+                        <div key={ctx.eventId ?? `${ctx.summary}-${index}`} className="rounded-lg border border-border/70 bg-background/35 p-4">
                           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                             <div>
                               <div className="font-medium text-foreground">{ctx.summary}</div>
@@ -410,7 +410,7 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
                             {formatNetworkFlow(ctx) && <ChipGroup label="Network" values={[formatNetworkFlow(ctx)!]} icon={Network} />}
                             {ctx.filePath && <ChipGroup label="File" values={[ctx.filePath]} icon={FileText} />}
                           </div>
-                          <details className="mt-4 rounded-[22px] border border-border/70 bg-card/65 px-4 py-3"><summary className="cursor-pointer text-sm font-medium text-foreground">Raw JSON</summary><pre className="mt-3 overflow-auto rounded-[20px] bg-slate-950/70 p-4 text-xs text-slate-100">{JSON.stringify(evidenceRows[index], null, 2)}</pre></details>
+                          <details className="mt-4 rounded-lg border border-border/70 bg-card/65 px-4 py-3"><summary className="cursor-pointer text-sm font-medium text-foreground">Raw JSON</summary><pre className="mt-3 overflow-auto rounded-lg bg-slate-950/70 p-4 text-xs text-slate-100">{JSON.stringify(evidenceRows[index], null, 2)}</pre></details>
                         </div>
                       ))}
                     </div>
@@ -425,13 +425,13 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
               {rule ? (
                 <>
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Mode</div><div className="mt-2 text-sm text-foreground">{rule.schedule_or_stream}</div></div>
-                    <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Enabled</div><div className="mt-2 text-sm text-foreground">{rule.enabled ? 'Yes' : 'No'}</div></div>
-                    <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Rule severity</div><div className="mt-2"><Badge variant={severityVariant(rule.severity)}>{rule.severity}</Badge></div></div>
-                    <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Schedule</div><div className="mt-2 text-sm text-foreground">{rule.schedule ? `${rule.schedule.interval_seconds}s every run` : 'Stream rule'}</div></div>
+                    <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Mode</div><div className="mt-2 text-sm text-foreground">{rule.schedule_or_stream}</div></div>
+                    <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Enabled</div><div className="mt-2 text-sm text-foreground">{rule.enabled ? 'Yes' : 'No'}</div></div>
+                    <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Rule severity</div><div className="mt-2"><Badge variant={severityVariant(rule.severity)}>{rule.severity}</Badge></div></div>
+                    <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Schedule</div><div className="mt-2 text-sm text-foreground">{rule.schedule ? `${rule.schedule.interval_seconds}s every run` : 'Stream rule'}</div></div>
                   </div>
                   <Button type="button" variant="outline" onClick={() => setRuleYamlOpen((value) => !value)}><Workflow className="h-4 w-4" />{ruleYamlOpen ? 'Hide Sigma source' : 'Show Sigma source'}</Button>
-                  {ruleYamlOpen && <pre className="overflow-auto rounded-[24px] border border-border/70 bg-slate-950/70 p-5 text-xs text-slate-100">{rule.sigma_source}</pre>}
+                  {ruleYamlOpen && <pre className="overflow-auto rounded-lg border border-border/70 bg-slate-950/70 p-5 text-xs text-slate-100">{rule.sigma_source}</pre>}
                 </>
               ) : <WorkspaceEmptyState title="Rule metadata unavailable" body="The alert loaded, but the backing rule could not be resolved from the current rule set." className="min-h-[220px]" />}
             </CardContent>
@@ -442,15 +442,15 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
           <Card>
             <CardHeader className="pb-4"><CardTitle>AI analysis</CardTitle><CardDescription>Machine-generated context to accelerate triage.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
-              {explainLoading && <div className="flex min-h-[220px] items-center justify-center rounded-[24px] border border-border/70 bg-background/35 text-sm text-muted-foreground"><Loader2 className="mr-3 h-4 w-4 animate-spin" />Building analyst summary</div>}
+              {explainLoading && <div className="flex min-h-[220px] items-center justify-center rounded-lg border border-border/70 bg-background/35 text-sm text-muted-foreground"><Loader2 className="mr-3 h-4 w-4 animate-spin" />Building analyst summary</div>}
               {!explainLoading && explainError && <WorkspaceStatusBanner tone="warning">{explainError}</WorkspaceStatusBanner>}
               {!explainLoading && explain && (
                 <>
-                  <div className="rounded-[24px] border border-border/70 bg-background/35 p-4"><div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground"><Bot className="h-4 w-4 text-primary" /><span>Summary</span></div><p className="mt-3 text-sm leading-6 text-foreground">{explain.summary}</p></div>
-                  <div className="rounded-[24px] border border-border/70 bg-background/35 p-4"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Why suspicious</div><p className="mt-3 text-sm leading-6 text-muted-foreground">{explain.why_suspicious}</p></div>
-                  <div className="rounded-[24px] border border-border/70 bg-background/35 p-4"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Likely cause</div><p className="mt-3 text-sm leading-6 text-muted-foreground">{explain.likely_cause}</p></div>
+                  <div className="rounded-lg border border-border/70 bg-background/35 p-4"><div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground"><Bot className="h-4 w-4 text-primary" /><span>Summary</span></div><p className="mt-3 text-sm leading-6 text-foreground">{explain.summary}</p></div>
+                  <div className="rounded-lg border border-border/70 bg-background/35 p-4"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Why suspicious</div><p className="mt-3 text-sm leading-6 text-muted-foreground">{explain.why_suspicious}</p></div>
+                  <div className="rounded-lg border border-border/70 bg-background/35 p-4"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Likely cause</div><p className="mt-3 text-sm leading-6 text-muted-foreground">{explain.likely_cause}</p></div>
                   <div className={cn('inline-flex rounded-full border px-3 py-1.5 text-sm font-medium', fpClass)}>{explain.false_positive_likelihood} false-positive likelihood</div>
-                  <div className="space-y-2">{explain.recommended_actions.map((item) => <div key={item} className="flex gap-3 rounded-[20px] border border-border/60 bg-card/65 px-3 py-3 text-sm text-foreground"><Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" /><span>{item}</span></div>)}</div>
+                  <div className="space-y-2">{explain.recommended_actions.map((item) => <div key={item} className="flex gap-3 rounded-lg border border-border/60 bg-card/65 px-3 py-3 text-sm text-foreground"><Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" /><span>{item}</span></div>)}</div>
                 </>
               )}
             </CardContent>
@@ -459,10 +459,10 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
           <Card>
             <CardHeader className="pb-4"><CardTitle>Context</CardTitle><CardDescription>Agent, routing, ATT&CK mapping, and record metadata.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
-              <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3 text-sm text-foreground"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Alert ID</div><div className="mt-2 break-all">{alert.alert_id}</div></div>
-              {alert.agent_meta && <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Agent</div><div className="mt-2 text-sm text-foreground">{alert.agent_meta.hostname}</div><div className="mt-1 text-sm text-muted-foreground">{alert.agent_meta.os} · {alert.agent_meta.group}</div><div className="mt-3 flex flex-wrap gap-2">{alert.agent_meta.tags.map((tag) => <Badge key={tag} variant="outline">{tag}</Badge>)}</div></div>}
-              <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Routing</div><div className="mt-2 space-y-1 text-sm text-muted-foreground"><div>Dedupe: {alert.routing_state?.dedupe_key || 'Not set'}</div><div>Destinations: {alert.routing_state?.destinations?.length ? alert.routing_state.destinations.join(', ') : 'None'}</div><div>Suppression: {alert.routing_state?.suppression_until ? abs(alert.routing_state.suppression_until) : 'Not suppressed'}</div></div></div>
-              {!!alert.mitre_attack.length && <div className="space-y-2">{alert.mitre_attack.map((item) => <div key={item.technique_id} className="rounded-[20px] border border-border/70 bg-background/35 px-4 py-3"><div className="font-medium text-foreground">{item.technique_id}</div><div className="mt-1 text-sm text-muted-foreground">{item.technique_name}</div><div className="mt-1 text-xs uppercase tracking-[0.2em] text-muted-foreground">{item.tactic.replace(/-/g, ' ')}</div></div>)}</div>}
+              <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3 text-sm text-foreground"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Alert ID</div><div className="mt-2 break-all">{alert.alert_id}</div></div>
+              {alert.agent_meta && <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Agent</div><div className="mt-2 text-sm text-foreground">{alert.agent_meta.hostname}</div><div className="mt-1 text-sm text-muted-foreground">{alert.agent_meta.os} · {alert.agent_meta.group}</div><div className="mt-3 flex flex-wrap gap-2">{alert.agent_meta.tags.map((tag) => <Badge key={tag} variant="outline">{tag}</Badge>)}</div></div>}
+              <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Routing</div><div className="mt-2 space-y-1 text-sm text-muted-foreground"><div>Dedupe: {alert.routing_state?.dedupe_key || 'Not set'}</div><div>Destinations: {alert.routing_state?.destinations?.length ? alert.routing_state.destinations.join(', ') : 'None'}</div><div>Suppression: {alert.routing_state?.suppression_until ? abs(alert.routing_state.suppression_until) : 'Not suppressed'}</div></div></div>
+              {!!alert.mitre_attack.length && <div className="space-y-2">{alert.mitre_attack.map((item) => <div key={item.technique_id} className="rounded-lg border border-border/70 bg-background/35 px-4 py-3"><div className="font-medium text-foreground">{item.technique_id}</div><div className="mt-1 text-sm text-muted-foreground">{item.technique_name}</div><div className="mt-1 text-xs uppercase tracking-[0.2em] text-muted-foreground">{item.tactic.replace(/-/g, ' ')}</div></div>)}</div>}
             </CardContent>
           </Card>
 
@@ -479,7 +479,7 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
       </section>
 
       <WorkspaceModal open={closeOpen} title="Close alert" description="Pick a resolution and capture the final analyst note." onClose={() => setCloseOpen(false)} panelClassName="max-w-lg">
-        <div className="grid gap-3 sm:grid-cols-3">{(['true_positive', 'false_positive', 'informational'] as AlertResolution[]).map((item) => <button key={item} type="button" className={cn('rounded-[24px] border px-4 py-4 text-left transition-colors', closeResolution === item ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-muted/40')} onClick={() => setCloseResolution(item)}><div className="font-medium text-foreground">{resolutionLabel(item)}</div></button>)}</div>
+        <div className="grid gap-3 sm:grid-cols-3">{(['true_positive', 'false_positive', 'informational'] as AlertResolution[]).map((item) => <button key={item} type="button" className={cn('rounded-lg border px-4 py-4 text-left transition-colors', closeResolution === item ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-muted/40')} onClick={() => setCloseResolution(item)}><div className="font-medium text-foreground">{resolutionLabel(item)}</div></button>)}</div>
         <div><div className="mb-2 text-sm font-medium text-foreground">Close note</div><Textarea value={closeNote} onChange={(event) => setCloseNote(event.target.value)} rows={4} placeholder="Add findings, remediation, or supporting context." /></div>
         <div className="flex flex-wrap justify-end gap-3"><Button type="button" variant="outline" onClick={() => setCloseOpen(false)}>Cancel</Button><Button type="button" onClick={() => void saveClose()}>Close alert</Button></div>
       </WorkspaceModal>
@@ -491,7 +491,7 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
 
       <WorkspaceModal open={caseOpen} title="Create case" description="Create a case from this alert and carry the severity forward." onClose={() => setCaseOpen(false)} panelClassName="max-w-lg">
         <div><div className="mb-2 text-sm font-medium text-foreground">Case title</div><Input value={caseName} onChange={(event) => setCaseName(event.target.value)} placeholder={title} autoFocus /></div>
-        <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3 text-sm text-muted-foreground">The new case will attach alert {alert.alert_id.slice(0, 8)} as its first linked alert.</div>
+        <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3 text-sm text-muted-foreground">The new case will attach alert {alert.alert_id.slice(0, 8)} as its first linked alert.</div>
         <div className="flex flex-wrap justify-end gap-3"><Button type="button" variant="outline" onClick={() => setCaseOpen(false)}>Cancel</Button><Button type="button" onClick={() => void saveCase()}>Create case</Button></div>
       </WorkspaceModal>
     </div>

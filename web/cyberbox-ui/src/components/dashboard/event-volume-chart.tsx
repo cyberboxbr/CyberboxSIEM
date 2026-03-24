@@ -203,14 +203,14 @@ export default function DashboardEventVolumeChart({ data }: DashboardEventVolume
     <div
       ref={frameRef}
       data-testid="dashboard-event-volume-chart"
-      className="relative h-full w-full overflow-hidden rounded-[24px] border border-border/70 bg-[linear-gradient(180deg,hsl(var(--card)),hsl(var(--card)/0.72))] touch-pan-y"
+      className="relative h-full w-full overflow-hidden rounded-lg border border-border/70 bg-[linear-gradient(180deg,hsl(var(--card)),hsl(var(--card)/0.72))] touch-pan-y"
       onClick={handleClick}
       onPointerDown={handlePointerMove}
       onPointerLeave={() => setActiveIndex(data.length - 1)}
       onPointerMove={handlePointerMove}
     >
       <div className="pointer-events-none absolute left-4 right-4 top-4 flex flex-wrap items-start justify-between gap-3">
-        <div className="rounded-[18px] border border-border/70 bg-background/82 px-3 py-2 shadow-sm backdrop-blur">
+        <div className="rounded-lg border border-border/70 bg-background/82 px-3 py-2 shadow-sm backdrop-blur">
           <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Peak / average</div>
           <div className="mt-2 flex items-baseline gap-3">
             <span className="font-display text-xl font-semibold tracking-[-0.04em] text-foreground">{formatCompact(peak)}</span>
@@ -218,7 +218,7 @@ export default function DashboardEventVolumeChart({ data }: DashboardEventVolume
           </div>
         </div>
 
-        <div className="rounded-[18px] border border-primary/20 bg-primary/10 px-3 py-2 text-right shadow-sm backdrop-blur">
+        <div className="rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-right shadow-sm backdrop-blur">
           <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary/80">Selected bucket</div>
           <div data-testid="dashboard-chart-selected-label" className="mt-1 text-sm font-medium text-foreground">{activePoint.label}</div>
           <div data-testid="dashboard-chart-selected-value" className="mt-1 font-display text-2xl font-semibold tracking-[-0.04em] text-foreground">

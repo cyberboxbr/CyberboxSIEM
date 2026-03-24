@@ -24,17 +24,17 @@ export function WorkspaceMetricCard({
 }: WorkspaceMetricCardProps) {
   return (
     <Card className={className}>
-      <CardContent className="flex items-start justify-between gap-4 p-5">
+      <CardContent className="flex items-start justify-between gap-3 p-4">
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">{label}</div>
-          <div className={cn('mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground', valueClassName)}>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">{label}</div>
+          <div className={cn('mt-1.5 font-display text-2xl font-semibold tracking-[-0.04em] text-foreground', valueClassName)}>
             {value}
           </div>
-          <p className="mt-2 text-sm text-muted-foreground">{hint}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
         </div>
         {Icon ? (
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-border/70 bg-background/55 text-primary">
-            <Icon className={cn('h-5 w-5', iconClassName)} />
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-border/70 bg-background/55 text-primary">
+            <Icon className={cn('h-4 w-4', iconClassName)} />
           </div>
         ) : null}
       </CardContent>

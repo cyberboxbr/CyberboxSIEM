@@ -159,8 +159,8 @@ export function MitreCoverage() {
                 </Button>
               </div>
             </div>
-            <div className="grid gap-3 rounded-[28px] border border-border/70 bg-background/35 p-4">
-              <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+            <div className="grid gap-3 rounded-xl border border-border/70 bg-background/35 p-4">
+              <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Framework coverage</div>
                 <div className={`mt-3 font-display text-4xl font-semibold tracking-[-0.04em] ${coverageTone(report.coverage_pct)}`}>
                   {report.coverage_pct.toFixed(1)}%
@@ -173,11 +173,11 @@ export function MitreCoverage() {
                 />
               </div>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Covered</div>
                   <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{report.total_covered}</div>
                 </div>
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Framework total</div>
                   <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{report.total_in_framework}</div>
                 </div>
@@ -231,14 +231,14 @@ export function MitreCoverage() {
                 tacticFilter === 'all' ? true : normalizeTactic(technique.tactic) === tacticFilter,
               );
               return (
-                <div key={tactic} className="min-w-[220px] rounded-[24px] border border-border/70 bg-background/35 p-4">
+                <div key={tactic} className="min-w-[220px] rounded-lg border border-border/70 bg-background/35 p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div className="font-medium text-foreground">{TACTIC_LABELS[tactic]}</div>
                     <Badge variant={techniques.length ? 'success' : 'secondary'}>{techniques.length}</Badge>
                   </div>
                   <div className="mt-4 space-y-3">
                     {techniques.length === 0 ? (
-                      <div className="rounded-[18px] border border-dashed border-border/70 bg-card/55 px-3 py-4 text-sm text-muted-foreground">
+                      <div className="rounded-lg border border-dashed border-border/70 bg-card/55 px-3 py-4 text-sm text-muted-foreground">
                         No mapped techniques yet.
                       </div>
                     ) : (
@@ -246,7 +246,7 @@ export function MitreCoverage() {
                         <button
                           key={technique.technique_id}
                           type="button"
-                          className="w-full rounded-[18px] border border-border/70 bg-card/70 px-3 py-3 text-left transition-colors hover:bg-muted/45"
+                          className="w-full rounded-lg border border-border/70 bg-card/70 px-3 py-3 text-left transition-colors hover:bg-muted/45"
                           onClick={() => setSelectedTechnique(technique)}
                         >
                           <div className="flex items-start justify-between gap-3">
@@ -296,7 +296,7 @@ export function MitreCoverage() {
               <WorkspaceEmptyState title="No technique selected" body="Choose a technique in the ATT&CK matrix to inspect its mapped rules." />
             ) : (
               <>
-                <div className="rounded-[24px] border border-border/70 bg-background/35 p-4">
+                <div className="rounded-lg border border-border/70 bg-background/35 p-4">
                   <div className="flex items-center gap-2">
                     <Badge variant="outline">{selectedTechnique.technique_id}</Badge>
                     <Badge variant="secondary">{selectedTechnique.rule_count} rules</Badge>
@@ -307,13 +307,13 @@ export function MitreCoverage() {
                 <div className="space-y-3">
                   {selectedTechnique.rule_ids.length ? (
                     selectedTechnique.rule_ids.map((ruleId) => (
-                      <div key={ruleId} className="flex items-center justify-between gap-3 rounded-[20px] border border-border/70 bg-background/35 px-4 py-3">
+                      <div key={ruleId} className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-background/35 px-4 py-3">
                         <code className="text-sm text-foreground">{ruleId}</code>
                         <ArrowRight className="h-4 w-4 text-muted-foreground" />
                       </div>
                     ))
                   ) : (
-                    <div className="rounded-[20px] border border-dashed border-border/70 bg-background/35 px-4 py-4 text-sm text-muted-foreground">
+                    <div className="rounded-lg border border-dashed border-border/70 bg-background/35 px-4 py-4 text-sm text-muted-foreground">
                       No rules are currently attached to this technique.
                     </div>
                   )}

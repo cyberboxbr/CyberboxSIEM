@@ -288,21 +288,21 @@ export function Cases() {
                 </Button>
               </div>
             </div>
-            <div className="grid gap-3 rounded-[28px] border border-border/70 bg-background/35 p-4">
-              <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+            <div className="grid gap-3 rounded-xl border border-border/70 bg-background/35 p-4">
+              <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Pressure points</div>
                 <div className="mt-3 text-sm text-foreground">{stats.breached} SLA breach{stats.breached === 1 ? '' : 'es'} need attention.</div>
               </div>
               <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Open</div>
                   <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats.open}</div>
                 </div>
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">In Progress</div>
                   <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats.inProgress}</div>
                 </div>
-                <div className="rounded-[24px] border border-border/70 bg-card/70 p-4">
+                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Unassigned</div>
                   <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats.unassigned}</div>
                 </div>
@@ -323,7 +323,7 @@ export function Cases() {
                   key={tab}
                   type="button"
                   variant={filter === tab ? 'default' : 'outline'}
-                  className="rounded-[22px]"
+                  className="rounded-lg"
                   onClick={() => setFilter(tab)}
                 >
                   {tab === 'all' ? 'All' : tab.replace(/_/g, ' ')}
@@ -419,26 +419,26 @@ export function Cases() {
                       {(item.tags ?? []).map((tag) => <Badge key={tag} variant="outline">{tag}</Badge>)}
                     </div>
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                      <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                      <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
                         <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Alerts</div>
                         <div className="mt-2 text-sm font-medium text-foreground">{item.alert_ids.length}</div>
                       </div>
-                      <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                      <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
                         <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Updated</div>
                         <div className="mt-2 text-sm font-medium text-foreground">{rel(item.updated_at)}</div>
                       </div>
-                      <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                      <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
                         <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Assignee</div>
                         <div className="mt-2 text-sm font-medium text-foreground">{item.assignee ?? 'Unassigned'}</div>
                       </div>
-                      <div className="rounded-[22px] border border-border/70 bg-background/35 px-4 py-3">
+                      <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
                         <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Created</div>
                         <div className="mt-2 text-sm font-medium text-foreground">{rel(item.created_at)}</div>
                       </div>
                     </div>
                   </div>
 
-                  <div className="grid gap-4 rounded-[28px] border border-border/70 bg-background/35 p-4">
+                  <div className="grid gap-4 rounded-xl border border-border/70 bg-background/35 p-4">
                     <div>
                       <div className="flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
                         <span>SLA</span>
@@ -455,7 +455,7 @@ export function Cases() {
                     </div>
                     <div className="space-y-3">
                       {nextStatuses.map((status) => (
-                        <Button key={status} type="button" variant="outline" className="w-full justify-center rounded-[22px]" onClick={() => void moveCase(item.case_id, status)}>
+                        <Button key={status} type="button" variant="outline" className="w-full justify-center rounded-lg" onClick={() => void moveCase(item.case_id, status)}>
                           {status.replace(/_/g, ' ')}
                         </Button>
                       ))}
@@ -463,7 +463,7 @@ export function Cases() {
                         <Button
                           type="button"
                           variant="ghost"
-                          className="w-full justify-center rounded-[22px]"
+                          className="w-full justify-center rounded-lg"
                           onClick={() => { setAssignCaseId(item.case_id); setAssignName(item.assignee ?? ''); }}
                         >
                           {item.assignee ? 'Reassign' : 'Assign'}
@@ -537,7 +537,7 @@ export function Cases() {
               key={item}
               type="button"
               className={cn(
-                'rounded-[24px] border px-4 py-4 text-left transition-colors',
+                'rounded-lg border px-4 py-4 text-left transition-colors',
                 closeResolution === item ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-muted/40',
               )}
               onClick={() => setCloseResolution(item)}
