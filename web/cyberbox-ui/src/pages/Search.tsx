@@ -26,7 +26,7 @@ const SAVED_QUERIES = [
   { label: 'Lateral Movement', sql: "raw_payload LIKE '%445%' OR raw_payload LIKE '%3389%' OR raw_payload LIKE '%5985%'" },
   { label: 'Encoded PowerShell', sql: "raw_payload LIKE '%powershell%' AND raw_payload LIKE '%-enc%'" },
 ];
-const fieldClass = 'flex h-11 w-full rounded-2xl border border-border/80 bg-background/45 px-4 py-2 text-sm text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background';
+const fieldClass = 'flex h-8 w-full rounded-lg border border-border/80 bg-background/45 px-3 py-1 text-xs text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
 
 function loadHistory(): HistoryEntry[] { try { return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]') as HistoryEntry[]; } catch { return []; } }
 function saveHistory(entries: HistoryEntry[]) { localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, MAX_HISTORY))); }
@@ -214,7 +214,7 @@ export function Search() {
   const toggleColumn = (column: string) => setHiddenCols((current) => { const next = new Set(current); if (next.has(column)) next.delete(column); else next.add(column); return next; });
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-3">
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_340px]">
         <Card className="overflow-hidden border-primary/15 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.16),transparent_40%),linear-gradient(145deg,hsl(var(--card)),hsl(var(--card)/0.82))]">
           <CardContent className="p-6">

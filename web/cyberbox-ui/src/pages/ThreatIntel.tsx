@@ -155,89 +155,35 @@ export function ThreatIntel() {
   };
 
   return (
-    <div className="space-y-6">
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_360px]">
-        <Card className="overflow-hidden border-primary/15 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.15),transparent_40%),linear-gradient(145deg,hsl(var(--card)),hsl(var(--card)/0.85))]">
-          <CardContent className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(250px,0.85fr)]">
-            <div>
-              <div className="mb-4 flex flex-wrap gap-2">
-                <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">Threat intelligence workspace</Badge>
-                <Badge variant="secondary" className="bg-background/55">{feeds.length} feeds configured</Badge>
-              </div>
-              <div className="max-w-2xl font-display text-4xl font-semibold leading-[0.96] tracking-[-0.05em] text-foreground sm:text-[3rem]">
-                Keep your external intel sources fresh and visible.
-              </div>
-              <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
-                This board shows feed health, sync cadence, IOC volume, and gives you a direct way to add or refresh external intel sources.
-              </p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <Button type="button" onClick={() => setShowAddForm(true)}>
-                  <Plus className="h-4 w-4" />
-                  Add feed
-                </Button>
-                <Button type="button" variant="outline" onClick={() => void loadFeeds()} disabled={loading}>
-                  <RefreshCcw className={loading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
-                  Refresh feeds
-                </Button>
-              </div>
-            </div>
-            <div className="grid gap-3 rounded-xl border border-border/70 bg-background/35 p-4">
-              <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Total IOCs</div>
-                <div className="mt-3 font-display text-4xl font-semibold tracking-[-0.04em] text-foreground">{stats.totalIocs.toLocaleString()}</div>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Enabled</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats.enabled}</div>
-                </div>
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Manual</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats.manual}</div>
-                </div>
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Visible</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{filteredFeeds.length}</div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+    <div className="flex flex-col gap-3">
+      {/* ── Toolbar ──────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2">
+        {message && <WorkspaceStatusBanner>{message}</WorkspaceStatusBanner>}
+        {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
+        <span className="text-xs text-muted-foreground">{filteredFeeds.length} feeds</span>
+        <div className="relative ml-2">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input type="text" value={searchValue} onChange={(e) => setSearchValue(e.target.value)} placeholder="Search feeds..." className="h-7 rounded-md border border-border/70 bg-card/60 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as 'all' | FeedType)} className="h-7 rounded-md border border-border/70 bg-card/60 px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring">
+            {FEED_TYPES.map((type) => <option key={type} value={type}>{type === 'all' ? 'All types' : type.toUpperCase()}</option>)}
+          </select>
+          <Button type="button" size="sm" variant="outline" onClick={() => void loadFeeds()} disabled={loading}>
+            <RefreshCcw className={loading ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} /> Refresh
+          </Button>
+          <Button type="button" size="sm" onClick={() => setShowAddForm(true)}><Plus className="h-3.5 w-3.5" /> Add feed</Button>
+        </div>
+      </div>
 
-        <Card>
-          <CardHeader className="pb-4">
-            <CardTitle>Filters</CardTitle>
-            <CardDescription>Focus on one feed type or quickly search the catalog by name or URL.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div>
-              <div className="mb-2 text-sm font-medium text-foreground">Feed type</div>
-              <Select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as 'all' | FeedType)}>
-                {FEED_TYPES.map((type) => <option key={type} value={type}>{type === 'all' ? 'All types' : type.toUpperCase()}</option>)}
-              </Select>
-            </div>
-            <div>
-              <div className="mb-2 text-sm font-medium text-foreground">Search</div>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input className="pl-11" value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="abuse.ch, taxii, url..." />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <WorkspaceMetricCard label="Feeds" value={String(feeds.length)} hint="Intelligence sources" />
+        <WorkspaceMetricCard label="Enabled" value={String(stats.enabled)} hint="Active for sync" />
+        <WorkspaceMetricCard label="IOCs" value={stats.totalIocs.toLocaleString()} hint="Total indicators" />
+        <WorkspaceMetricCard label="Manual" value={String(stats.manual)} hint="Manual sync only" />
       </section>
 
-      {message && <WorkspaceStatusBanner>{message}</WorkspaceStatusBanner>}
-      {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
-
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <WorkspaceMetricCard label="Feeds" value={String(feeds.length)} hint="Total configured intelligence sources." icon={Globe} />
-        <WorkspaceMetricCard label="Enabled" value={String(stats.enabled)} hint="Feeds currently active and eligible for sync." icon={ShieldAlert} />
-        <WorkspaceMetricCard label="IOCs" value={stats.totalIocs.toLocaleString()} hint="Indicators currently stored across all feeds." icon={DatabaseZap} />
-        <WorkspaceMetricCard label="Manual" value={String(stats.manual)} hint="Feeds that only sync when triggered manually." icon={RefreshCcw} />
-      </section>
-
-      <section className="space-y-4">
+      <section className="space-y-2">
         {!filteredFeeds.length && !loading ? (
           <WorkspaceEmptyState title="No feeds match the current view" body="Adjust the filters or add a new feed to start collecting external threat intelligence." />
         ) : (

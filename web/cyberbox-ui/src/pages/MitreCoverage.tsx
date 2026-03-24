@@ -174,18 +174,18 @@ export function MitreCoverage() {
           <CardDescription>A horizontal tactic board showing all covered techniques and the depth of rule support behind them.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-flow-col auto-cols-[minmax(220px,1fr)] gap-4 overflow-x-auto pb-2">
+          <div className="grid grid-flow-col auto-cols-[minmax(160px,180px)] gap-2 overflow-x-auto pb-2">
             {TACTICS.map((tactic) => {
               const techniques = (byTactic[tactic] ?? []).filter((technique) =>
                 tacticFilter === 'all' ? true : normalizeTactic(technique.tactic) === tacticFilter,
               );
               return (
-                <div key={tactic} className="min-w-[220px] rounded-lg border border-border/70 bg-background/35 p-4">
+                <div key={tactic} className="min-w-[160px] rounded-lg border border-border/70 bg-background/35 p-2.5">
                   <div className="flex items-center justify-between gap-3">
                     <div className="font-medium text-foreground">{TACTIC_LABELS[tactic]}</div>
                     <Badge variant={techniques.length ? 'success' : 'secondary'}>{techniques.length}</Badge>
                   </div>
-                  <div className="mt-4 space-y-3">
+                  <div className="mt-2 space-y-1.5">
                     {techniques.length === 0 ? (
                       <div className="rounded-lg border border-dashed border-border/70 bg-card/55 px-3 py-4 text-sm text-muted-foreground">
                         No mapped techniques yet.
@@ -195,7 +195,7 @@ export function MitreCoverage() {
                         <button
                           key={technique.technique_id}
                           type="button"
-                          className="w-full rounded-lg border border-border/70 bg-card/70 px-3 py-3 text-left transition-colors hover:bg-muted/45"
+                          className="w-full rounded-md border border-border/70 bg-card/70 px-2 py-1.5 text-left transition-colors hover:bg-muted/45"
                           onClick={() => setSelectedTechnique(technique)}
                         >
                           <div className="flex items-start justify-between gap-3">

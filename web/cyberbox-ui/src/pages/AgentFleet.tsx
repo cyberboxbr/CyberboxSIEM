@@ -235,95 +235,41 @@ export function AgentFleet() {
   };
 
   return (
-    <div className="space-y-6">
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_360px]">
-        <Card className="overflow-hidden border-primary/15 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.15),transparent_40%),linear-gradient(145deg,hsl(var(--card)),hsl(var(--card)/0.85))]">
-          <CardContent className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(250px,0.85fr)]">
-            <div>
-              <div className="mb-4 flex flex-wrap gap-2">
-                <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">Fleet management workspace</Badge>
-                <Badge variant="secondary" className="bg-background/55">Refreshes every 15s</Badge>
-              </div>
-              <div className="max-w-2xl font-display text-4xl font-semibold leading-[0.96] tracking-[-0.05em] text-foreground sm:text-[3rem]">
-                Keep collectors healthy and config drift under control.
-              </div>
-              <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
-                The fleet board shows which agents are alive, which ones are decaying, and gives you a direct lane to update metadata or push config.
-              </p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <Button type="button" variant="outline" onClick={() => void loadAgents()} disabled={loading}>
-                  <RefreshCcw className={cn('h-4 w-4', loading && 'animate-spin')} />
-                  Refresh fleet
-                </Button>
-              </div>
-            </div>
-            <div className="grid gap-3 rounded-xl border border-border/70 bg-background/35 p-4">
-              <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Fleet size</div>
-                <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{agents.length}</div>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Active</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{counts.active}</div>
-                </div>
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Stale</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{counts.stale}</div>
-                </div>
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Offline</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{counts.offline}</div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+    <div className="flex flex-col gap-3">
+      {/* ── Toolbar ──────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2">
+        {message && <WorkspaceStatusBanner>{message}</WorkspaceStatusBanner>}
+        {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
+        <span className="text-xs text-muted-foreground">{filteredAgents.length} agents</span>
+        <div className="relative ml-2">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input type="text" value={searchValue} onChange={(e) => setSearchValue(e.target.value)} placeholder="Search agents..." className="h-7 rounded-md border border-border/70 bg-card/60 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as AgentFilterStatus)} className="h-7 rounded-md border border-border/70 bg-card/60 px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring">
+            <option value="all">All status</option>
+            <option value="active">Active</option>
+            <option value="stale">Stale</option>
+            <option value="offline">Offline</option>
+          </select>
+          <select value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)} className="h-7 rounded-md border border-border/70 bg-card/60 px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring">
+            <option value="">All groups</option>
+            {groups.map((group) => <option key={group} value={group}>{group}</option>)}
+          </select>
+          <Button type="button" size="sm" variant="outline" onClick={() => void loadAgents()} disabled={loading}>
+            <RefreshCcw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} /> Refresh
+          </Button>
+        </div>
+      </div>
 
-        <Card>
-          <CardHeader className="pb-4">
-            <CardTitle>Filters</CardTitle>
-            <CardDescription>Slice the fleet by status, group, or free-text search.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div>
-              <div className="mb-2 text-sm font-medium text-foreground">Group</div>
-              <Select value={groupFilter} onChange={(event) => setGroupFilter(event.target.value)}>
-                <option value="">All groups</option>
-                {groups.map((group) => <option key={group} value={group}>{group}</option>)}
-              </Select>
-            </div>
-            <div>
-              <div className="mb-2 text-sm font-medium text-foreground">Status</div>
-              <Select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as AgentFilterStatus)}>
-                <option value="all">All</option>
-                <option value="active">Active</option>
-                <option value="stale">Stale</option>
-                <option value="offline">Offline</option>
-              </Select>
-            </div>
-            <div>
-              <div className="mb-2 text-sm font-medium text-foreground">Search</div>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input className="pl-11" value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="hostname, agent_id, tag..." />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <WorkspaceMetricCard label="Active" value={String(counts.active)} hint="Healthy agents" />
+        <WorkspaceMetricCard label="Stale" value={String(counts.stale)} hint="Needs heartbeat check" />
+        <WorkspaceMetricCard label="Offline" value={String(counts.offline)} hint="Not reachable" />
+        <WorkspaceMetricCard label="Visible" value={String(filteredAgents.length)} hint="Matching filters" />
       </section>
 
-      {message && <WorkspaceStatusBanner>{message}</WorkspaceStatusBanner>}
-      {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
-
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <WorkspaceMetricCard label="Active" value={String(counts.active)} hint="Agents reporting recently and considered healthy." icon={Shield} />
-        <WorkspaceMetricCard label="Stale" value={String(counts.stale)} hint="Collectors that need a heartbeat check soon." icon={RefreshCcw} />
-        <WorkspaceMetricCard label="Offline" value={String(counts.offline)} hint="Endpoints that are no longer reaching the control plane." icon={Cloud} />
-        <WorkspaceMetricCard label="Visible" value={String(filteredAgents.length)} hint="Agents matching the current filter set." icon={Network} />
-      </section>
-
-      <section className="space-y-4">
+      <section className="space-y-2">
         {loading && agents.length === 0 ? (
           <Card><CardContent className="h-[320px] animate-pulse p-6" /></Card>
         ) : filteredAgents.length === 0 ? (
