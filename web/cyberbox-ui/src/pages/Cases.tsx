@@ -1,15 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  AlertTriangle,
   ArrowRight,
-  Clock3,
-  FolderKanban,
   Plus,
   RefreshCcw,
   Search,
   ShieldAlert,
-  UserRound,
 } from 'lucide-react';
 
 import {
@@ -25,7 +21,7 @@ import {
 } from '@/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
@@ -56,7 +52,7 @@ const RESOLUTION_LABELS: Record<CaseResolution, string> = {
 const FILTER_TABS: FilterTab[] = ['all', 'open', 'in_progress', 'resolved', 'closed'];
 
 function rel(iso?: string): string {
-  if (!iso) return 'Unknown';
+  if (!iso) return '—';
   const diff = Date.now() - new Date(iso).getTime();
   if (Number.isNaN(diff)) return iso;
   const minutes = Math.floor(diff / 60_000);
@@ -68,7 +64,7 @@ function rel(iso?: string): string {
 }
 
 function abs(iso?: string): string {
-  if (!iso) return 'Unknown';
+  if (!iso) return '—';
   const parsed = new Date(iso);
   return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleString();
 }
@@ -153,17 +149,8 @@ export function Cases() {
         if (filter !== 'all' && record.status !== filter) return false;
         if (severityFilter !== 'all' && record.severity !== severityFilter) return false;
         if (!search) return true;
-        const haystack = [
-          record.case_id,
-          record.title,
-          record.description,
-          record.assignee,
-          ...(record.tags ?? []),
-          ...(record.alert_ids ?? []),
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
+        const haystack = [record.case_id, record.title, record.description, record.assignee, ...(record.tags ?? []), ...(record.alert_ids ?? [])]
+          .filter(Boolean).join(' ').toLowerCase();
         return haystack.includes(search);
       });
   }, [cases, filter, severityFilter, searchValue]);
@@ -185,291 +172,177 @@ export function Cases() {
     setCreating(true);
     setMessage('Creating case...');
     try {
-      const body: CaseCreateInput = {
-        title: newTitle.trim(),
-        severity: newSeverity,
-      };
+      const body: CaseCreateInput = { title: newTitle.trim(), severity: newSeverity };
       if (newDescription.trim()) body.description = newDescription.trim();
       if (newAssignee.trim()) body.assignee = newAssignee.trim();
       if (newTags.trim()) body.tags = newTags.split(',').map((tag) => tag.trim()).filter(Boolean);
       if (newAlertIds.trim()) body.alert_ids = newAlertIds.split(',').map((id) => id.trim()).filter(Boolean);
       const created = await createCase(body);
       setShowCreate(false);
-      setNewTitle('');
-      setNewDescription('');
-      setNewSeverity('medium');
-      setNewAssignee('');
-      setNewTags('');
-      setNewAlertIds('');
+      setNewTitle(''); setNewDescription(''); setNewSeverity('medium'); setNewAssignee(''); setNewTags(''); setNewAlertIds('');
       await loadCases(false);
       setMessage('Case created.');
       navigate(`/cases/${created.case_id}`);
-    } catch (err) {
-      setMessage(String(err));
-    } finally {
-      setCreating(false);
-    }
+    } catch (err) { setMessage(String(err)); } finally { setCreating(false); }
   };
 
   const moveCase = async (caseId: string, status: CaseStatus) => {
-    if (status === 'closed') {
-      setCloseCaseId(caseId);
-      setCloseResolution('tp_contained');
-      setCloseNote('');
-      return;
-    }
+    if (status === 'closed') { setCloseCaseId(caseId); setCloseResolution('tp_contained'); setCloseNote(''); return; }
     setMessage(`Moving case to ${status.replace(/_/g, ' ')}...`);
-    try {
-      await updateCase(caseId, { status });
-      await loadCases(false);
-      setMessage(`Case moved to ${status.replace(/_/g, ' ')}.`);
-    } catch (err) {
-      setMessage(String(err));
-    }
+    try { await updateCase(caseId, { status }); await loadCases(false); setMessage(`Case moved to ${status.replace(/_/g, ' ')}.`); }
+    catch (err) { setMessage(String(err)); }
   };
 
   const closeCase = async () => {
     if (!closeCaseId) return;
     setMessage('Closing case...');
-    try {
-      await updateCase(closeCaseId, {
-        status: 'closed',
-        resolution: closeResolution,
-        close_note: closeNote.trim() || null,
-      });
-      setCloseCaseId(null);
-      setCloseNote('');
-      await loadCases(false);
-      setMessage('Case closed.');
-    } catch (err) {
-      setMessage(String(err));
-    }
+    try { await updateCase(closeCaseId, { status: 'closed', resolution: closeResolution, close_note: closeNote.trim() || null }); setCloseCaseId(null); setCloseNote(''); await loadCases(false); setMessage('Case closed.'); }
+    catch (err) { setMessage(String(err)); }
   };
 
   const assignCase = async () => {
     if (!assignCaseId) return;
     const next = assignName.trim();
     setMessage('Saving assignee...');
-    try {
-      await updateCase(assignCaseId, { assignee: next || null });
-      setAssignCaseId(null);
-      setAssignName('');
-      await loadCases(false);
-      setMessage(next ? `Case assigned to ${next}.` : 'Case unassigned.');
-    } catch (err) {
-      setMessage(String(err));
-    }
+    try { await updateCase(assignCaseId, { assignee: next || null }); setAssignCaseId(null); setAssignName(''); await loadCases(false); setMessage(next ? `Case assigned to ${next}.` : 'Case unassigned.'); }
+    catch (err) { setMessage(String(err)); }
   };
 
   return (
-    <div className="space-y-6">
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_360px]">
-        <Card className="overflow-hidden border-primary/15 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.15),transparent_40%),linear-gradient(145deg,hsl(var(--card)),hsl(var(--card)/0.85))]">
-          <CardContent className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(250px,0.85fr)]">
-            <div>
-              <div className="mb-4 flex flex-wrap gap-2">
-                <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">Case management workspace</Badge>
-                <Badge variant="secondary" className="bg-background/55">{filteredCases.length} visible</Badge>
-              </div>
-              <div className="max-w-2xl font-display text-4xl font-semibold leading-[0.96] tracking-[-0.05em] text-foreground sm:text-[3rem]">
-                Keep the investigation queue tight, visible, and moving.
-              </div>
-              <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
-                The new case board highlights SLA pressure, ownership gaps, and the cases that still need analyst momentum.
-              </p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <Button type="button" onClick={() => setShowCreate(true)}>
-                  <Plus className="h-4 w-4" />
-                  New case
-                </Button>
-                <Button type="button" variant="outline" onClick={() => { setRefreshing(true); void loadCases(false); }} disabled={refreshing}>
-                  <RefreshCcw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
-                  Refresh board
-                </Button>
-              </div>
-            </div>
-            <div className="grid gap-3 rounded-xl border border-border/70 bg-background/35 p-4">
-              <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Pressure points</div>
-                <div className="mt-3 text-sm text-foreground">{stats.breached} SLA breach{stats.breached === 1 ? '' : 'es'} need attention.</div>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Open</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats.open}</div>
-                </div>
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">In Progress</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats.inProgress}</div>
-                </div>
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Unassigned</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats.unassigned}</div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+    <div className="flex flex-col gap-3">
+      {/* ── Toolbar ──────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2">
+        {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
+        {message && <WorkspaceStatusBanner>{message}</WorkspaceStatusBanner>}
 
-        <Card>
-          <CardHeader className="pb-4">
-            <CardTitle>Filters</CardTitle>
-            <CardDescription>Trim the board down to the exact set of cases you want to review.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="grid grid-cols-2 gap-3">
-              {FILTER_TABS.map((tab) => (
-                <Button
-                  key={tab}
-                  type="button"
-                  variant={filter === tab ? 'default' : 'outline'}
-                  className="rounded-lg"
-                  onClick={() => setFilter(tab)}
-                >
-                  {tab === 'all' ? 'All' : tab.replace(/_/g, ' ')}
-                </Button>
-              ))}
-            </div>
-            <div>
-              <div className="mb-2 text-sm font-medium text-foreground">Severity</div>
-              <Select value={severityFilter} onChange={(event) => setSeverityFilter(event.target.value as 'all' | Severity)}>
-                <option value="all">All severities</option>
-                <option value="critical">Critical</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </Select>
-            </div>
-            <div>
-              <div className="mb-2 text-sm font-medium text-foreground">Search</div>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input className="pl-11" value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="title, tag, assignee, alert ID..." />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <span className="text-xs text-muted-foreground">{filteredCases.length} cases</span>
+
+        <div className="relative ml-2">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            value={searchValue}
+            onChange={(e) => setSearchValue(e.target.value)}
+            placeholder="Search..."
+            className="h-7 rounded-md border border-border/70 bg-card/60 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {/* Status filter */}
+          <div className="flex items-center gap-1 rounded-lg border border-border/70 bg-card/60 p-0.5">
+            {FILTER_TABS.map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setFilter(tab)}
+                className={cn(
+                  'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                  filter === tab ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {tab === 'in_progress' ? 'wip' : tab}
+              </button>
+            ))}
+          </div>
+
+          {/* Severity filter */}
+          <select
+            value={severityFilter}
+            onChange={(e) => setSeverityFilter(e.target.value as 'all' | Severity)}
+            className="h-7 rounded-md border border-border/70 bg-card/60 px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            <option value="all">All sev</option>
+            <option value="critical">Critical</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+
+          <Button type="button" size="sm" variant="outline" onClick={() => { setRefreshing(true); void loadCases(false); }} disabled={refreshing}>
+            <RefreshCcw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} /> Refresh
+          </Button>
+          <Button type="button" size="sm" onClick={() => setShowCreate(true)}>
+            <Plus className="h-3.5 w-3.5" /> New case
+          </Button>
+        </div>
+      </div>
+
+      {/* ── KPI row ──────────────────────────────────────────────────── */}
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <WorkspaceMetricCard label="Open" value={String(stats.open)} hint="Waiting for action" />
+        <WorkspaceMetricCard label="In Progress" value={String(stats.inProgress)} hint="Active investigations" />
+        <WorkspaceMetricCard label="Resolved" value={String(stats.resolved)} hint="Ready for closure" />
+        <WorkspaceMetricCard label="Unassigned" value={String(stats.unassigned)} hint="Needs an owner" />
+        <WorkspaceMetricCard label="SLA breaches" value={String(stats.breached)} hint={stats.breached > 0 ? 'Needs immediate attention' : 'All within SLA'} />
       </section>
 
+      {/* ── SLA breach banner ────────────────────────────────────────── */}
       {!!slaBreaches.length && (
-        <Card className="border-destructive/20 bg-[linear-gradient(120deg,hsl(var(--destructive)/0.12),transparent_60%)]">
-          <CardContent className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <div className="flex items-center gap-2 text-sm font-medium text-destructive">
-                <ShieldAlert className="h-4 w-4" />
-                SLA breach detected
-              </div>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {slaBreaches.length} case{slaBreaches.length === 1 ? '' : 's'} have crossed their SLA boundary.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {slaBreaches.slice(0, 5).map((item) => (
-                <Button key={item.case_id} asChild size="sm" variant="outline">
-                  <Link to={`/cases/${item.case_id}`}>{item.title}</Link>
-                </Button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+        <div className="flex items-center gap-3 rounded-lg border border-destructive/20 bg-destructive/8 px-3 py-2">
+          <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-destructive" />
+          <span className="text-xs text-destructive">{slaBreaches.length} SLA breach{slaBreaches.length === 1 ? '' : 'es'}</span>
+          <div className="ml-auto flex flex-wrap gap-1.5">
+            {slaBreaches.slice(0, 4).map((item) => (
+              <Button key={item.case_id} asChild size="sm" variant="outline" className="h-6 text-[10px]">
+                <Link to={`/cases/${item.case_id}`}>{item.title}</Link>
+              </Button>
+            ))}
+          </div>
+        </div>
       )}
 
-      {message && <WorkspaceStatusBanner>{message}</WorkspaceStatusBanner>}
-      {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
-
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <WorkspaceMetricCard label="Open" value={String(stats.open)} hint="Fresh cases waiting for analyst ownership or action." icon={FolderKanban} />
-        <WorkspaceMetricCard label="In Progress" value={String(stats.inProgress)} hint="Active investigations currently moving." icon={RefreshCcw} />
-        <WorkspaceMetricCard label="Resolved" value={String(stats.resolved)} hint="Ready for closure or final review." icon={ShieldAlert} />
-        <WorkspaceMetricCard label="Unassigned" value={String(stats.unassigned)} hint="Cases that still need a named owner." icon={UserRound} />
-      </section>
-
-      <section className="space-y-4">
+      {/* ── Case list ────────────────────────────────────────────────── */}
+      <section className="space-y-2">
         {loading ? (
-          <Card><CardContent className="h-[320px] animate-pulse p-6" /></Card>
+          <Card><CardContent className="h-[200px] animate-pulse" /></Card>
         ) : filteredCases.length === 0 ? (
-          <WorkspaceEmptyState title="No cases match the current view" body="Try widening the filter set or create a new case to seed the board." />
+          <WorkspaceEmptyState title="No cases match" body="Widen the filter or create a new case." />
         ) : (
           filteredCases.map((item) => {
             const sla = slaInfo(item.sla_due_at);
             const nextStatuses = STATUS_TRANSITIONS[item.status] ?? [];
             return (
               <Card key={item.case_id} className="overflow-hidden">
-                <CardContent className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(240px,0.65fr)]">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant={severityVariant(item.severity)}>{item.severity}</Badge>
-                      <Badge variant={statusVariant(item.status)}>{item.status.replace(/_/g, ' ')}</Badge>
-                      {item.resolution && <Badge variant="outline">{RESOLUTION_LABELS[item.resolution]}</Badge>}
-                      {item.assignee && <Badge variant="secondary">{item.assignee}</Badge>}
-                    </div>
-                    <div className="mt-4 flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <div className="font-display text-2xl font-semibold tracking-[-0.03em] text-foreground">{item.title}</div>
-                        {item.description && <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{item.description}</p>}
+                <CardContent className="p-0">
+                  <div className={cn('h-0.5', item.severity === 'critical' ? 'bg-destructive' : item.severity === 'high' ? 'bg-[hsl(24_95%_62%)]' : item.severity === 'medium' ? 'bg-accent' : 'bg-chart-2')} />
+                  <div className="px-3 py-2.5">
+                    {/* Main row */}
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant={severityVariant(item.severity)}>{item.severity}</Badge>
+                        <Badge variant={statusVariant(item.status)}>{item.status.replace(/_/g, ' ')}</Badge>
+                        {item.resolution && <Badge variant="outline">{RESOLUTION_LABELS[item.resolution]}</Badge>}
                       </div>
-                      <Button asChild size="sm" variant="outline">
-                        <Link to={`/cases/${item.case_id}`}>
-                          Open case
-                          <ArrowRight className="h-4 w-4" />
-                        </Link>
-                      </Button>
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {(item.tags ?? []).map((tag) => <Badge key={tag} variant="outline">{tag}</Badge>)}
-                    </div>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                      <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Alerts</div>
-                        <div className="mt-2 text-sm font-medium text-foreground">{item.alert_ids.length}</div>
-                      </div>
-                      <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Updated</div>
-                        <div className="mt-2 text-sm font-medium text-foreground">{rel(item.updated_at)}</div>
-                      </div>
-                      <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Assignee</div>
-                        <div className="mt-2 text-sm font-medium text-foreground">{item.assignee ?? 'Unassigned'}</div>
-                      </div>
-                      <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Created</div>
-                        <div className="mt-2 text-sm font-medium text-foreground">{rel(item.created_at)}</div>
+                      <span className="min-w-0 truncate text-sm font-medium text-foreground">{item.title}</span>
+                      <div className="ml-auto flex items-center gap-2 shrink-0">
+                        <span className="text-[10px] text-muted-foreground">{item.alert_ids.length} alerts</span>
+                        <span className="text-[10px] text-muted-foreground">{item.assignee ?? 'unassigned'}</span>
+                        <span className="text-[10px] text-muted-foreground">{rel(item.updated_at)}</span>
+                        {item.sla_due_at && <span className={cn('text-[10px] font-medium', sla.breached ? 'text-destructive' : 'text-muted-foreground')}>{sla.label}</span>}
+                        {nextStatuses.map((status) => (
+                          <Button key={status} type="button" variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => void moveCase(item.case_id, status)}>
+                            {status === 'in_progress' ? 'Start' : status === 'resolved' ? 'Resolve' : status === 'closed' ? 'Close' : status}
+                          </Button>
+                        ))}
+                        {item.status !== 'closed' && (
+                          <Button type="button" variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => { setAssignCaseId(item.case_id); setAssignName(item.assignee ?? ''); }}>
+                            {item.assignee ? 'Reassign' : 'Assign'}
+                          </Button>
+                        )}
+                        <Button asChild variant="ghost" size="sm" className="h-6 px-2">
+                          <Link to={`/cases/${item.case_id}`}><ArrowRight className="h-3 w-3" /></Link>
+                        </Button>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="grid gap-4 rounded-xl border border-border/70 bg-background/35 p-4">
-                    <div>
-                      <div className="flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-                        <span>SLA</span>
-                        <span className={cn(sla.breached ? 'text-destructive' : 'text-foreground')}>{sla.label}</span>
+                    {/* Detail row */}
+                    {item.description && <p className="mt-1.5 max-w-3xl truncate text-xs text-muted-foreground">{item.description}</p>}
+                    {(item.tags ?? []).length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {(item.tags ?? []).map((tag) => <Badge key={tag} variant="outline" className="text-[9px]">{tag}</Badge>)}
                       </div>
-                      {item.sla_due_at && (
-                        <>
-                          <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted/60">
-                            <div className={cn('h-full rounded-full', sla.breached ? 'bg-destructive' : 'bg-primary')} style={{ width: `${Math.max(sla.pct, 4)}%` }} />
-                          </div>
-                          <div className="mt-2 text-sm text-muted-foreground">Due {abs(item.sla_due_at)}</div>
-                        </>
-                      )}
-                    </div>
-                    <div className="space-y-3">
-                      {nextStatuses.map((status) => (
-                        <Button key={status} type="button" variant="outline" className="w-full justify-center rounded-lg" onClick={() => void moveCase(item.case_id, status)}>
-                          {status.replace(/_/g, ' ')}
-                        </Button>
-                      ))}
-                      {item.status !== 'closed' && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="w-full justify-center rounded-lg"
-                          onClick={() => { setAssignCaseId(item.case_id); setAssignName(item.assignee ?? ''); }}
-                        >
-                          {item.assignee ? 'Reassign' : 'Assign'}
-                        </Button>
-                      )}
-                    </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -478,101 +351,36 @@ export function Cases() {
         )}
       </section>
 
-      <WorkspaceModal
-        open={showCreate}
-        title="Create case"
-        description="Stand up a fresh investigation container and optionally seed it with initial alert IDs."
-        onClose={() => setShowCreate(false)}
-        panelClassName="max-w-2xl"
-      >
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="md:col-span-2">
-            <div className="mb-2 text-sm font-medium text-foreground">Title</div>
-            <Input value={newTitle} onChange={(event) => setNewTitle(event.target.value)} placeholder="Suspicious workstation outbound beaconing" autoFocus />
-          </div>
-          <div className="md:col-span-2">
-            <div className="mb-2 text-sm font-medium text-foreground">Description</div>
-            <Textarea value={newDescription} onChange={(event) => setNewDescription(event.target.value)} rows={4} placeholder="Capture the scope, what triggered this case, and any first hypotheses." />
-          </div>
-          <div>
-            <div className="mb-2 text-sm font-medium text-foreground">Severity</div>
-            <Select value={newSeverity} onChange={(event) => setNewSeverity(event.target.value as Severity)}>
-              <option value="critical">Critical</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </Select>
-          </div>
-          <div>
-            <div className="mb-2 text-sm font-medium text-foreground">Assignee</div>
-            <Input value={newAssignee} onChange={(event) => setNewAssignee(event.target.value)} placeholder="analyst-1" />
-          </div>
-          <div>
-            <div className="mb-2 text-sm font-medium text-foreground">Tags</div>
-            <Input value={newTags} onChange={(event) => setNewTags(event.target.value)} placeholder="phishing, workstation" />
-          </div>
-          <div>
-            <div className="mb-2 text-sm font-medium text-foreground">Alert IDs</div>
-            <Input value={newAlertIds} onChange={(event) => setNewAlertIds(event.target.value)} placeholder="alert-1, alert-2" />
-          </div>
+      {/* ── Create case modal ────────────────────────────────────────── */}
+      <WorkspaceModal open={showCreate} title="Create case" description="Stand up a fresh investigation." onClose={() => setShowCreate(false)} panelClassName="max-w-2xl">
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="md:col-span-2"><div className="mb-1 text-xs font-medium text-foreground">Title</div><Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Suspicious outbound beaconing" autoFocus /></div>
+          <div className="md:col-span-2"><div className="mb-1 text-xs font-medium text-foreground">Description</div><Textarea value={newDescription} onChange={(e) => setNewDescription(e.target.value)} rows={3} placeholder="Scope, trigger, and initial hypotheses." /></div>
+          <div><div className="mb-1 text-xs font-medium text-foreground">Severity</div><Select value={newSeverity} onChange={(e) => setNewSeverity(e.target.value as Severity)}><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></Select></div>
+          <div><div className="mb-1 text-xs font-medium text-foreground">Assignee</div><Input value={newAssignee} onChange={(e) => setNewAssignee(e.target.value)} placeholder="analyst-1" /></div>
+          <div><div className="mb-1 text-xs font-medium text-foreground">Tags</div><Input value={newTags} onChange={(e) => setNewTags(e.target.value)} placeholder="phishing, workstation" /></div>
+          <div><div className="mb-1 text-xs font-medium text-foreground">Alert IDs</div><Input value={newAlertIds} onChange={(e) => setNewAlertIds(e.target.value)} placeholder="alert-1, alert-2" /></div>
         </div>
-        <div className="flex flex-wrap justify-end gap-3">
-          <Button type="button" variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
-          <Button type="button" onClick={() => void create()} disabled={creating || !newTitle.trim()}>
-            {creating ? 'Creating...' : 'Create case'}
-          </Button>
-        </div>
+        <div className="flex justify-end gap-2"><Button type="button" variant="outline" size="sm" onClick={() => setShowCreate(false)}>Cancel</Button><Button type="button" size="sm" onClick={() => void create()} disabled={creating || !newTitle.trim()}>{creating ? 'Creating...' : 'Create'}</Button></div>
       </WorkspaceModal>
 
-      <WorkspaceModal
-        open={Boolean(closeCaseId)}
-        title="Close case"
-        description={`Choose a final resolution for ${closeTarget?.title ?? 'this case'} and capture a closing note.`}
-        onClose={() => setCloseCaseId(null)}
-        panelClassName="max-w-2xl"
-      >
-        <div className="grid gap-3 sm:grid-cols-2">
+      {/* ── Close case modal ─────────────────────────────────────────── */}
+      <WorkspaceModal open={Boolean(closeCaseId)} title="Close case" description={`Resolution for ${closeTarget?.title ?? 'this case'}.`} onClose={() => setCloseCaseId(null)} panelClassName="max-w-2xl">
+        <div className="grid gap-2 sm:grid-cols-2">
           {(Object.keys(RESOLUTION_LABELS) as CaseResolution[]).map((item) => (
-            <button
-              key={item}
-              type="button"
-              className={cn(
-                'rounded-lg border px-4 py-4 text-left transition-colors',
-                closeResolution === item ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-muted/40',
-              )}
-              onClick={() => setCloseResolution(item)}
-            >
-              <div className="font-medium text-foreground">{RESOLUTION_LABELS[item]}</div>
+            <button key={item} type="button" className={cn('rounded-lg border px-3 py-3 text-left text-sm transition-colors', closeResolution === item ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border/70 bg-background/35 text-muted-foreground hover:bg-muted/40')} onClick={() => setCloseResolution(item)}>
+              {RESOLUTION_LABELS[item]}
             </button>
           ))}
         </div>
-        <div>
-          <div className="mb-2 text-sm font-medium text-foreground">Close note</div>
-          <Textarea value={closeNote} onChange={(event) => setCloseNote(event.target.value)} rows={4} placeholder="Summarize findings, containment, and any follow-up still required." />
-        </div>
-        <div className="flex flex-wrap justify-end gap-3">
-          <Button type="button" variant="outline" onClick={() => setCloseCaseId(null)}>Cancel</Button>
-          <Button type="button" onClick={() => void closeCase()}>Close case</Button>
-        </div>
+        <div><div className="mb-1 text-xs font-medium text-foreground">Close note</div><Textarea value={closeNote} onChange={(e) => setCloseNote(e.target.value)} rows={3} placeholder="Findings, containment, follow-up." /></div>
+        <div className="flex justify-end gap-2"><Button type="button" variant="outline" size="sm" onClick={() => setCloseCaseId(null)}>Cancel</Button><Button type="button" size="sm" onClick={() => void closeCase()}>Close case</Button></div>
       </WorkspaceModal>
 
-      <WorkspaceModal
-        open={Boolean(assignCaseId)}
-        title="Assign case"
-        description={`Set ownership for ${assignTarget?.title ?? 'this case'} or clear the current assignee.`}
-        onClose={() => setAssignCaseId(null)}
-        panelClassName="max-w-2xl"
-      >
-        <div>
-          <div className="mb-2 text-sm font-medium text-foreground">Assignee</div>
-          <Input value={assignName} onChange={(event) => setAssignName(event.target.value)} placeholder="analyst-1" autoFocus />
-        </div>
-        <div className="flex flex-wrap justify-end gap-3">
-          <Button type="button" variant="outline" onClick={() => setAssignCaseId(null)}>Cancel</Button>
-          <Button type="button" onClick={() => void assignCase()} disabled={!canSubmitAssign}>
-            {assignName.trim() ? 'Save assignee' : 'Clear assignee'}
-          </Button>
-        </div>
+      {/* ── Assign case modal ────────────────────────────────────────── */}
+      <WorkspaceModal open={Boolean(assignCaseId)} title="Assign case" description={`Set owner for ${assignTarget?.title ?? 'this case'}.`} onClose={() => setAssignCaseId(null)} panelClassName="max-w-md">
+        <div><div className="mb-1 text-xs font-medium text-foreground">Assignee</div><Input value={assignName} onChange={(e) => setAssignName(e.target.value)} placeholder="analyst-1" autoFocus /></div>
+        <div className="flex justify-end gap-2"><Button type="button" variant="outline" size="sm" onClick={() => setAssignCaseId(null)}>Cancel</Button><Button type="button" size="sm" onClick={() => void assignCase()} disabled={!canSubmitAssign}>{assignName.trim() ? 'Save' : 'Clear'}</Button></div>
       </WorkspaceModal>
     </div>
   );
