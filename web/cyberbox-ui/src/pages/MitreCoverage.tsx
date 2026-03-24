@@ -174,13 +174,13 @@ export function MitreCoverage() {
           <CardDescription>A horizontal tactic board showing all covered techniques and the depth of rule support behind them.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-flow-col auto-cols-[minmax(160px,180px)] gap-2 overflow-x-auto pb-2">
+          <div className="flex gap-2 overflow-x-auto pb-2">
             {TACTICS.map((tactic) => {
               const techniques = (byTactic[tactic] ?? []).filter((technique) =>
                 tacticFilter === 'all' ? true : normalizeTactic(technique.tactic) === tacticFilter,
               );
               return (
-                <div key={tactic} className="min-w-[160px] rounded-lg border border-border/70 bg-background/35 p-2.5">
+                <div key={tactic} className="w-[150px] shrink-0 rounded-lg border border-border/70 bg-background/35 p-2.5">
                   <div className="flex items-center justify-between gap-3">
                     <div className="font-medium text-foreground">{TACTIC_LABELS[tactic]}</div>
                     <Badge variant={techniques.length ? 'success' : 'secondary'}>{techniques.length}</Badge>

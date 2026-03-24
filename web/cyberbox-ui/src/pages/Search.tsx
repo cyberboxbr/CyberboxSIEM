@@ -215,10 +215,10 @@ export function Search() {
 
   return (
     <div className="flex flex-col gap-3">
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_340px]">
-        <Card className="overflow-hidden border-primary/15 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.16),transparent_40%),linear-gradient(145deg,hsl(var(--card)),hsl(var(--card)/0.82))]">
-          <CardContent className="p-6">
-            <form onSubmit={onSubmit} className="space-y-5">
+      <section className="grid gap-3 xl:grid-cols-[minmax(0,1.55fr)_300px]">
+        <Card>
+          <CardContent className="p-4">
+            <form onSubmit={onSubmit} className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">{(['sql', 'nlq', 'live'] as Mode[]).map((value) => <Button key={value} type="button" variant={mode === value ? 'default' : 'outline'} size="sm" className="rounded-full" onClick={() => setMode(value)}>{value === 'sql' ? 'SQL' : value === 'nlq' ? 'AI ask' : 'Live tail'}{value === 'live' && liveTailActive && <span className="ml-1 h-2 w-2 rounded-full bg-primary" />}</Button>)}</div>
               {mode === 'sql' && <Textarea value={sqlText} onChange={(e) => setSqlText(e.target.value)} className="min-h-[180px] font-mono text-[13px]" placeholder="Leave empty for all events, or write a filter like: raw_payload LIKE '%failed%'" spellCheck={false} onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); void executeSearch(); } }} />}
               {mode === 'nlq' && <Textarea value={nlqText} onChange={(e) => setNlqText(e.target.value)} className="min-h-[120px]" placeholder="Show me failed SSH logins from external IPs in the last four hours." spellCheck={false} onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); void executeSearch(); } }} />}
@@ -228,13 +228,13 @@ export function Search() {
           </CardContent>
         </Card>
 
-        <div className="grid gap-4">
-          <Card><CardHeader><CardTitle>Saved queries</CardTitle><CardDescription>Reusable starting points for common hunts.</CardDescription></CardHeader><CardContent className="space-y-3">{SAVED_QUERIES.map((query) => <button key={query.label} type="button" className="w-full rounded-lg border border-border/70 bg-background/35 p-4 text-left transition-colors hover:bg-muted/45" onClick={() => { setMode('sql'); setSqlText(query.sql); }}><div className="font-medium text-foreground">{query.label}</div><div className="mt-2 line-clamp-2 text-sm text-muted-foreground">{query.sql}</div></button>)}</CardContent></Card>
-          <Card><CardHeader><CardTitle>Recent queries</CardTitle><CardDescription>Local query history for this browser session.</CardDescription></CardHeader><CardContent className="space-y-3">{history.length === 0 ? <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-6 text-sm text-muted-foreground">No recent queries yet.</div> : history.map((entry, index) => <button key={`${entry.query}-${entry.ts}-${index}`} type="button" className="w-full rounded-lg border border-border/70 bg-background/35 p-4 text-left transition-colors hover:bg-muted/45" onClick={() => onHistorySelect(entry)}><div className="flex items-center gap-2"><Badge variant={entry.mode === 'sql' ? 'outline' : 'info'}>{entry.mode}</Badge><span className="text-xs text-muted-foreground">{relativeTime(entry.ts)}</span></div><div className="mt-2 line-clamp-2 text-sm text-foreground">{entry.query}</div></button>)}</CardContent></Card>
+        <div className="grid gap-3">
+          <Card><CardHeader><CardTitle>Saved queries</CardTitle><CardDescription>Reusable starting points for common hunts.</CardDescription></CardHeader><CardContent className="space-y-3">{SAVED_QUERIES.map((query) => <button key={query.label} type="button" className="w-full rounded-lg border border-border/70 bg-background/35 px-3 py-2 text-left transition-colors hover:bg-muted/45" onClick={() => { setMode('sql'); setSqlText(query.sql); }}><div className="font-medium text-foreground">{query.label}</div><div className="mt-2 line-clamp-2 text-sm text-muted-foreground">{query.sql}</div></button>)}</CardContent></Card>
+          <Card><CardHeader><CardTitle>Recent queries</CardTitle><CardDescription>Local query history for this browser session.</CardDescription></CardHeader><CardContent className="space-y-3">{history.length === 0 ? <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-6 text-sm text-muted-foreground">No recent queries yet.</div> : history.map((entry, index) => <button key={`${entry.query}-${entry.ts}-${index}`} type="button" className="w-full rounded-lg border border-border/70 bg-background/35 px-3 py-2 text-left transition-colors hover:bg-muted/45" onClick={() => onHistorySelect(entry)}><div className="flex items-center gap-2"><Badge variant={entry.mode === 'sql' ? 'outline' : 'info'}>{entry.mode}</Badge><span className="text-xs text-muted-foreground">{relativeTime(entry.ts)}</span></div><div className="mt-2 line-clamp-2 text-sm text-foreground">{entry.query}</div></button>)}</CardContent></Card>
         </div>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <WorkspaceMetricCard label="Results" value={rows.length.toLocaleString()} hint={total && total > rows.length ? `of ${total.toLocaleString()} total` : 'current page or live window'} />
         <WorkspaceMetricCard label="Hosts" value={uniqueHosts.toLocaleString()} hint="distinct hostnames in current results" />
         <WorkspaceMetricCard label="Sources" value={uniqueSources.toLocaleString()} hint="distinct sources represented" />

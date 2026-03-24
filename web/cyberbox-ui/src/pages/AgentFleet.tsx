@@ -327,20 +327,20 @@ export function AgentFleet() {
                   </div>
 
                   {isExpanded && expandedAgent && (
-                    <div className="mt-5 grid gap-5 border-t border-border/70 pt-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-                      <div className="space-y-5">
-                        <div className="grid gap-4 sm:grid-cols-2">
-                          <div className="rounded-lg border border-border/70 bg-background/35 p-4">
-                            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Tenant</div>
-                            <div className="mt-3 text-sm text-foreground">{expandedAgent.tenant_id}</div>
+                    <div className="mt-3 grid gap-3 border-t border-border/70 pt-3 xl:grid-cols-[minmax(0,1fr)_320px]">
+                      <div className="space-y-3">
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <div className="rounded-lg border border-border/70 bg-background/35 px-3 py-2">
+                            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Tenant</div>
+                            <div className="mt-1 text-xs text-foreground">{expandedAgent.tenant_id}</div>
                           </div>
-                          <div className="rounded-lg border border-border/70 bg-background/35 p-4">
-                            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Heartbeat</div>
-                            <div className="mt-3 text-sm text-foreground">{abs(expandedAgent.last_seen)}</div>
+                          <div className="rounded-lg border border-border/70 bg-background/35 px-3 py-2">
+                            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Heartbeat</div>
+                            <div className="mt-1 text-xs text-foreground">{abs(expandedAgent.last_seen)}</div>
                           </div>
                         </div>
 
-                        <form className="grid gap-4 md:grid-cols-2" onSubmit={(event) => void onSaveAgent(event, expandedAgent.agent_id)}>
+                        <form className="grid gap-3 md:grid-cols-2" onSubmit={(event) => void onSaveAgent(event, expandedAgent.agent_id)}>
                           <div>
                             <div className="mb-2 text-sm font-medium text-foreground">Hostname</div>
                             <Input value={editHostname} onChange={(event) => setEditHostname(event.target.value)} placeholder="hostname" />
@@ -377,7 +377,7 @@ export function AgentFleet() {
                         </form>
                       </div>
 
-                      <div className="space-y-4 rounded-xl border border-border/70 bg-background/35 p-4">
+                      <div className="space-y-3 rounded-lg border border-border/70 bg-background/35 p-3">
                         <div>
                           <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Push config</div>
                           <p className="mt-2 text-sm text-muted-foreground">Send a TOML configuration payload directly to this agent.</p>
