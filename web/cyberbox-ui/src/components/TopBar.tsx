@@ -319,23 +319,25 @@ export function TopBar({
               <Menu className="h-4 w-4" />
             </Button>
 
-            <div className="min-w-0">
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className="gap-2 border-primary/20 bg-primary/10 text-primary">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  {pageMeta.eyebrow}
-                </Badge>
-                <Badge variant="secondary" className="hidden sm:inline-flex">
-                  Tenant {formatTenant(tenantId)}
-                </Badge>
+            {location.pathname !== '/' && (
+              <div className="min-w-0">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className="gap-2 border-primary/20 bg-primary/10 text-primary">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    {pageMeta.eyebrow}
+                  </Badge>
+                  <Badge variant="secondary" className="hidden sm:inline-flex">
+                    Tenant {formatTenant(tenantId)}
+                  </Badge>
+                </div>
+                <div className="font-display text-[1.85rem] font-semibold leading-none tracking-[-0.03em] text-foreground">
+                  {pageMeta.title}
+                </div>
+                <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+                  {pageMeta.description}
+                </p>
               </div>
-              <div className="font-display text-[1.85rem] font-semibold leading-none tracking-[-0.03em] text-foreground">
-                {pageMeta.title}
-              </div>
-              <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-                {pageMeta.description}
-              </p>
-            </div>
+            )}
           </div>
 
           <div className="flex flex-col gap-3 lg:min-w-[420px]">
