@@ -68,9 +68,9 @@ export default {
         sm: 'calc(var(--radius) - 6px)',
       },
       fontFamily: {
-        sans: ['"IBM Plex Sans"', 'sans-serif'],
-        display: ['"Space Grotesk"', 'sans-serif'],
-        mono: ['"IBM Plex Mono"', 'monospace'],
+        sans: ['"Inter"', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+        display: ['"Inter"', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'monospace'],
       },
       boxShadow: {
         shell: '0 24px 80px -36px hsl(var(--shadow-core) / 0.6)',

@@ -151,7 +151,7 @@ export function Sidebar({
 
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 flex h-screen flex-col border-r border-sidebar-border bg-[linear-gradient(180deg,hsl(var(--sidebar))_0%,hsl(228_34%_6%)_100%)] shadow-shell backdrop-blur-2xl transition-all duration-300',
+          'fixed inset-y-0 left-0 z-50 flex h-screen flex-col border-r border-sidebar-border bg-[linear-gradient(180deg,hsl(217_75%_15%)_0%,hsl(217_75%_10%)_100%)] shadow-shell backdrop-blur-2xl transition-all duration-300',
           desktopCollapsed ? 'w-20' : 'w-[15rem]',
           mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
         )}
@@ -162,7 +162,7 @@ export function Sidebar({
           </div>
           {!desktopCollapsed && (
             <div className="min-w-0">
-              <div className="font-display text-xs font-semibold uppercase tracking-[0.22em] text-sidebar-accent">
+              <div className="bg-gradient-to-r from-[#5B3DF5] to-[#00FFA3] bg-clip-text text-xs font-bold uppercase tracking-[0.22em] text-transparent">
                 Cyberbox
               </div>
               <div className="text-[10px] text-sidebar-foreground/60">SOC console</div>
