@@ -1,15 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Activity,
-  AlertTriangle,
   ArrowRight,
   BellRing,
   CheckCircle2,
   Circle,
   RefreshCcw,
-  ServerCog,
-  Shield,
 } from 'lucide-react';
 
 import { getAlerts, getDashboardStats, type AlertRecord, type DashboardStats, type Severity } from '@/api/client';
@@ -181,11 +177,19 @@ export function Dashboard({ onRefresh }: DashboardProps) {
     [stats],
   );
 
+  const alertVolume = useMemo(
+    () =>
+      (stats?.alert_trend ?? []).map((point) => ({
+        time: new Date(point.bucket).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        count: Number.parseInt(point.count, 10) || 0,
+      })),
+    [stats],
+  );
+
   const topRules = useMemo(() => (stats?.top_rules ?? []).slice(0, 5), [stats]);
-  const topAgents = useMemo(() => (stats?.agents ?? []).slice(0, 5), [stats]);
   const activeCoverage = stats?.total_agents ? Math.round((stats.active_agents / stats.total_agents) * 100) : 0;
 
-  const hasData = (stats?.total_events ?? 0) > 0 || alerts.length > 0 || topSources.length > 0 || topAgents.length > 0;
+  const hasData = (stats?.total_events ?? 0) > 0 || alerts.length > 0 || topSources.length > 0 || (stats?.total_agents ?? 0) > 0;
 
   const onboardingSteps: OnboardingStep[] = useMemo(() => [
     { label: 'Enroll at least one collector or agent', done: (stats?.total_agents ?? 0) > 0, to: '/agents' },
@@ -201,44 +205,42 @@ export function Dashboard({ onRefresh }: DashboardProps) {
 
   return (
     <div className="flex flex-col gap-3">
-      {/* ── Toolbar: range selector + refresh + sync status ──────────── */}
+      {/* ── Toolbar: error (if any) + range selector + refresh ────────── */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-1 rounded-lg border border-border/70 bg-card/60 p-0.5">
-          {RANGE_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => setTimeRange(option.value)}
-              className={cn(
-                'rounded-md px-3 py-1 text-xs font-medium transition-colors',
-                option.value === timeRange
-                  ? 'bg-primary text-primary-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-        <Button type="button" size="sm" variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
-          <RefreshCcw className={cn('h-3.5 w-3.5', isRefreshing && 'animate-spin')} />
-          Refresh
-        </Button>
         {error && <WorkspaceStatusBanner tone="warning" className="flex-1">{error}</WorkspaceStatusBanner>}
-        <span className="ml-auto text-[10px] text-muted-foreground">
-          {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : 'Loading...'}
-          {' · Auto-refresh 15s'}
-        </span>
+        <div className="ml-auto flex items-center gap-2">
+          <div className="flex items-center gap-1 rounded-lg border border-border/70 bg-card/60 p-0.5">
+            {RANGE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setTimeRange(option.value)}
+                className={cn(
+                  'rounded-md px-3 py-1 text-xs font-medium transition-colors',
+                  option.value === timeRange
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <Button type="button" size="sm" variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
+            <RefreshCcw className={cn('h-3.5 w-3.5', isRefreshing && 'animate-spin')} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* ── KPI row ──────────────────────────────────────────────────── */}
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <WorkspaceMetricCard label="Events" value={formatCompact(stats?.total_events ?? 0)} hint={`${stats?.events_by_source.length ?? 0} sources`} icon={Activity} />
-        <WorkspaceMetricCard label="Open alerts" value={String(stats?.open_alerts ?? 0)} hint={`${sevCounts.critical} crit · ${sevCounts.high} high`} icon={AlertTriangle} />
-        <WorkspaceMetricCard label="Agents" value={`${stats?.active_agents ?? 0}/${stats?.total_agents ?? 0}`} hint={`${activeCoverage}% coverage`} icon={ServerCog} />
-        <WorkspaceMetricCard label="Rules" value={String(stats?.active_rules ?? 0)} hint={`${topRules.length} triggered`} icon={Shield} />
-        <WorkspaceMetricCard label="EPS" value={stats ? stats.current_eps.toFixed(1) : '0.0'} hint="Events/sec" icon={Activity} />
-        <WorkspaceMetricCard label="MTTR" value={formatDuration(stats?.mttr_seconds ?? null)} hint="Mean time to resolve" icon={CheckCircle2} />
+        <WorkspaceMetricCard label="Events" value={formatCompact(stats?.total_events ?? 0)} hint={`${stats?.events_by_source.length ?? 0} sources`} />
+        <WorkspaceMetricCard label="Open alerts" value={String(stats?.open_alerts ?? 0)} hint={`${sevCounts.critical} crit · ${sevCounts.high} high`} />
+        <WorkspaceMetricCard label="Agents" value={`${stats?.active_agents ?? 0}/${stats?.total_agents ?? 0}`} hint={`${activeCoverage}% coverage`} />
+        <WorkspaceMetricCard label="Rules" value={String(stats?.active_rules ?? 0)} hint={`${topRules.length} triggered`} />
+        <WorkspaceMetricCard label="EPS" value={stats ? stats.current_eps.toFixed(1) : '0.0'} hint="Events/sec" />
+        <WorkspaceMetricCard label="MTTR" value={formatDuration(stats?.mttr_seconds ?? null)} hint="Mean time to resolve" />
       </section>
 
       {/* ── Severity breakdown bar (only when alerts exist) ──────────── */}
@@ -251,25 +253,44 @@ export function Dashboard({ onRefresh }: DashboardProps) {
         </div>
       )}
 
-      {/* ── Main grid ────────────────────────────────────────────────── */}
+      {/* ── Charts row ──────────────────────────────────────────────── */}
+      <section className="grid gap-3 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Event volume</CardTitle>
+            <CardDescription>Throughput across the current {rangeLabel.toLowerCase()} window.</CardDescription>
+          </CardHeader>
+          <CardContent className="h-[200px]">
+            {isLoading && !stats ? (
+              <WorkspaceEmptyState title="Loading telemetry" body="Pulling the latest event profile." />
+            ) : eventVolume.length === 0 ? (
+              <WorkspaceEmptyState title="No event traffic" body="Volume will appear once collectors send data." />
+            ) : (
+              <DashboardEventVolumeChart data={eventVolume} />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Alert volume</CardTitle>
+            <CardDescription>Detection pressure across the current {rangeLabel.toLowerCase()} window.</CardDescription>
+          </CardHeader>
+          <CardContent className="h-[200px]">
+            {isLoading && !stats ? (
+              <WorkspaceEmptyState title="Loading alerts" body="Pulling alert trend data." />
+            ) : alertVolume.length === 0 ? (
+              <WorkspaceEmptyState title="No alert activity" body="Alert volume will appear once detections trigger." />
+            ) : (
+              <DashboardEventVolumeChart data={alertVolume} />
+            )}
+          </CardContent>
+        </Card>
+      </section>
+
+      {/* ── Detail grid ──────────────────────────────────────────────── */}
       <section className="grid gap-3 xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,0.7fr)]">
         <div className="grid gap-3">
-          <Card>
-            <CardHeader>
-              <CardTitle>Event volume</CardTitle>
-              <CardDescription>Throughput across the current {rangeLabel.toLowerCase()} window.</CardDescription>
-            </CardHeader>
-            <CardContent className="h-[200px]">
-              {isLoading && !stats ? (
-                <WorkspaceEmptyState title="Loading telemetry" body="Pulling the latest event profile." />
-              ) : eventVolume.length === 0 ? (
-                <WorkspaceEmptyState title="No event traffic" body="Volume will appear once collectors send data." />
-              ) : (
-                <DashboardEventVolumeChart data={eventVolume} />
-              )}
-            </CardContent>
-          </Card>
-
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -397,28 +418,6 @@ export function Dashboard({ onRefresh }: DashboardProps) {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Fleet health</CardTitle>
-              <CardDescription>Agent readiness at a glance.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-1.5">
-              {topAgents.length === 0 ? (
-                <WorkspaceEmptyState title="No agents" body="Enroll agents to see fleet health." />
-              ) : (
-                topAgents.map((agent) => (
-                  <div key={agent.agent_id} className="flex items-center justify-between gap-2 rounded-lg border border-border/70 bg-background/35 px-3 py-1.5">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-foreground">{agent.hostname}</div>
-                    </div>
-                    <Badge variant={agent.status === 'active' ? 'success' : agent.status === 'stale' ? 'warning' : 'destructive'}>
-                      {agent.status}
-                    </Badge>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
         </div>
       </section>
     </div>

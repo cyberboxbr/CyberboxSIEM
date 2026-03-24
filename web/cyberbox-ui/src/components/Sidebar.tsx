@@ -157,16 +157,11 @@ export function Sidebar({
         )}
       >
         <div className={cn('flex items-center gap-2.5 border-b border-sidebar-border/80 px-4 py-3', desktopCollapsed && 'justify-center px-2')}>
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5">
-            <img src="/cyberboxlogo.png" alt="Cyberbox" className="h-6 w-6 object-contain" />
-          </div>
+          <img src="/cyberboxlogo.png" alt="Cyberbox" className="h-7 w-7 shrink-0 object-contain" />
           {!desktopCollapsed && (
-            <div className="min-w-0">
-              <div className="bg-gradient-to-r from-[#5B3DF5] to-[#00FFA3] bg-clip-text text-xs font-bold uppercase tracking-[0.22em] text-transparent">
-                Cyberbox
-              </div>
-              <div className="text-[10px] text-sidebar-foreground/60">SOC console</div>
-            </div>
+            <span className="text-xs font-bold uppercase tracking-[0.18em] text-sidebar-foreground">
+              CYBER<span className="text-[#00FFA3]">BOX</span> SECURITY
+            </span>
           )}
         </div>
 

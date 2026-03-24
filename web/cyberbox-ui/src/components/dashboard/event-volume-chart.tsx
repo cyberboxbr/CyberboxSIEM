@@ -209,22 +209,17 @@ export default function DashboardEventVolumeChart({ data }: DashboardEventVolume
       onPointerLeave={() => setActiveIndex(data.length - 1)}
       onPointerMove={handlePointerMove}
     >
-      <div className="pointer-events-none absolute left-4 right-4 top-4 flex flex-wrap items-start justify-between gap-3">
-        <div className="rounded-lg border border-border/70 bg-background/82 px-3 py-2 shadow-sm backdrop-blur">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Peak / average</div>
-          <div className="mt-2 flex items-baseline gap-3">
-            <span className="font-display text-xl font-semibold tracking-[-0.04em] text-foreground">{formatCompact(peak)}</span>
-            <span className="text-sm text-muted-foreground">{formatCompact(averageCount)} avg</span>
-          </div>
+      <div className="pointer-events-none absolute left-3 right-3 top-3 flex items-center justify-between gap-2">
+        <div className="rounded-md border border-border/70 bg-background/82 px-2 py-1 shadow-sm backdrop-blur">
+          <span className="text-[9px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Peak </span>
+          <span className="font-mono text-xs font-semibold text-foreground">{formatCompact(peak)}</span>
+          <span className="ml-1.5 text-[9px] text-muted-foreground">{formatCompact(averageCount)} avg</span>
         </div>
 
-        <div className="rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-right shadow-sm backdrop-blur">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary/80">Selected bucket</div>
-          <div data-testid="dashboard-chart-selected-label" className="mt-1 text-sm font-medium text-foreground">{activePoint.label}</div>
-          <div data-testid="dashboard-chart-selected-value" className="mt-1 font-display text-2xl font-semibold tracking-[-0.04em] text-foreground">
-            {formatCompact(activePoint.value)}
-            <span className="ml-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">events</span>
-          </div>
+        <div className="rounded-md border border-primary/20 bg-primary/8 px-2 py-1 text-right shadow-sm backdrop-blur">
+          <span data-testid="dashboard-chart-selected-label" className="text-[9px] font-medium text-muted-foreground">{activePoint.label}</span>
+          <span data-testid="dashboard-chart-selected-value" className="ml-1.5 font-mono text-xs font-semibold text-foreground">{formatCompact(activePoint.value)}</span>
+          <span className="ml-1 text-[9px] text-muted-foreground">events</span>
         </div>
       </div>
 
