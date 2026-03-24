@@ -305,97 +305,64 @@ export function TopBar({
   };
 
   return (
-    <header className="sticky top-0 z-30 px-4 pt-4 sm:px-6 lg:px-8">
-      <div className="rounded-xl border border-border/70 bg-card/75 p-4 shadow-card backdrop-blur-2xl sm:p-5">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex items-start gap-3">
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="mt-1 h-11 w-11 rounded-2xl border-border/80 bg-background/40 lg:hidden"
-              onClick={onOpenSidebar}
-            >
-              <Menu className="h-4 w-4" />
-            </Button>
+    <header className="sticky top-0 z-30 px-3 pt-2 sm:px-4 lg:px-6">
+      <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-card/75 px-3 py-2 shadow-card backdrop-blur-2xl">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 rounded-lg lg:hidden"
+          onClick={onOpenSidebar}
+        >
+          <Menu className="h-4 w-4" />
+        </Button>
 
-            {location.pathname !== '/' && (
-              <div className="min-w-0">
-                <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <Badge variant="outline" className="gap-2 border-primary/20 bg-primary/10 text-primary">
-                    <Sparkles className="h-3.5 w-3.5" />
-                    {pageMeta.eyebrow}
-                  </Badge>
-                  <Badge variant="secondary" className="hidden sm:inline-flex">
-                    Tenant {formatTenant(tenantId)}
-                  </Badge>
-                </div>
-                <div className="font-display text-[1.85rem] font-semibold leading-none tracking-[-0.03em] text-foreground">
-                  {pageMeta.title}
-                </div>
-                <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-                  {pageMeta.description}
-                </p>
-              </div>
-            )}
+        {location.pathname !== '/' && (
+          <div className="hidden items-center gap-2 sm:flex">
+            <span className="font-display text-sm font-semibold text-foreground">{pageMeta.title}</span>
+            <span className="text-xs text-muted-foreground">·</span>
+            <span className="text-xs text-muted-foreground">{pageMeta.eyebrow}</span>
           </div>
+        )}
 
-          <div className="flex flex-col gap-3 lg:min-w-[420px]">
-            <button
-              type="button"
-              onClick={onOpenCommandPalette}
-              className="group flex w-full items-center gap-3 rounded-lg border border-border/80 bg-background/35 px-4 py-3 text-left transition-colors hover:bg-muted/60"
-            >
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border/70 bg-card/80 text-muted-foreground">
-                <Search className="h-4 w-4" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium text-foreground">Search the workspace</div>
-                <div className="truncate text-xs text-muted-foreground">
-                  Open command palette, jump to routes, or start a hunt fast.
-                </div>
-              </div>
-              <div className="hidden items-center gap-2 rounded-full border border-border/80 bg-background/70 px-3 py-1 text-xs text-muted-foreground sm:inline-flex">
-                <Command className="h-3.5 w-3.5" />
-                Ctrl K
-              </div>
-            </button>
+        <button
+          type="button"
+          onClick={onOpenCommandPalette}
+          className="ml-auto flex items-center gap-2 rounded-md border border-border/80 bg-background/35 px-3 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/60"
+        >
+          <Search className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Search</span>
+          <kbd className="hidden rounded border border-border/80 bg-background/70 px-1.5 py-0.5 text-[10px] sm:inline">⌘K</kbd>
+        </button>
 
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="hidden items-center gap-2 sm:flex">
-                <Badge variant={getRoleTone(roles)}>{primaryRole}</Badge>
-                <div className="flex items-center gap-2 rounded-full border border-border/80 bg-background/45 px-3 py-1.5 text-xs text-muted-foreground">
-                  <ShieldCheck className="h-3.5 w-3.5 text-primary" />
-                  {sessionLabel}
-                </div>
-              </div>
+        <div className="hidden items-center gap-1.5 sm:flex">
+          <Badge variant={getRoleTone(roles)}>{primaryRole}</Badge>
+        </div>
 
-              <div className="ml-auto flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-11 w-11 rounded-2xl border border-transparent bg-background/20"
-                  onClick={toggleTheme}
-                >
-                  {isDark ? <SunMedium className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-                </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 rounded-lg"
+          onClick={toggleTheme}
+        >
+          {isDark ? <SunMedium className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+        </Button>
 
-                <div className="relative" ref={menuRef}>
-                  <button
-                    type="button"
-                    onClick={() => setMenuOpen((open) => !open)}
-                    className="flex items-center gap-3 rounded-lg border border-border/80 bg-background/35 px-3 py-2.5 text-left transition-colors hover:bg-muted/60"
-                  >
-                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/15 font-semibold text-primary">
-                      {initials || 'SU'}
-                    </div>
-                    <div className="hidden min-w-0 sm:block">
-                      <div className="truncate text-sm font-medium text-foreground">{name}</div>
-                      <div className="truncate text-xs text-muted-foreground">{primaryRole}</div>
-                    </div>
-                    <ChevronsUpDown className="h-4 w-4 text-muted-foreground" />
-                  </button>
+        <div className="relative" ref={menuRef}>
+          <button
+            type="button"
+            onClick={() => setMenuOpen((open) => !open)}
+            className="flex items-center gap-2 rounded-lg border border-border/80 bg-background/35 px-2 py-1.5 text-left transition-colors hover:bg-muted/60"
+          >
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/15 text-xs font-semibold text-primary">
+              {initials || 'SU'}
+            </div>
+            <div className="hidden min-w-0 sm:block">
+              <div className="truncate text-xs font-medium text-foreground">{name}</div>
+            </div>
+            <ChevronsUpDown className="h-3 w-3 text-muted-foreground" />
+          </button>
 
                   {menuOpen && (
                     <div className={`absolute right-0 top-[calc(100%+0.75rem)] z-50 rounded-xl border border-border/80 bg-popover/95 p-4 text-popover-foreground shadow-shell backdrop-blur-2xl ${authMode === 'bypass' ? 'w-[24rem]' : 'w-[22rem]'}`}>
@@ -563,10 +530,6 @@ export function TopBar({
                     </div>
                   )}
                 </div>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
     </header>
   );

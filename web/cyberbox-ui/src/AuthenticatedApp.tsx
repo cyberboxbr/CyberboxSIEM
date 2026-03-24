@@ -145,7 +145,7 @@ export function AuthenticatedApp() {
           openBypassEditorSignal={openBypassEditorSignal}
         />
 
-        <div className="px-3 pt-16 sm:px-4 lg:px-6">
+        <div className="px-3 pt-14 sm:px-4 lg:px-6">
           {activeBypassIdentity ? (
             <div className="mb-4 rounded-xl border border-amber-300/20 bg-[linear-gradient(145deg,rgba(245,158,11,0.18),rgba(15,23,42,0.78))] p-4 shadow-card backdrop-blur-2xl sm:p-5">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
