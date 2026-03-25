@@ -165,6 +165,8 @@ pub fn api_router() -> Router<AppState> {
         .route("/api/v1/admin/api-keys/:key_id", delete(revoke_api_key))
         // Dashboard stats
         .route("/api/v1/dashboard/stats", get(dashboard_stats))
+        // IOC enrichment (VirusTotal + AbuseIPDB)
+        .route("/api/v1/enrich/ioc", post(enrich_ioc_handler))
 }
 
 pub async fn healthz() -> Json<Value> {
@@ -4358,4 +4360,43 @@ pub async fn revoke_api_key(
     .await;
 
     Ok(Json(json!({"status": "revoked", "key_id": key_id})))
+}
+
+// ── IOC enrichment (VirusTotal + AbuseIPDB) ─────────────────────────────────
+
+pub async fn enrich_ioc_handler(
+    auth: AuthContext,
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, CyberboxError> {
+    auth.require_any(&[Role::Admin, Role::Analyst, Role::Viewer])?;
+
+    let indicator = body["indicator"]
+        .as_str()
+        .ok_or_else(|| CyberboxError::BadRequest("indicator is required".to_string()))?
+        .trim();
+
+    if indicator.is_empty() {
+        return Err(CyberboxError::BadRequest(
+            "indicator cannot be empty".to_string(),
+        ));
+    }
+
+    let result = cyberbox_core::enrichment::enrich_ioc(
+        indicator,
+        if state.abuseipdb_api_key.is_empty() {
+            None
+        } else {
+            Some(&state.abuseipdb_api_key)
+        },
+        if state.virustotal_api_key.is_empty() {
+            None
+        } else {
+            Some(&state.virustotal_api_key)
+        },
+        &state.http_client,
+    )
+    .await;
+
+    Ok(Json(serde_json::to_value(result).unwrap_or_default()))
 }

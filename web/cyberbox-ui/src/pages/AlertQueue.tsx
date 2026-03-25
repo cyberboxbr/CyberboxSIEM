@@ -6,13 +6,14 @@ import {
   ChevronUp,
   ExternalLink,
   RefreshCcw,
+  ScanSearch,
   Server,
   Sparkles,
   UserRound,
   XCircle,
 } from 'lucide-react';
 
-import { explainAlert, falsePositiveAlert, getRules, type AlertRecord, type ExplainAlertResult } from '@/api/client';
+import { enrichIoc, explainAlert, falsePositiveAlert, getRules, type AlertRecord, type EnrichmentResult, type ExplainAlertResult } from '@/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -77,6 +78,10 @@ export function AlertQueue() {
   const [explainLoading, setExplainLoading] = useState(false);
   const [explainError, setExplainError] = useState<string | null>(null);
   const [explainResult, setExplainResult] = useState<ExplainAlertResult | null>(null);
+  const [enrichIndicator, setEnrichIndicator] = useState<string | null>(null);
+  const [enrichLoading, setEnrichLoading] = useState(false);
+  const [enrichResult, setEnrichResult] = useState<EnrichmentResult | null>(null);
+  const [enrichError, setEnrichError] = useState<string | null>(null);
 
   useEffect(() => {
     void getRules().then((rules) => {
@@ -146,6 +151,20 @@ export function AlertQueue() {
       setExplainError(String(cause));
     } finally {
       setExplainLoading(false);
+    }
+  }, []);
+
+  const openEnrich = useCallback(async (indicator: string) => {
+    setEnrichIndicator(indicator);
+    setEnrichLoading(true);
+    setEnrichError(null);
+    setEnrichResult(null);
+    try {
+      setEnrichResult(await enrichIoc(indicator));
+    } catch (cause) {
+      setEnrichError(String(cause));
+    } finally {
+      setEnrichLoading(false);
     }
   }, []);
 
@@ -260,6 +279,7 @@ export function AlertQueue() {
                         <span className="hidden text-xs text-muted-foreground sm:inline"><Server className="mr-1 inline h-3 w-3" />{alert.agent_meta?.hostname ?? '?'}</span>
                         <span className="text-[10px] text-muted-foreground">{rel(alert.last_seen)}</span>
                         <Button type="button" variant="ghost" size="sm" className="h-7 px-2" onClick={() => void openExplain(alert.alert_id)}><Bot className="h-3.5 w-3.5" /></Button>
+                        <Button type="button" variant="ghost" size="sm" className="h-7 px-2" onClick={() => void openEnrich(src)} title={`Scan ${src}`}><ScanSearch className="h-3.5 w-3.5" /></Button>
                         {alert.status !== 'closed' && <Button type="button" variant="ghost" size="sm" className="h-7 px-2" onClick={() => void markFalsePositive([alert.alert_id])}><XCircle className="h-3.5 w-3.5" /></Button>}
                         <Button asChild variant="ghost" size="sm" className="h-7 px-2"><Link to={`/alerts/${alert.alert_id}`}><ExternalLink className="h-3.5 w-3.5" /></Link></Button>
                         <Button type="button" variant="ghost" size="sm" className="h-7 px-2" onClick={() => setExpanded(open ? null : alert.alert_id)}>{open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}</Button>
@@ -357,6 +377,67 @@ export function AlertQueue() {
               )}
               {!explainLoading && !explainError && !explainResult && (
                 <WorkspaceEmptyState title="No explanation" body="Run AI Explain on an alert." />
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ── IOC enrichment panel ─────────────────────────────────────── */}
+        {enrichIndicator && (
+          <Card className="h-fit xl:sticky xl:top-4">
+            <CardHeader>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <CardTitle>IOC enrichment</CardTitle>
+                  <CardDescription><code className="text-xs">{enrichIndicator}</code></CardDescription>
+                </div>
+                <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEnrichIndicator(null)}><XCircle className="h-3.5 w-3.5" /></Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {enrichLoading && <div className="rounded-lg border border-border/70 bg-background/35 p-3 text-xs text-muted-foreground">Querying AbuseIPDB + VirusTotal...</div>}
+              {enrichError && <WorkspaceStatusBanner tone="danger">{enrichError}</WorkspaceStatusBanner>}
+              {!enrichLoading && enrichResult && (
+                <>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">{enrichResult.indicator_type}</Badge>
+                    <span className="font-mono text-xs text-foreground">{enrichResult.indicator}</span>
+                  </div>
+
+                  {enrichResult.abuseipdb && (
+                    <div className="rounded-lg border border-border/70 bg-background/35 p-3">
+                      <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">AbuseIPDB</div>
+                      <div className="grid gap-2 text-xs">
+                        <div className="flex justify-between"><span className="text-muted-foreground">Confidence</span><Badge variant={enrichResult.abuseipdb.abuse_confidence_score > 50 ? 'destructive' : enrichResult.abuseipdb.abuse_confidence_score > 20 ? 'warning' : 'success'}>{enrichResult.abuseipdb.abuse_confidence_score}%</Badge></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Reports</span><span className="text-foreground">{enrichResult.abuseipdb.total_reports}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Country</span><span className="text-foreground">{enrichResult.abuseipdb.country_code || '—'}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">ISP</span><span className="truncate text-foreground">{enrichResult.abuseipdb.isp || '—'}</span></div>
+                        {enrichResult.abuseipdb.is_whitelisted && <Badge variant="success">Whitelisted</Badge>}
+                      </div>
+                    </div>
+                  )}
+
+                  {enrichResult.virustotal && (
+                    <div className="rounded-lg border border-border/70 bg-background/35 p-3">
+                      <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">VirusTotal</div>
+                      <div className="grid gap-2 text-xs">
+                        <div className="flex justify-between"><span className="text-muted-foreground">Malicious</span><Badge variant={enrichResult.virustotal.malicious > 0 ? 'destructive' : 'success'}>{enrichResult.virustotal.malicious}</Badge></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Suspicious</span><span className="text-foreground">{enrichResult.virustotal.suspicious}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Harmless</span><span className="text-foreground">{enrichResult.virustotal.harmless}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Reputation</span><span className="text-foreground">{enrichResult.virustotal.reputation}</span></div>
+                        {enrichResult.virustotal.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1">{enrichResult.virustotal.tags.map((tag) => <Badge key={tag} variant="outline">{tag}</Badge>)}</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {!enrichResult.abuseipdb && !enrichResult.virustotal && (
+                    <div className="rounded-lg border border-border/70 bg-background/35 p-3 text-xs text-muted-foreground">
+                      No enrichment data available. API keys may not be configured.
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>

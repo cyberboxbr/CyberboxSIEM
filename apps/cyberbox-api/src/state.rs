@@ -244,6 +244,10 @@ pub struct AppState {
     pub agent_device_certificate_signing_secret: String,
     /// Signed agent device certificate lifetime.
     pub agent_device_certificate_ttl_secs: u64,
+    /// AbuseIPDB API key for on-demand IP reputation lookups.
+    pub abuseipdb_api_key: String,
+    /// VirusTotal API key for on-demand IOC lookups (IP, domain, hash).
+    pub virustotal_api_key: String,
 }
 
 impl AppState {
@@ -375,6 +379,8 @@ impl AppState {
             api_key_auth_entries: Arc::new(DashMap::new()),
             agent_device_certificate_signing_secret: format!("dev-device-cert-{}", Uuid::new_v4()),
             agent_device_certificate_ttl_secs: defaults.agent_device_certificate_ttl_secs.max(60),
+            abuseipdb_api_key: String::new(),
+            virustotal_api_key: String::new(),
         }
     }
 
@@ -519,6 +525,8 @@ impl AppState {
             api_key_auth_entries: Arc::new(DashMap::new()),
             agent_device_certificate_signing_secret,
             agent_device_certificate_ttl_secs: config.agent_device_certificate_ttl_secs.max(60),
+            abuseipdb_api_key: config.abuseipdb_api_key.clone(),
+            virustotal_api_key: config.virustotal_api_key.clone(),
         })
     }
 }

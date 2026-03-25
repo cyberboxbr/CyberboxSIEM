@@ -151,6 +151,13 @@ pub struct AppConfig {
     /// are accepted with the `ingestor` role, bypassing JWT validation.
     /// Set `CYBERBOX__INGEST_API_KEY=<random-secret>` in production.
     pub ingest_api_key: String,
+    // ── IOC enrichment ────────────────────────────────────────────────────────
+    /// AbuseIPDB API key for on-demand IP reputation lookups.
+    /// Set via `CYBERBOX__ABUSEIPDB_API_KEY`.
+    pub abuseipdb_api_key: String,
+    /// VirusTotal API key for on-demand IOC lookups (IP, domain, hash).
+    /// Set via `CYBERBOX__VIRUSTOTAL_API_KEY`.
+    pub virustotal_api_key: String,
 }
 
 impl Default for AppConfig {
@@ -243,6 +250,8 @@ impl Default for AppConfig {
             otlp_endpoint: String::new(),
             tenant_id_override: String::new(),
             ingest_api_key: String::new(),
+            abuseipdb_api_key: String::new(),
+            virustotal_api_key: String::new(),
         }
     }
 }

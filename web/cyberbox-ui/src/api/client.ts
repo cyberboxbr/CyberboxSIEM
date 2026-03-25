@@ -1248,3 +1248,39 @@ export async function createApiKey(input: ApiKeyCreateInput): Promise<ApiKeyCrea
 export async function revokeApiKey(keyId: string): Promise<void> {
   await apiRequest(`/api/v1/admin/api-keys/${keyId}`, { method: 'DELETE' });
 }
+
+// ── IOC Enrichment ────────────────────────────────────────────────────────
+
+export interface AbuseIpDbResult {
+  abuse_confidence_score: number;
+  country_code: string;
+  isp: string;
+  domain: string;
+  total_reports: number;
+  last_reported_at: string | null;
+  is_whitelisted: boolean;
+}
+
+export interface VirusTotalResult {
+  malicious: number;
+  suspicious: number;
+  harmless: number;
+  undetected: number;
+  reputation: number;
+  tags: string[];
+  last_analysis_date: string | null;
+}
+
+export interface EnrichmentResult {
+  indicator: string;
+  indicator_type: string;
+  abuseipdb: AbuseIpDbResult | null;
+  virustotal: VirusTotalResult | null;
+}
+
+export async function enrichIoc(indicator: string): Promise<EnrichmentResult> {
+  return apiRequest<EnrichmentResult>('/api/v1/enrich/ioc', {
+    method: 'POST',
+    body: JSON.stringify({ indicator }),
+  });
+}

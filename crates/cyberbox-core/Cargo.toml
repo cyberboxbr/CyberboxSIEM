@@ -24,4 +24,6 @@ opentelemetry-otlp.workspace = true
 tracing-opentelemetry.workspace = true
 uuid.workspace = true
 
+tokio.workspace = true
+
 cyberbox-models.workspace = true

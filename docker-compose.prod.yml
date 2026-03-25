@@ -98,6 +98,9 @@ services:
       # State persistence
       CYBERBOX__STATE_DIR: /data
       CYBERBOX__TENANT_ID_OVERRIDE: ${TENANT_ID_OVERRIDE:-safebox}
+      # IOC enrichment
+      CYBERBOX__ABUSEIPDB_API_KEY: ${ABUSEIPDB_API_KEY:-}
+      CYBERBOX__VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
     volumes:
       - ${CYBERBOX_DATA_DIR:-./data}:/data
     networks:

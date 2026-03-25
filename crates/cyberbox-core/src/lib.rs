@@ -1,4 +1,5 @@
 pub mod app_config;
+pub mod enrichment;
 pub mod eps_limiter;
 pub mod errors;
 pub mod geoip;
