@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { LockKeyhole, Plus, RefreshCcw, Search, Shield, Trash2, Users } from 'lucide-react';
+import { Plus, RefreshCcw, Search, Trash2 } from 'lucide-react';
 
 import { deleteRbacUser, getRbacUsers, setRbacUserRoles, type RbacEntry } from '@/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { WorkspaceEmptyState } from '@/components/workspace/empty-state';
 import { WorkspaceMetricCard } from '@/components/workspace/metric-card';
 import { WorkspaceModal } from '@/components/workspace/modal-shell';
 import { WorkspaceStatusBanner } from '@/components/workspace/status-banner';
+import { cn } from '@/lib/utils';
 
 const ALL_ROLES = ['admin', 'analyst', 'viewer', 'ingestor'] as const;
 
@@ -189,79 +190,44 @@ export function Rbac() {
   };
 
   return (
-    <div className="space-y-6">
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_360px]">
-        <Card className="overflow-hidden border-primary/15 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.15),transparent_40%),linear-gradient(145deg,hsl(var(--card)),hsl(var(--card)/0.85))]">
-          <CardContent className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(250px,0.85fr)]">
-            <div>
-              <div className="mb-4 flex flex-wrap gap-2">
-                <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">RBAC administration</Badge>
-                <Badge variant="secondary" className="bg-background/55">{users.length} entries</Badge>
-              </div>
-              <div className="max-w-2xl font-display text-4xl font-semibold leading-[0.96] tracking-[-0.05em] text-foreground sm:text-[3rem]">
-                Keep access assignments explicit, reviewable, and easy to change.
-              </div>
-              <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
-                This board lets you review who has access, adjust roles inline, and add new user mappings without dropping back to raw JSON.
-              </p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <Button type="button" onClick={() => setShowCreate(true)}>
-                  <Plus className="h-4 w-4" />
-                  Add user
-                </Button>
-                <Button type="button" variant="outline" onClick={() => void loadUsers()} disabled={loading}>
-                  <RefreshCcw className={loading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
-                  Refresh roles
-                </Button>
-              </div>
-            </div>
-            <div className="grid gap-3 rounded-xl border border-border/70 bg-background/35 p-4">
-              <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">User entries</div>
-                <div className="mt-3 font-display text-4xl font-semibold tracking-[-0.04em] text-foreground">{users.length}</div>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Admins</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats.admins}</div>
-                </div>
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Analysts</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats.analysts}</div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+    <div className="flex flex-col gap-3">
+      {/* ── Toolbar ──────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2">
+        {message && <WorkspaceStatusBanner>{message}</WorkspaceStatusBanner>}
+        {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
 
-        <Card>
-          <CardHeader className="pb-4">
-            <CardTitle>Search</CardTitle>
-            <CardDescription>Find a specific user or role assignment quickly.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div>
-              <div className="mb-2 text-sm font-medium text-foreground">Search users</div>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input className="pl-11" value={searchValue} onChange={(event) => setSearchValue(event.target.value)} placeholder="user id, admin, analyst..." />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <span className="text-xs text-muted-foreground">{users.length} entries</span>
+
+        <div className="relative ml-2">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            value={searchValue}
+            onChange={(event) => setSearchValue(event.target.value)}
+            placeholder="user id, role..."
+            className="h-7 rounded-md border border-border/70 bg-card/60 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+          />
+        </div>
+
+        <div className="ml-auto flex items-center gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={() => void loadUsers()} disabled={loading}>
+            <RefreshCcw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} /> Refresh
+          </Button>
+          <Button type="button" size="sm" onClick={() => setShowCreate(true)}>
+            <Plus className="h-3.5 w-3.5" /> Add user
+          </Button>
+        </div>
+      </div>
+
+      {/* ── KPI row ──────────────────────────────────────────────────── */}
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <WorkspaceMetricCard label="Admins" value={String(stats.admins)} hint="Full administrative privileges." />
+        <WorkspaceMetricCard label="Analysts" value={String(stats.analysts)} hint="Detection and operations access." />
+        <WorkspaceMetricCard label="Viewers" value={String(stats.viewers)} hint="Read-only console access." />
+        <WorkspaceMetricCard label="Ingestors" value={String(stats.ingestors)} hint="Ingest-only service identities." />
       </section>
 
-      {message && <WorkspaceStatusBanner>{message}</WorkspaceStatusBanner>}
-      {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
-
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <WorkspaceMetricCard label="Admins" value={String(stats.admins)} hint="Users with full administrative privileges." icon={Shield} />
-        <WorkspaceMetricCard label="Analysts" value={String(stats.analysts)} hint="Users allowed to manage detections and operations." icon={Users} />
-        <WorkspaceMetricCard label="Viewers" value={String(stats.viewers)} hint="Read-only users with console visibility." icon={LockKeyhole} />
-        <WorkspaceMetricCard label="Ingestors" value={String(stats.ingestors)} hint="Machine or service identities with ingest-only access." icon={LockKeyhole} />
-      </section>
-
-      <section className="space-y-4">
+      <section className="space-y-2">
         {!filteredUsers.length && !loading ? (
           <WorkspaceEmptyState title="No RBAC entries match the current view" body="Try broadening the search or add a new user assignment." />
         ) : (

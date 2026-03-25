@@ -1,23 +1,20 @@
-import { useCallback, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Activity,
   Clock3,
   FileDiff,
-  Filter,
-  History,
+  RefreshCcw,
   Search,
-  ShieldCheck,
-  UserRound,
 } from 'lucide-react';
 
 import { getAuditLogs, type AuditLogRecord, type AuditLogsQuery } from '@/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import { Card, CardContent } from '@/components/ui/card';
 import { WorkspaceEmptyState } from '@/components/workspace/empty-state';
 import { WorkspaceMetricCard } from '@/components/workspace/metric-card';
 import { WorkspaceStatusBanner } from '@/components/workspace/status-banner';
+import { cn } from '@/lib/utils';
 
 interface DiffRow {
   path: string;
@@ -141,11 +138,6 @@ export function AuditLogs() {
     }
   }, [actionFilter, actorFilter, entityTypeFilter, fromFilter, toFilter]);
 
-  const onSubmit = (event: FormEvent) => {
-    event.preventDefault();
-    void load();
-  };
-
   const onReset = () => {
     setActionFilter('');
     setActorFilter('');
@@ -182,104 +174,76 @@ export function AuditLogs() {
   );
 
   return (
-    <div className="space-y-6">
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_380px]">
-        <Card className="overflow-hidden border-primary/15 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.15),transparent_40%),linear-gradient(145deg,hsl(var(--card)),hsl(var(--card)/0.85))]">
-          <CardContent className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(260px,0.85fr)]">
-            <div>
-              <div className="mb-4 flex flex-wrap gap-2">
-                <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">Audit workspace</Badge>
-                <Badge variant="secondary" className="bg-background/55">
-                  {hasSearched ? `${entries.length} loaded entries` : 'Ready to query'}
-                </Badge>
-              </div>
-              <div className="max-w-2xl font-display text-4xl font-semibold leading-[0.96] tracking-[-0.05em] text-foreground sm:text-[3rem]">
-                Inspect every admin-side change without dropping into raw JSON.
-              </div>
-              <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
-                Review who changed what, track before and after values, and page through the audit trail with filters that stay close to the actual control plane actions.
-              </p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <Button type="button" onClick={() => void load()} disabled={loading}>
-                  <Search className="h-4 w-4" />
-                  {loading ? 'Loading...' : hasSearched ? 'Refresh results' : 'Load recent activity'}
-                </Button>
-                <Button type="button" variant="outline" onClick={onReset} disabled={loading && !hasFilters}>
-                  <Filter className="h-4 w-4" />
-                  Clear filters
-                </Button>
-              </div>
-            </div>
-            <div className="grid gap-3 rounded-xl border border-border/70 bg-background/35 p-4">
-              <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Diff coverage</div>
-                <div className="mt-3 font-display text-4xl font-semibold tracking-[-0.04em] text-foreground">{stats.changedFields}</div>
-                <div className="mt-2 text-sm text-muted-foreground">Field-level changes surfaced in the current result set.</div>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Actors</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats.actors}</div>
-                </div>
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Actions</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{stats.actions}</div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+    <div className="flex flex-col gap-3">
+      {/* ── Toolbar ──────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2">
+        {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
 
-        <Card>
-          <CardHeader className="pb-4">
-            <CardTitle>Filters</CardTitle>
-            <CardDescription>Query by action, actor, entity type, or time window. Results stay paginated at 50 rows per page.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form className="grid gap-4" onSubmit={onSubmit}>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <div className="mb-2 text-sm font-medium text-foreground">Action</div>
-                  <Input value={actionFilter} onChange={(event) => setActionFilter(event.target.value)} placeholder="rule.create" />
-                </div>
-                <div>
-                  <div className="mb-2 text-sm font-medium text-foreground">Actor</div>
-                  <Input value={actorFilter} onChange={(event) => setActorFilter(event.target.value)} placeholder="soc-admin" />
-                </div>
-                <div>
-                  <div className="mb-2 text-sm font-medium text-foreground">Entity type</div>
-                  <Input value={entityTypeFilter} onChange={(event) => setEntityTypeFilter(event.target.value)} placeholder="rule, alert, agent" />
-                </div>
-                <div>
-                  <div className="mb-2 text-sm font-medium text-foreground">From</div>
-                  <Input type="datetime-local" value={fromFilter} onChange={(event) => setFromFilter(event.target.value)} />
-                </div>
-                <div className="sm:col-span-2">
-                  <div className="mb-2 text-sm font-medium text-foreground">To</div>
-                  <Input type="datetime-local" value={toFilter} onChange={(event) => setToFilter(event.target.value)} />
-                </div>
-              </div>
-              <div className="flex flex-wrap justify-end gap-3">
-                <Button type="button" variant="outline" onClick={onReset}>Reset</Button>
-                <Button type="submit" disabled={loading}>
-                  {loading ? 'Searching...' : 'Search audit logs'}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
+        <span className="text-xs text-muted-foreground">
+          {hasSearched ? `${entries.length} entries` : 'Not yet loaded'}
+        </span>
+
+        <div className="relative ml-2">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            value={actionFilter}
+            onChange={(event) => setActionFilter(event.target.value)}
+            placeholder="action..."
+            className="h-7 rounded-md border border-border/70 bg-card/60 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+          />
+        </div>
+
+        <input
+          type="text"
+          value={actorFilter}
+          onChange={(event) => setActorFilter(event.target.value)}
+          placeholder="actor..."
+          className="h-7 rounded-md border border-border/70 bg-card/60 px-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+        />
+
+        <input
+          type="text"
+          value={entityTypeFilter}
+          onChange={(event) => setEntityTypeFilter(event.target.value)}
+          placeholder="entity type..."
+          className="h-7 rounded-md border border-border/70 bg-card/60 px-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+        />
+
+        <input
+          type="datetime-local"
+          value={fromFilter}
+          onChange={(event) => setFromFilter(event.target.value)}
+          className="h-7 rounded-md border border-border/70 bg-card/60 px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+        />
+
+        <input
+          type="datetime-local"
+          value={toFilter}
+          onChange={(event) => setToFilter(event.target.value)}
+          className="h-7 rounded-md border border-border/70 bg-card/60 px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+        />
+
+        <div className="ml-auto flex items-center gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={onReset} disabled={loading && !hasFilters}>
+            Reset
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => void load()} disabled={loading}>
+            <RefreshCcw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
+            {loading ? 'Loading...' : hasSearched ? 'Refresh' : 'Load'}
+          </Button>
+        </div>
+      </div>
+
+      {/* ── KPI row ──────────────────────────────────────────────────── */}
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <WorkspaceMetricCard label="Loaded" value={String(entries.length)} hint="Entries in the current result set." />
+        <WorkspaceMetricCard label="Actors" value={String(stats.actors)} hint="Distinct identities in view." />
+        <WorkspaceMetricCard label="Actions" value={String(stats.actions)} hint="Unique control-plane actions in view." />
+        <WorkspaceMetricCard label="Changes" value={String(stats.changedFields)} hint="Field-level before/after deltas." />
       </section>
 
-      {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
-
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <WorkspaceMetricCard label="Loaded" value={String(entries.length)} hint="Entries currently loaded into the workspace." icon={History} />
-        <WorkspaceMetricCard label="Actors" value={String(stats.actors)} hint="Distinct identities present in the loaded result set." icon={UserRound} />
-        <WorkspaceMetricCard label="Actions" value={String(stats.actions)} hint="Unique control-plane actions represented in view." icon={ShieldCheck} />
-        <WorkspaceMetricCard label="Changes" value={String(stats.changedFields)} hint="Field-level before/after deltas available for review." icon={FileDiff} />
-      </section>
-
-      <section className="space-y-4">
+      <section className="space-y-2">
         {loading && !entries.length ? (
           <Card className="animate-pulse">
             <CardContent className="h-[240px] p-6" />

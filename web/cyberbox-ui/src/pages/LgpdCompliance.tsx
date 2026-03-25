@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Database, Download, FileText, RefreshCcw, ShieldAlert, Users } from 'lucide-react';
+import { Download, RefreshCcw } from 'lucide-react';
 
 import {
   getLgpdConfig,
@@ -12,7 +12,6 @@ import {
   type LgpdConfig,
   type LgpdExportResponse,
 } from '@/api/client';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -162,100 +161,38 @@ export function LgpdCompliance() {
   }), [breachCategories.size, config?.dpo_email]);
 
   return (
-    <div className="space-y-6">
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_380px]">
-        <Card className="overflow-hidden border-primary/15 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.15),transparent_40%),linear-gradient(145deg,hsl(var(--card)),hsl(var(--card)/0.85))]">
-          <CardContent className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(260px,0.85fr)]">
-            <div>
-              <div className="mb-4 flex flex-wrap gap-2">
-                <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">LGPD compliance workspace</Badge>
-                <Badge variant="secondary" className="bg-background/55">
-                  {config?.controller_name ?? 'Controller config pending'}
-                </Badge>
-              </div>
-              <div className="max-w-2xl font-display text-4xl font-semibold leading-[0.96] tracking-[-0.05em] text-foreground sm:text-[3rem]">
-                Handle privacy exports, anonymization, and breach reporting from one operator flow.
-              </div>
-              <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
-                This workspace keeps the controller profile visible while you prepare DSAR exports, anonymize subject data, and record incident notifications under LGPD.
-              </p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <Button type="button" variant="outline" onClick={() => void loadConfig()} disabled={configLoading}>
-                  <RefreshCcw className={configLoading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
-                  Refresh config
-                </Button>
-              </div>
-            </div>
-            <div className="grid gap-3 rounded-xl border border-border/70 bg-background/35 p-4">
-              <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Controller</div>
-                <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">
-                  {config?.controller_name ?? 'Pending'}
-                </div>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">DPO email</div>
-                  <div className="mt-3 break-all text-sm font-medium text-foreground">{config?.dpo_email ?? 'Unavailable'}</div>
-                </div>
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Legal basis</div>
-                  <div className="mt-3 text-sm font-medium text-foreground">{config?.legal_basis ?? 'Unavailable'}</div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+    <div className="flex flex-col gap-3">
+      {/* ── Toolbar ──────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2">
+        {configError && <WorkspaceStatusBanner tone="warning">{configError}</WorkspaceStatusBanner>}
 
-        <Card>
-          <CardHeader className="pb-4">
-            <CardTitle>Controller profile</CardTitle>
-            <CardDescription>Core privacy metadata stays visible while you execute the operational workflows below.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {configLoading ? (
-              <Card className="animate-pulse">
-                <CardContent className="h-[220px] p-4" />
-              </Card>
-            ) : configError ? (
-              <WorkspaceStatusBanner tone="warning">{configError}</WorkspaceStatusBanner>
-            ) : config ? (
-              <>
-                <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Controller name</div>
-                  <div className="mt-2 text-sm font-medium text-foreground">{config.controller_name}</div>
-                </div>
-                <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">DPO email</div>
-                  <div className="mt-2 break-all text-sm font-medium text-foreground">{config.dpo_email}</div>
-                </div>
-                <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Legal basis</div>
-                  <div className="mt-2 text-sm font-medium text-foreground">{config.legal_basis}</div>
-                </div>
-              </>
-            ) : (
-              <WorkspaceStatusBanner tone="neutral">No LGPD configuration is available yet.</WorkspaceStatusBanner>
-            )}
-          </CardContent>
-        </Card>
+        <span className="text-xs text-muted-foreground">
+          {config?.controller_name ?? 'Controller config pending'}
+        </span>
+
+        <div className="ml-auto flex items-center gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={() => void loadConfig()} disabled={configLoading}>
+            <RefreshCcw className={cn('h-3.5 w-3.5', configLoading && 'animate-spin')} /> Refresh
+          </Button>
+        </div>
+      </div>
+
+      {/* ── KPI row ──────────────────────────────────────────────────── */}
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <WorkspaceMetricCard label="Workflows" value={stats.workflows} hint="Privacy flows available." />
+        <WorkspaceMetricCard label="DPO" value={stats.dpoReady} hint="DPO contact status in config." />
+        <WorkspaceMetricCard label="Categories" value={stats.categories} hint="Categories for breach classification." />
+        <WorkspaceMetricCard label="Selected" value={stats.selectedCategories} hint="Categories selected in breach form." />
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <WorkspaceMetricCard label="Workflows" value={stats.workflows} hint="Operational privacy flows available in this workspace." icon={FileText} />
-        <WorkspaceMetricCard label="DPO" value={stats.dpoReady} hint="Whether a DPO contact is present in the loaded config." icon={ShieldAlert} />
-        <WorkspaceMetricCard label="Categories" value={stats.categories} hint="Data categories available for breach classification." icon={Database} />
-        <WorkspaceMetricCard label="Selected" value={stats.selectedCategories} hint="Categories currently selected in the breach report form." icon={Users} />
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-3">
+      <section className="grid gap-3 xl:grid-cols-3">
         <Card>
           <CardHeader className="pb-4">
             <CardTitle>Data subject export</CardTitle>
             <CardDescription>Generate the DSAR package for a subject and download the resulting JSON export immediately.</CardDescription>
           </CardHeader>
           <CardContent>
-            <form className="space-y-4" onSubmit={(event) => void onExport(event)}>
+            <form className="space-y-2" onSubmit={(event) => void onExport(event)}>
               <div>
                 <div className="mb-2 text-sm font-medium text-foreground">Subject ID</div>
                 <Input
@@ -289,7 +226,7 @@ export function LgpdCompliance() {
             <CardDescription>Remove identifiable subject values from matching events, optionally constrained by a cutoff time.</CardDescription>
           </CardHeader>
           <CardContent>
-            <form className="space-y-4" onSubmit={(event) => void onAnonymize(event)}>
+            <form className="space-y-2" onSubmit={(event) => void onAnonymize(event)}>
               <div>
                 <div className="mb-2 text-sm font-medium text-foreground">Subject ID</div>
                 <Input
@@ -325,7 +262,7 @@ export function LgpdCompliance() {
             <CardDescription>Capture the incident summary, data categories, affected subject count, and ANPD notification status.</CardDescription>
           </CardHeader>
           <CardContent>
-            <form className="space-y-4" onSubmit={(event) => void onBreachReport(event)}>
+            <form className="space-y-2" onSubmit={(event) => void onBreachReport(event)}>
               <div>
                 <div className="mb-2 text-sm font-medium text-foreground">Description</div>
                 <Textarea

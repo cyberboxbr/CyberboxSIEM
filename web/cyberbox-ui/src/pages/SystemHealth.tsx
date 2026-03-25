@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity, AlertTriangle, Clock3, Database, RefreshCcw, Server, ShieldCheck } from 'lucide-react';
+import { Activity, RefreshCcw } from 'lucide-react';
 
 import {
   getMetrics,
@@ -17,6 +17,7 @@ import { WorkspaceEmptyState } from '@/components/workspace/empty-state';
 import { WorkspaceMetricCard } from '@/components/workspace/metric-card';
 import { WorkspaceStatusBanner } from '@/components/workspace/status-banner';
 import { WorkspaceTableShell } from '@/components/workspace/table-shell';
+import { cn } from '@/lib/utils';
 
 function parseAllMatchingValues(raw: string, metricName: string): number {
   const regex = new RegExp(`^${metricName}(?:\\{[^}]*\\})?\\s+([\\d.eE+\\-]+)`, 'gm');
@@ -165,85 +166,42 @@ export function SystemHealth() {
   ), [sources]);
 
   return (
-    <div className="space-y-6">
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_380px]">
-        <Card className="overflow-hidden border-primary/15 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.15),transparent_40%),linear-gradient(145deg,hsl(var(--card)),hsl(var(--card)/0.85))]">
-          <CardContent className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(260px,0.85fr)]">
-            <div>
-              <div className="mb-4 flex flex-wrap gap-2">
-                <Badge variant={isHealthy ? 'success' : health ? 'destructive' : 'secondary'}>{healthLabel}</Badge>
-                <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">System health workspace</Badge>
-              </div>
-              <div className="max-w-2xl font-display text-4xl font-semibold leading-[0.96] tracking-[-0.05em] text-foreground sm:text-[3rem]">
-                Keep ingestion, scheduling, and source visibility inside one operations board.
-              </div>
-              <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
-                This workspace combines service health, Prometheus counters, event source inventory, and a manual scheduler trigger so operators can diagnose the platform quickly.
-              </p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <Button type="button" variant="outline" onClick={() => void refresh()} disabled={loading}>
-                  <RefreshCcw className={loading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
-                  Refresh health
-                </Button>
-              </div>
-            </div>
-            <div className="grid gap-3 rounded-xl border border-border/70 bg-background/35 p-4">
-              <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">System status</div>
-                <div className="mt-3 font-display text-4xl font-semibold tracking-[-0.04em] text-foreground">{healthLabel}</div>
-                <div className="mt-2 text-sm text-muted-foreground">Server time: {formatTimestamp(health?.time)}</div>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Sources</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{sourceStats.total}</div>
-                </div>
-                <div className="rounded-lg border border-border/70 bg-card/70 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">Active</div>
-                  <div className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-foreground">{sourceStats.active}</div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+    <div className="flex flex-col gap-3">
+      {/* ── Toolbar ──────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2">
+        {healthError && <WorkspaceStatusBanner tone="warning">{healthError}</WorkspaceStatusBanner>}
 
-        <Card>
-          <CardHeader className="pb-4">
-            <CardTitle>Runtime actions</CardTitle>
-            <CardDescription>Refresh platform state or force one scheduler pass without leaving the system view.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Button type="button" className="w-full justify-center" onClick={() => void onTick()} disabled={tickLoading}>
-              <Activity className={tickLoading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
-              {tickLoading ? 'Running scheduler tick...' : 'Manual scheduler tick'}
-            </Button>
-            {tickResult && (
-              <WorkspaceStatusBanner>
-                Rules scanned: <strong>{tickResult.rules_scanned}</strong>. Alerts emitted: <strong>{tickResult.alerts_emitted}</strong>.
-              </WorkspaceStatusBanner>
-            )}
-            {tickError && <WorkspaceStatusBanner tone="warning">{tickError}</WorkspaceStatusBanner>}
-            <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Last refresh</div>
-              <div className="mt-2 flex items-center gap-2 text-sm font-medium text-foreground">
-                <Clock3 className="h-4 w-4 text-muted-foreground" />
-                {formatTimestamp(health?.time)}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <Badge variant={isHealthy ? 'success' : health ? 'destructive' : 'secondary'} className="mr-1">{healthLabel}</Badge>
+        <span className="text-xs text-muted-foreground">{sourceStats.total} sources · {sourceStats.active} active</span>
+
+        <div className="ml-auto flex items-center gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={() => void onTick()} disabled={tickLoading}>
+            <Activity className={cn('h-3.5 w-3.5', tickLoading && 'animate-spin')} />
+            {tickLoading ? 'Ticking...' : 'Scheduler tick'}
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => void refresh()} disabled={loading}>
+            <RefreshCcw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} /> Refresh
+          </Button>
+        </div>
+      </div>
+
+      {/* ── Tick result / error ───────────────────────────────────────── */}
+      {tickResult && (
+        <WorkspaceStatusBanner>
+          Rules scanned: <strong>{tickResult.rules_scanned}</strong>. Alerts emitted: <strong>{tickResult.alerts_emitted}</strong>.
+        </WorkspaceStatusBanner>
+      )}
+      {tickError && <WorkspaceStatusBanner tone="warning">{tickError}</WorkspaceStatusBanner>}
+
+      {/* ── KPI row ──────────────────────────────────────────────────── */}
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <WorkspaceMetricCard label="Events" value={formatCount(eventsIngested)} hint="Total ingested events (Prometheus)." />
+        <WorkspaceMetricCard label="Alerts" value={formatCount(alertsFired)} hint="Alerts emitted per metrics endpoint." />
+        <WorkspaceMetricCard label="Rejected" value={formatCount(epsRejected)} hint="Events rejected by EPS rate protections." />
+        <WorkspaceMetricCard label="Deduped" value={formatCount(dedupDropped)} hint="Events dropped by dedupe suppression." />
       </section>
 
-      {healthError && <WorkspaceStatusBanner tone="warning">{healthError}</WorkspaceStatusBanner>}
-
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <WorkspaceMetricCard label="Events" value={formatCount(eventsIngested)} hint="Total ingested events across the current Prometheus snapshot." icon={Database} />
-        <WorkspaceMetricCard label="Alerts" value={formatCount(alertsFired)} hint="Alerts emitted according to the metrics endpoint." icon={AlertTriangle} />
-        <WorkspaceMetricCard label="Rejected" value={formatCount(epsRejected)} hint="Events rejected by EPS or rate protections." icon={Server} />
-        <WorkspaceMetricCard label="Deduped" value={formatCount(dedupDropped)} hint="Events dropped because they matched dedupe suppression." icon={ShieldCheck} />
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+      <section className="grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
         <Card>
           <CardHeader className="pb-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
