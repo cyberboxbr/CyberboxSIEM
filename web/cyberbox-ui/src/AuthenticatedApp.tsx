@@ -4,7 +4,7 @@ import { Badge } from './components/ui/badge';
 import { Button } from './components/ui/button';
 
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { Sidebar } from './components/Sidebar';
+import { TopNav } from './components/TopNav';
 import { useAuth } from './contexts/AuthContext';
 import { useIdleTimeout } from './hooks/useIdleTimeout';
 
@@ -80,8 +80,6 @@ const SESSION_WARNING_MS = 60 * 1000;
 
 export function AuthenticatedApp() {
   const { authMode, bypassIdentity, resetBypassIdentity, signOut } = useAuth();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [sessionWarning, setSessionWarning] = useState(false);
   const sessionTimeoutEnabled = authMode === 'microsoft';
@@ -117,30 +115,22 @@ export function AuthenticatedApp() {
   }, []);
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_hsl(var(--primary)/0.16),_transparent_28%),radial-gradient(circle_at_85%_15%,_hsl(var(--accent)/0.12),_transparent_26%),radial-gradient(circle_at_bottom_left,_hsl(var(--chart-2)/0.14),_transparent_30%),linear-gradient(180deg,_transparent,_hsl(var(--background)/0.9)_42%,_hsl(var(--background)))]" />
-      <div className="pointer-events-none absolute inset-0 bg-grid-noise bg-[size:44px_44px] opacity-25" />
+    <div className="min-h-screen bg-background text-foreground">
+      <TopNav
+        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+        onSignOut={() => void signOut()}
+      />
 
       {sessionTimeoutEnabled && sessionWarning && (
         <div
-          className="fixed inset-x-4 top-4 z-[90] rounded-lg border border-primary/20 bg-card/85 px-4 py-2.5 text-sm text-foreground shadow-card backdrop-blur-xl sm:inset-x-auto sm:right-6 sm:w-auto"
+          className="fixed inset-x-4 top-14 z-[90] rounded-lg border border-primary/20 bg-card/85 px-4 py-2.5 text-sm text-foreground shadow-card backdrop-blur-xl sm:inset-x-auto sm:right-6 sm:w-auto"
           onClick={() => setSessionWarning(false)}
         >
           Session expires in 1 minute. Move your mouse to stay signed in.
         </div>
       )}
 
-      <Sidebar
-        collapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-        mobileOpen={mobileSidebarOpen}
-        onMobileClose={() => setMobileSidebarOpen(false)}
-        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
-        onSignOut={() => void signOut()}
-      />
-
-      <div className={`relative z-10 min-h-screen transition-[padding] duration-300 ${sidebarCollapsed ? 'lg:pl-[5rem]' : 'lg:pl-[15rem]'}`}>
-        <div className="px-3 py-4 sm:px-4 lg:px-6">
+      <div className="mx-auto max-w-[1600px] px-4 py-4 sm:px-6 lg:px-8">
           {activeBypassIdentity ? (
             <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-50/90">
               <Badge variant="warning" className="border-amber-300/20 bg-amber-300/12 text-amber-50">Bypass</Badge>
@@ -181,8 +171,6 @@ export function AuthenticatedApp() {
             </ErrorBoundary>
           </div>
         </div>
-      </div>
-
       {commandPaletteOpen ? (
         <Suspense fallback={null}>
           <CommandPalette
