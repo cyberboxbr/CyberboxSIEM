@@ -405,7 +405,7 @@ where
             // Dynamic API keys (admin-managed) — check before static ingest key & JWT
             match extract_api_key(&parts.headers) {
                 Some(raw_key) => {
-                    use sha2::{Sha256, Digest};
+                    use sha2::{Digest, Sha256};
                     let hash = hex::encode(Sha256::digest(raw_key.as_bytes()));
                     // Clone the entry out of the DashMap to release the borrow immediately.
                     let maybe_entry = store.0.get(&hash).map(|e| e.clone());
@@ -425,7 +425,10 @@ where
                             .filter(|t| !t.trim().is_empty())
                             .unwrap_or(&entry.tenant_id)
                             .to_string();
-                        debug!("dynamic API key authentication successful (user={})", entry.user_id);
+                        debug!(
+                            "dynamic API key authentication successful (user={})",
+                            entry.user_id
+                        );
                         AuthContext {
                             user_id: entry.user_id.clone(),
                             tenant_id,
@@ -465,7 +468,9 @@ where
                                 }
                             } else {
                                 // Wrong static key — try JWT fallback
-                                if let Some(validator) = parts.extensions.get::<Arc<JwtValidator>>().cloned() {
+                                if let Some(validator) =
+                                    parts.extensions.get::<Arc<JwtValidator>>().cloned()
+                                {
                                     let token = extract_bearer_token(&parts.headers)?;
                                     validator.validate(&token).await?
                                 } else {
@@ -473,7 +478,9 @@ where
                                     return Err(CyberboxError::Unauthorized);
                                 }
                             }
-                        } else if let Some(validator) = parts.extensions.get::<Arc<JwtValidator>>().cloned() {
+                        } else if let Some(validator) =
+                            parts.extensions.get::<Arc<JwtValidator>>().cloned()
+                        {
                             let token = extract_bearer_token(&parts.headers)?;
                             validator.validate(&token).await?
                         } else {

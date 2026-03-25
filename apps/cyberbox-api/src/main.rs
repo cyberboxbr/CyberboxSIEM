@@ -46,7 +46,11 @@ async fn main() -> anyhow::Result<()> {
     // Load persisted feeds and RBAC overrides from disk (best-effort).
     persist::load_feeds(&state.threat_intel_feeds, &state.state_dir);
     persist::load_rbac(&state.rbac_store, &state.state_dir);
-    persist::load_api_keys(&state.api_key_store, &state.api_key_auth_entries, &state.state_dir);
+    persist::load_api_keys(
+        &state.api_key_store,
+        &state.api_key_auth_entries,
+        &state.state_dir,
+    );
 
     // Reload workflow state from the dedicated workflow store.
     match state.workflow_store.list_agents_all().await {

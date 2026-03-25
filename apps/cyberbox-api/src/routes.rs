@@ -4210,11 +4210,7 @@ pub async fn create_api_key(
 ) -> Result<Json<Value>, CyberboxError> {
     auth.require_any(&[Role::Admin])?;
 
-    let name = body["name"]
-        .as_str()
-        .unwrap_or("")
-        .trim()
-        .to_string();
+    let name = body["name"].as_str().unwrap_or("").trim().to_string();
     if name.is_empty() {
         return Err(CyberboxError::BadRequest("name is required".to_string()));
     }
@@ -4295,9 +4291,7 @@ pub async fn create_api_key(
     state
         .api_key_auth_entries
         .insert(key_hash.clone(), auth_entry);
-    state
-        .api_key_store
-        .insert(key_hash, record.clone());
+    state.api_key_store.insert(key_hash, record.clone());
     persist::save_api_keys(&state.api_key_store, &state.state_dir);
 
     // Audit log

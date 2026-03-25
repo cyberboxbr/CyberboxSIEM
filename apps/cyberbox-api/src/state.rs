@@ -11,7 +11,6 @@ use tokio::sync::broadcast;
 
 use chrono::{DateTime, Utc};
 use cyberbox_auth::JwtValidator;
-use serde::{Deserialize, Serialize};
 use cyberbox_core::{
     threatintel::ThreatIntelFeed, AppConfig, CyberboxError, EpsLimiter, GeoIpEnricher, LookupStore,
     TeamsNotifier,
@@ -23,6 +22,7 @@ use cyberbox_models::{
 use cyberbox_storage::{
     ClickHouseEventStore, ClickHouseWriteBuffer, InMemoryStore, RuleStore, WorkflowStore,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::stream::{RawEventPublisher, ReplayRequestPublisher};
 
@@ -137,8 +137,8 @@ impl StreamRuleCache {
 pub struct ApiKeyRecord {
     pub key_id: String,
     pub name: String,
-    pub key_prefix: String,   // first 8 hex chars after "cb_" for display
-    pub key_hash: String,     // SHA-256 hex of the full plaintext key
+    pub key_prefix: String, // first 8 hex chars after "cb_" for display
+    pub key_hash: String,   // SHA-256 hex of the full plaintext key
     pub tenant_id: String,
     pub roles: Vec<cyberbox_auth::Role>,
     pub created_at: DateTime<Utc>,
