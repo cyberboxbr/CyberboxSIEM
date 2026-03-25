@@ -35,25 +35,20 @@ export function SignIn() {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-background text-foreground">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,_hsl(var(--primary)/0.12),_transparent_40%)]" />
-
-      <div className="relative z-10 w-full max-w-sm px-6">
+    <div className="flex min-h-screen items-center justify-center bg-[#0a0a0a] text-foreground">
+      <div className="w-full max-w-sm px-6">
         {/* Logo + brand */}
         <div className="flex flex-col items-center">
-          <img src="/cyberboxlogo.png" alt="Cyberbox" className="h-12 w-12 object-contain" />
-          <div className="mt-4 text-center">
+          <img src="/cyberboxlogo.png" alt="Cyberbox" className="h-28 w-28 object-contain" />
+          <div className="mt-6 text-center">
             <span className="text-sm font-bold uppercase tracking-[0.18em] text-foreground">
               CYBER<span className="text-[#00FFA3]">BOX</span> SECURITY
             </span>
           </div>
-          <p className="mt-2 text-center text-xs text-muted-foreground">
-            Security operations workspace
-          </p>
         </div>
 
         {/* Sign-in card */}
-        <div className="mt-8 rounded-xl border border-border/70 bg-card/80 p-6 shadow-card backdrop-blur-xl">
+        <div className="mt-10 rounded-xl border border-border/70 bg-card/80 p-6 shadow-card">
           {bannerMessage && (
             <WorkspaceStatusBanner tone="warning" className="mb-4">{bannerMessage}</WorkspaceStatusBanner>
           )}
@@ -69,7 +64,7 @@ export function SignIn() {
                 {startingMicrosoft ? <Loader2 className="h-4 w-4 animate-spin" /> : <MicrosoftMark />}
                 {startingMicrosoft ? 'Connecting...' : 'Sign in with Microsoft'}
               </Button>
-              <p className="text-center text-[10px] text-muted-foreground">
+              <p className="text-center text-[10px] text-foreground">
                 Roles and tenant scope are inherited from Entra ID.
               </p>
             </div>
@@ -87,7 +82,7 @@ export function SignIn() {
           )}
         </div>
 
-        <p className="mt-6 text-center text-[10px] text-muted-foreground">
+        <p className="mt-6 text-center text-[10px] text-foreground">
           Contact Cyberbox Security for onboarding or access issues.
         </p>
       </div>
