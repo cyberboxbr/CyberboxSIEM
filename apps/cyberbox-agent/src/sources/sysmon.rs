@@ -35,11 +35,10 @@ use std::sync::Arc;
 use chrono::Utc;
 use serde_json::{json, Map, Value};
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use windows::{
     core::PCWSTR,
-    Win32::Foundation::{ERROR_NO_MORE_ITEMS, HANDLE},
     Win32::System::EventLog::{
         EvtClose, EvtNext, EvtRender, EvtRenderEventXml, EvtSubscribe, EvtSubscribeToFutureEvents,
         EVT_HANDLE,
