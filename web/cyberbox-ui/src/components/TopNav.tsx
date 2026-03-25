@@ -126,7 +126,7 @@ export function TopNav({ onOpenCommandPalette, onSignOut }: TopNavProps) {
                       'rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
                       isActive
                         ? 'bg-white/12 text-white'
-                        : 'text-white/60 hover:bg-white/6 hover:text-white/90',
+                        : 'text-white/80 hover:bg-white/10 hover:text-white',
                     )
                   }
                 >
@@ -146,7 +146,7 @@ export function TopNav({ onOpenCommandPalette, onSignOut }: TopNavProps) {
                     'flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
                     isOpen || childActive
                       ? 'bg-white/12 text-white'
-                      : 'text-white/60 hover:bg-white/6 hover:text-white/90',
+                      : 'text-white/80 hover:bg-white/10 hover:text-white',
                   )}
                 >
                   {item.label}
@@ -183,7 +183,7 @@ export function TopNav({ onOpenCommandPalette, onSignOut }: TopNavProps) {
             <button
               type="button"
               onClick={onOpenCommandPalette}
-              className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] text-white/40 transition-colors hover:bg-white/6 hover:text-white/70"
+              className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/6 hover:text-white/70"
             >
               <Search className="h-3 w-3" />
               <kbd className="hidden rounded border border-white/15 bg-white/5 px-1 py-0.5 text-[9px] sm:inline">⌘K</kbd>
@@ -194,7 +194,7 @@ export function TopNav({ onOpenCommandPalette, onSignOut }: TopNavProps) {
             type="button"
             variant="ghost"
             size="icon"
-            className="h-7 w-7 rounded-md text-white/50 hover:bg-white/6 hover:text-white/90"
+            className="h-7 w-7 rounded-md text-white/70 hover:bg-white/10 hover:text-white"
             onClick={toggleTheme}
           >
             {isDark ? <SunMedium className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
@@ -205,7 +205,7 @@ export function TopNav({ onOpenCommandPalette, onSignOut }: TopNavProps) {
               type="button"
               variant="ghost"
               size="icon"
-              className="h-7 w-7 rounded-md text-white/50 hover:bg-white/6 hover:text-white/90"
+              className="h-7 w-7 rounded-md text-white/70 hover:bg-white/10 hover:text-white"
               onClick={onSignOut}
             >
               <LogOut className="h-3.5 w-3.5" />
@@ -218,7 +218,7 @@ export function TopNav({ onOpenCommandPalette, onSignOut }: TopNavProps) {
             </div>
             <div className="hidden sm:block">
               <div className="text-[11px] font-medium leading-none text-white/90">{name}</div>
-              <div className="mt-0.5 text-[10px] leading-none text-white/45">{role}</div>
+              <div className="mt-0.5 text-[10px] leading-none text-white/70">{role}</div>
             </div>
           </div>
         </div>
