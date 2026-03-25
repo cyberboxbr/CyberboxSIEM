@@ -271,7 +271,7 @@ export function AgentFleet() {
 
       <section className="space-y-2">
         {loading && agents.length === 0 ? (
-          <Card><CardContent className="h-[320px] animate-pulse p-6" /></Card>
+          <Card><CardContent className="h-[200px] animate-pulse" /></Card>
         ) : filteredAgents.length === 0 ? (
           <WorkspaceEmptyState title="No agents match the current view" body="Try clearing a filter, changing the group selector, or waiting for the next heartbeat." />
         ) : (
@@ -280,49 +280,27 @@ export function AgentFleet() {
             const platformOptions = Array.from(new Set([agent.os, 'firewall', 'windows', 'linux', 'macos', 'router', 'network', 'syslog'].map((value) => value?.trim()).filter(Boolean))) as string[];
             return (
               <Card key={agent.agent_id} className={cn('overflow-hidden transition-colors', isExpanded && 'border-primary/20')}>
-                <CardContent className="p-5">
-                  <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-border/70 bg-background/55 text-primary">
-                          <AgentPlatformIcon agent={agent} />
-                        </div>
-                        <div>
-                          <div className="font-display text-2xl font-semibold tracking-[-0.03em] text-foreground">{agent.hostname}</div>
-                          <div className="mt-1 text-sm text-muted-foreground">{agent.agent_id}</div>
-                        </div>
+                <CardContent className="p-0">
+                  <div className={cn('h-0.5', agent.status === 'active' ? 'bg-accent' : agent.status === 'stale' ? 'bg-[hsl(43_96%_58%)]' : 'bg-destructive')} />
+                  <div className="px-3 py-2.5">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background/55 text-primary">
+                        <AgentPlatformIcon agent={agent} />
                       </div>
-                      <div className="mt-4 flex flex-wrap gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
                         <Badge variant={statusVariant(agent.status)}>{agent.status}</Badge>
-                        <Badge variant="outline">{resolveAgentKind(agent).replace(/_/g, ' ')}</Badge>
-                        <Badge variant="secondary">{agent.version}</Badge>
+                        <span className="truncate text-sm font-medium text-foreground">{agent.hostname}</span>
+                        <Badge variant="outline" className="hidden sm:inline-flex">{resolveAgentKind(agent).replace(/_/g, ' ')}</Badge>
+                      </div>
+                      <div className="ml-auto flex items-center gap-3 shrink-0 text-[10px] text-muted-foreground">
+                        <span className="hidden lg:inline">{agent.os || '—'}</span>
+                        <span className="hidden lg:inline">{agent.ip || '—'}</span>
+                        <span>{rel(agent.last_seen)}</span>
                         {agent.group && <Badge variant="secondary">{agent.group}</Badge>}
+                        <Button type="button" variant="ghost" size="sm" className="h-6 px-2" onClick={() => onExpand(agent)}>
+                          {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                        </Button>
                       </div>
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                        <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Last seen</div>
-                          <div className="mt-2 text-sm font-medium text-foreground">{rel(agent.last_seen)}</div>
-                        </div>
-                        <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">OS</div>
-                          <div className="mt-2 text-sm font-medium text-foreground">{agent.os || 'Unknown'}</div>
-                        </div>
-                        <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">IP</div>
-                          <div className="mt-2 text-sm font-medium text-foreground">{agent.ip || 'Not set'}</div>
-                        </div>
-                        <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Tags</div>
-                          <div className="mt-2 text-sm font-medium text-foreground">{agent.tags.length ? agent.tags.join(', ') : 'None'}</div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex shrink-0 flex-wrap gap-3">
-                      <Button type="button" variant="outline" onClick={() => onExpand(agent)}>
-                        {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                        {isExpanded ? 'Collapse' : 'Manage'}
-                      </Button>
                     </div>
                   </div>
 
