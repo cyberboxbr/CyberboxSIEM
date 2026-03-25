@@ -14,8 +14,11 @@ use uuid::Uuid;
 use cyberbox_auth::Role;
 use cyberbox_core::threatintel::ThreatIntelFeed;
 
+use crate::state::ApiKeyRecord;
+
 const FEEDS_FILE: &str = "threat_intel_feeds.json";
 const RBAC_FILE: &str = "rbac_store.json";
+const API_KEYS_FILE: &str = "api_keys.json";
 
 // ── Feeds ─────────────────────────────────────────────────────────────────────
 
@@ -111,5 +114,64 @@ pub fn load_rbac(store: &DashMap<String, Vec<Role>>, state_dir: &str) {
             Err(e) => tracing::warn!(error = %e, "persist: failed to parse rbac file"),
         },
         Err(e) => tracing::warn!(error = %e, "persist: failed to read rbac file"),
+    }
+}
+
+// ── API Keys ─────────────────────────────────────────────────────────────────
+
+/// Persist all API key records to `<state_dir>/api_keys.json`.
+pub fn save_api_keys(store: &DashMap<String, ApiKeyRecord>, state_dir: &str) {
+    if state_dir.is_empty() {
+        return;
+    }
+    if let Err(e) = std::fs::create_dir_all(state_dir) {
+        tracing::warn!(error = %e, dir = state_dir, "persist: cannot create state dir");
+        return;
+    }
+    let path = Path::new(state_dir).join(API_KEYS_FILE);
+    let data: Vec<ApiKeyRecord> = store.iter().map(|e| e.value().clone()).collect();
+    match serde_json::to_string_pretty(&data) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(&path, json) {
+                tracing::warn!(error = %e, ?path, "persist: failed to write api_keys file");
+            }
+        }
+        Err(e) => tracing::warn!(error = %e, "persist: failed to serialize api_keys"),
+    }
+}
+
+/// Load API key records from `<state_dir>/api_keys.json` into both stores.
+pub fn load_api_keys(
+    store: &DashMap<String, ApiKeyRecord>,
+    auth_entries: &DashMap<String, cyberbox_auth::ApiKeyAuthEntry>,
+    state_dir: &str,
+) {
+    if state_dir.is_empty() {
+        return;
+    }
+    let path = Path::new(state_dir).join(API_KEYS_FILE);
+    if !path.exists() {
+        return;
+    }
+    match std::fs::read_to_string(&path) {
+        Ok(json) => match serde_json::from_str::<Vec<ApiKeyRecord>>(&json) {
+            Ok(items) => {
+                let count = items.len();
+                for record in items {
+                    let auth_entry = cyberbox_auth::ApiKeyAuthEntry {
+                        tenant_id: record.tenant_id.clone(),
+                        user_id: format!("apikey:{}", record.name),
+                        roles: record.roles.clone(),
+                        expires_at: record.expires_at,
+                        revoked_at: record.revoked_at,
+                    };
+                    auth_entries.insert(record.key_hash.clone(), auth_entry);
+                    store.insert(record.key_hash.clone(), record);
+                }
+                tracing::info!(count, "persist: loaded API keys");
+            }
+            Err(e) => tracing::warn!(error = %e, "persist: failed to parse api_keys file"),
+        },
+        Err(e) => tracing::warn!(error = %e, "persist: failed to read api_keys file"),
     }
 }

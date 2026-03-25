@@ -9,7 +9,9 @@ use arc_swap::ArcSwap;
 use metrics_exporter_prometheus::PrometheusHandle;
 use tokio::sync::broadcast;
 
+use chrono::{DateTime, Utc};
 use cyberbox_auth::JwtValidator;
+use serde::{Deserialize, Serialize};
 use cyberbox_core::{
     threatintel::ThreatIntelFeed, AppConfig, CyberboxError, EpsLimiter, GeoIpEnricher, LookupStore,
     TeamsNotifier,
@@ -130,6 +132,21 @@ impl StreamRuleCache {
     }
 }
 
+/// Admin-managed API key record. The plaintext key is never stored — only its SHA-256 hash.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ApiKeyRecord {
+    pub key_id: String,
+    pub name: String,
+    pub key_prefix: String,   // first 8 hex chars after "cb_" for display
+    pub key_hash: String,     // SHA-256 hex of the full plaintext key
+    pub tenant_id: String,
+    pub roles: Vec<cyberbox_auth::Role>,
+    pub created_at: DateTime<Utc>,
+    pub last_used_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub revoked_at: Option<DateTime<Utc>>,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub storage: Arc<InMemoryStore>,
@@ -218,6 +235,11 @@ pub struct AppState {
     pub tenant_id_override: Option<String>,
     /// Static API key for machine-to-machine ingestion. `None` when not configured.
     pub ingest_api_key: Option<String>,
+    /// Admin-managed API keys: key_hash → ApiKeyRecord.
+    pub api_key_store: Arc<DashMap<String, ApiKeyRecord>>,
+    /// Parallel auth-layer view of the API key store for the `ApiKeyAuthStore` extension.
+    /// Kept in sync with `api_key_store` on create/revoke.
+    pub api_key_auth_entries: Arc<DashMap<String, cyberbox_auth::ApiKeyAuthEntry>>,
     /// HMAC secret used to sign and verify agent device certificates.
     pub agent_device_certificate_signing_secret: String,
     /// Signed agent device certificate lifetime.
@@ -349,6 +371,8 @@ impl AppState {
             agents: Arc::new(DashMap::new()),
             tenant_id_override: None,
             ingest_api_key: None,
+            api_key_store: Arc::new(DashMap::new()),
+            api_key_auth_entries: Arc::new(DashMap::new()),
             agent_device_certificate_signing_secret: format!("dev-device-cert-{}", Uuid::new_v4()),
             agent_device_certificate_ttl_secs: defaults.agent_device_certificate_ttl_secs.max(60),
         }
@@ -491,6 +515,8 @@ impl AppState {
             } else {
                 Some(config.ingest_api_key.clone())
             },
+            api_key_store: Arc::new(DashMap::new()),
+            api_key_auth_entries: Arc::new(DashMap::new()),
             agent_device_certificate_signing_secret,
             agent_device_certificate_ttl_secs: config.agent_device_certificate_ttl_secs.max(60),
         })

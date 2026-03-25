@@ -15,6 +15,7 @@ arc-swap.workspace = true
 axum.workspace = true
 chrono.workspace = true
 dashmap.workspace = true
+hex.workspace = true
 futures.workspace = true
 metrics.workspace = true
 metrics-exporter-prometheus.workspace = true
@@ -23,6 +24,7 @@ rdkafka = { workspace = true, optional = true }
 rayon.workspace = true
 reqwest.workspace = true
 serde.workspace = true
+sha2.workspace = true
 serde_json.workspace = true
 simd-json.workspace = true
 tokio.workspace = true

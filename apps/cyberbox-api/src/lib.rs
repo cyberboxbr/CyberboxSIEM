@@ -13,7 +13,9 @@ use std::sync::Arc;
 use axum::extract::DefaultBodyLimit;
 use axum::Extension;
 use axum::Router;
-use cyberbox_auth::{AuthBypass, IngestApiKey, JwtValidator, RoleOverrideStore, TenantOverride};
+use cyberbox_auth::{
+    ApiKeyAuthStore, AuthBypass, IngestApiKey, JwtValidator, RoleOverrideStore, TenantOverride,
+};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use tower_http::{
     cors::CorsLayer,
@@ -45,6 +47,7 @@ pub fn build_router(state: AppState) -> Router {
     let tenant_override = state.tenant_id_override.clone();
     let ingest_api_key = state.ingest_api_key.clone();
     let rbac_store = state.rbac_store.clone();
+    let api_key_auth_entries = state.api_key_auth_entries.clone();
 
     let router = Router::new()
         .merge(routes::api_router())
@@ -52,6 +55,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/metrics", axum::routing::get(routes::metrics))
         .with_state(state)
         .layer(Extension(RoleOverrideStore(rbac_store)))
+        .layer(Extension(ApiKeyAuthStore(api_key_auth_entries)))
         .layer(DefaultBodyLimit::max(max_ingest_body_bytes))
         .layer(RequestDecompressionLayer::new())
         .layer(CorsLayer::permissive())

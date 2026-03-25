@@ -69,6 +69,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Audit Logs', to: '/admin/audit' },
       { label: 'LGPD Compliance', to: '/admin/lgpd' },
       { label: 'System', to: '/admin/system' },
+      { label: 'API Keys', to: '/admin/api-keys' },
     ],
   },
 ];

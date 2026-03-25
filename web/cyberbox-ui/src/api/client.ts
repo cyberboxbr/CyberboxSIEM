@@ -1209,3 +1209,42 @@ export async function updateLookupEntries(
     body: JSON.stringify(rows),
   });
 }
+
+// ── API Keys ──────────────────────────────────────────────────────────────
+
+export interface ApiKeyRecord {
+  key_id: string;
+  name: string;
+  key_prefix: string;
+  tenant_id: string;
+  roles: string[];
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface ApiKeyCreateInput {
+  name: string;
+  roles: string[];
+  expires_at?: string;
+}
+
+export interface ApiKeyCreateResult extends ApiKeyRecord {
+  key: string; // plaintext key, only returned once
+}
+
+export async function getApiKeys(): Promise<ApiKeyRecord[]> {
+  return apiRequest<ApiKeyRecord[]>('/api/v1/admin/api-keys');
+}
+
+export async function createApiKey(input: ApiKeyCreateInput): Promise<ApiKeyCreateResult> {
+  return apiRequest<ApiKeyCreateResult>('/api/v1/admin/api-keys', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function revokeApiKey(keyId: string): Promise<void> {
+  await apiRequest(`/api/v1/admin/api-keys/${keyId}`, { method: 'DELETE' });
+}

@@ -26,6 +26,7 @@ const AuditLogs = lazy(() => import('./pages/AuditLogs').then((module) => ({ def
 const LgpdCompliance = lazy(() => import('./pages/LgpdCompliance').then((module) => ({ default: module.LgpdCompliance })));
 const SystemHealth = lazy(() => import('./pages/SystemHealth').then((module) => ({ default: module.SystemHealth })));
 const LookupTables = lazy(() => import('./pages/LookupTables').then((module) => ({ default: module.LookupTables })));
+const ApiKeys = lazy(() => import('./pages/ApiKeys').then((module) => ({ default: module.ApiKeys })));
 
 function AlertDetailRoute() {
   const { alertId } = useParams<{ alertId: string }>();
@@ -174,6 +175,7 @@ export function AuthenticatedApp() {
                   <Route path="/admin/audit" element={<RequireRole allow="admin"><AuditLogs /></RequireRole>} />
                   <Route path="/admin/lgpd" element={<RequireRole allow="admin"><LgpdCompliance /></RequireRole>} />
                   <Route path="/admin/system" element={<RequireRole allow="admin"><SystemHealth /></RequireRole>} />
+                  <Route path="/admin/api-keys" element={<RequireRole allow="admin"><ApiKeys /></RequireRole>} />
                 </Routes>
               </Suspense>
             </ErrorBoundary>

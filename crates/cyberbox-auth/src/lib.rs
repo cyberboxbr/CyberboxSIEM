@@ -100,6 +100,25 @@ pub struct IngestApiKey(pub String);
 #[derive(Clone)]
 pub struct RoleOverrideStore(pub Arc<DashMap<String, Vec<Role>>>);
 
+// ── Dynamic API Key Auth ──────────────────────────────────────────────────────
+
+/// Entry for a dynamically-created API key (admin-managed, not the static
+/// ingest key).  Stored in the auth store keyed by the SHA-256 hex hash of
+/// the plaintext key.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ApiKeyAuthEntry {
+    pub tenant_id: String,
+    pub user_id: String,
+    pub roles: Vec<Role>,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Axum extension.  Holds a shared map of dynamic API keys (SHA-256 hash → entry).
+/// Checked before the static `IngestApiKey` and JWT validators.
+#[derive(Clone)]
+pub struct ApiKeyAuthStore(pub Arc<DashMap<String, ApiKeyAuthEntry>>);
+
 // ── OIDC / JWKS internal types ───────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -382,6 +401,98 @@ where
         // Dev / test bypass — read identity from plain request headers
         let mut ctx = if parts.extensions.get::<AuthBypass>().is_some() {
             extract_from_headers(&parts.headers)?
+        } else if let Some(store) = parts.extensions.get::<ApiKeyAuthStore>().cloned() {
+            // Dynamic API keys (admin-managed) — check before static ingest key & JWT
+            match extract_api_key(&parts.headers) {
+                Some(raw_key) => {
+                    use sha2::{Sha256, Digest};
+                    let hash = hex::encode(Sha256::digest(raw_key.as_bytes()));
+                    // Clone the entry out of the DashMap to release the borrow immediately.
+                    let maybe_entry = store.0.get(&hash).map(|e| e.clone());
+                    if let Some(entry) = maybe_entry {
+                        if entry.revoked_at.is_some() {
+                            return Err(CyberboxError::Forbidden);
+                        }
+                        if let Some(exp) = entry.expires_at {
+                            if chrono::Utc::now() > exp {
+                                return Err(CyberboxError::Unauthorized);
+                            }
+                        }
+                        let tenant_id = parts
+                            .headers
+                            .get("x-tenant-id")
+                            .and_then(|v| v.to_str().ok())
+                            .filter(|t| !t.trim().is_empty())
+                            .unwrap_or(&entry.tenant_id)
+                            .to_string();
+                        debug!("dynamic API key authentication successful (user={})", entry.user_id);
+                        AuthContext {
+                            user_id: entry.user_id.clone(),
+                            tenant_id,
+                            roles: entry.roles.clone(),
+                        }
+                    } else {
+                        // Key not in dynamic store — fall through to static key / JWT
+                        if let Some(api_key_ext) = parts.extensions.get::<IngestApiKey>().cloned() {
+                            if raw_key == api_key_ext.0 {
+                                debug!("API key authentication successful");
+                                let tenant_id = parts
+                                    .headers
+                                    .get("x-tenant-id")
+                                    .and_then(|v| v.to_str().ok())
+                                    .filter(|tenant| !tenant.trim().is_empty())
+                                    .map(ToOwned::to_owned)
+                                    .unwrap_or_else(|| "default".to_string());
+                                let user_id = parts
+                                    .headers
+                                    .get("x-agent-id")
+                                    .and_then(|v| v.to_str().ok())
+                                    .filter(|value| !value.trim().is_empty())
+                                    .map(ToOwned::to_owned)
+                                    .or_else(|| {
+                                        parts
+                                            .headers
+                                            .get("x-user-id")
+                                            .and_then(|v| v.to_str().ok())
+                                            .filter(|value| !value.trim().is_empty())
+                                            .map(ToOwned::to_owned)
+                                    })
+                                    .unwrap_or_else(|| "api-key".to_string());
+                                AuthContext {
+                                    user_id,
+                                    tenant_id,
+                                    roles: vec![Role::Ingestor],
+                                }
+                            } else {
+                                // Wrong static key — try JWT fallback
+                                if let Some(validator) = parts.extensions.get::<Arc<JwtValidator>>().cloned() {
+                                    let token = extract_bearer_token(&parts.headers)?;
+                                    validator.validate(&token).await?
+                                } else {
+                                    warn!("invalid API key and no JWT validator available");
+                                    return Err(CyberboxError::Unauthorized);
+                                }
+                            }
+                        } else if let Some(validator) = parts.extensions.get::<Arc<JwtValidator>>().cloned() {
+                            let token = extract_bearer_token(&parts.headers)?;
+                            validator.validate(&token).await?
+                        } else {
+                            warn!("API key not found in dynamic store and no other auth method available");
+                            return Err(CyberboxError::Unauthorized);
+                        }
+                    }
+                }
+                None => {
+                    // No API key header — fall through to static key / JWT
+                    if let Some(validator) = parts.extensions.get::<Arc<JwtValidator>>().cloned() {
+                        let token = extract_bearer_token(&parts.headers)?;
+                        validator.validate(&token).await?
+                    } else {
+                        warn!("no auth credentials provided");
+                        return Err(CyberboxError::Unauthorized);
+                    }
+                }
+            }
         } else if let Some(api_key_ext) = parts.extensions.get::<IngestApiKey>().cloned() {
             // Static API key for machine-to-machine ingestion
             match extract_api_key(&parts.headers) {

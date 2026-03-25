@@ -157,6 +157,12 @@ pub fn api_router() -> Router<AppState> {
         )
         .route("/api/v1/agents/:id/heartbeat", post(agent_heartbeat))
         .route("/api/v1/agents/:id/config", post(push_agent_config))
+        // Admin API key management
+        .route(
+            "/api/v1/admin/api-keys",
+            get(list_api_keys).post(create_api_key),
+        )
+        .route("/api/v1/admin/api-keys/:key_id", delete(revoke_api_key))
         // Dashboard stats
         .route("/api/v1/dashboard/stats", get(dashboard_stats))
 }
@@ -4163,4 +4169,199 @@ pub async fn sync_rules_from_dir(
     .await;
 
     Ok(Json(result))
+}
+
+// ── Admin API Key Management ─────────────────────────────────────────────────
+
+/// GET /api/v1/admin/api-keys — list all API keys (Admin only).
+/// Returns key metadata WITHOUT the hash.
+pub async fn list_api_keys(
+    auth: AuthContext,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, CyberboxError> {
+    auth.require_any(&[Role::Admin])?;
+    let keys: Vec<Value> = state
+        .api_key_store
+        .iter()
+        .map(|entry| {
+            let r = entry.value();
+            json!({
+                "key_id": r.key_id,
+                "name": r.name,
+                "key_prefix": r.key_prefix,
+                "tenant_id": r.tenant_id,
+                "roles": r.roles,
+                "created_at": r.created_at,
+                "last_used_at": r.last_used_at,
+                "expires_at": r.expires_at,
+                "revoked_at": r.revoked_at,
+            })
+        })
+        .collect();
+    Ok(Json(json!(keys)))
+}
+
+/// POST /api/v1/admin/api-keys — create a new API key (Admin only).
+/// Returns the plaintext key ONCE in the response.
+pub async fn create_api_key(
+    auth: AuthContext,
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, CyberboxError> {
+    auth.require_any(&[Role::Admin])?;
+
+    let name = body["name"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if name.is_empty() {
+        return Err(CyberboxError::BadRequest("name is required".to_string()));
+    }
+
+    let roles_raw: Vec<String> = body["roles"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_else(|| vec!["analyst".to_string(), "viewer".to_string()]);
+
+    let roles: Vec<Role> = roles_raw
+        .iter()
+        .filter_map(|r| match r.as_str() {
+            "admin" => Some(Role::Admin),
+            "analyst" => Some(Role::Analyst),
+            "viewer" => Some(Role::Viewer),
+            "ingestor" => Some(Role::Ingestor),
+            _ => None,
+        })
+        .collect();
+
+    if roles.is_empty() {
+        return Err(CyberboxError::BadRequest(
+            "at least one valid role is required".to_string(),
+        ));
+    }
+
+    let expires_at = body["expires_at"]
+        .as_str()
+        .and_then(|s| s.parse::<DateTime<Utc>>().ok());
+
+    // Generate a secure random key: cb_<32 random bytes as 64 hex chars>
+    let raw_bytes: [u8; 32] = {
+        use sha2::Digest;
+        // Use UUID v4 + timestamp as entropy source (no rand crate needed)
+        let entropy = format!(
+            "{}:{}:{}:{}",
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Utc::now().timestamp_nanos_opt().unwrap_or(0),
+            Uuid::new_v4(),
+        );
+        let hash = sha2::Sha256::digest(entropy.as_bytes());
+        let mut buf = [0u8; 32];
+        buf.copy_from_slice(&hash);
+        buf
+    };
+    let plaintext_key = format!("cb_{}", hex::encode(raw_bytes));
+    let key_prefix = plaintext_key[..11].to_string(); // "cb_" + first 8 hex chars
+
+    use sha2::{Digest, Sha256};
+    let key_hash = hex::encode(Sha256::digest(plaintext_key.as_bytes()));
+
+    let record = crate::state::ApiKeyRecord {
+        key_id: Uuid::new_v4().to_string(),
+        name: name.clone(),
+        key_prefix: key_prefix.clone(),
+        key_hash: key_hash.clone(),
+        tenant_id: auth.tenant_id.clone(),
+        roles: roles.clone(),
+        created_at: Utc::now(),
+        last_used_at: None,
+        expires_at,
+        revoked_at: None,
+    };
+
+    // Insert into both stores (primary record + auth-layer view)
+    let auth_entry = cyberbox_auth::ApiKeyAuthEntry {
+        tenant_id: record.tenant_id.clone(),
+        user_id: format!("apikey:{}", record.name),
+        roles: record.roles.clone(),
+        expires_at: record.expires_at,
+        revoked_at: None,
+    };
+    state
+        .api_key_auth_entries
+        .insert(key_hash.clone(), auth_entry);
+    state
+        .api_key_store
+        .insert(key_hash, record.clone());
+    persist::save_api_keys(&state.api_key_store, &state.state_dir);
+
+    // Audit log
+    append_audit_log(
+        &state,
+        &auth.tenant_id,
+        &auth.user_id,
+        "api_key.create",
+        "api_key",
+        &record.key_id,
+        json!(null),
+        json!({"name": name}),
+    )
+    .await;
+
+    Ok(Json(json!({
+        "key_id": record.key_id,
+        "name": record.name,
+        "key_prefix": record.key_prefix,
+        "key": plaintext_key,
+        "tenant_id": record.tenant_id,
+        "roles": record.roles,
+        "created_at": record.created_at,
+        "expires_at": record.expires_at,
+    })))
+}
+
+/// DELETE /api/v1/admin/api-keys/:key_id — revoke an API key (Admin only).
+pub async fn revoke_api_key(
+    auth: AuthContext,
+    State(state): State<AppState>,
+    Path(key_id): Path<String>,
+) -> Result<Json<Value>, CyberboxError> {
+    auth.require_any(&[Role::Admin])?;
+
+    let mut found_hash: Option<String> = None;
+    for mut entry in state.api_key_store.iter_mut() {
+        if entry.value().key_id == key_id {
+            entry.value_mut().revoked_at = Some(Utc::now());
+            found_hash = Some(entry.value().key_hash.clone());
+            break;
+        }
+    }
+
+    let key_hash = found_hash.ok_or(CyberboxError::NotFound)?;
+
+    // Mark revoked in auth-layer store too
+    if let Some(mut auth_entry) = state.api_key_auth_entries.get_mut(&key_hash) {
+        auth_entry.revoked_at = Some(Utc::now());
+    }
+
+    persist::save_api_keys(&state.api_key_store, &state.state_dir);
+
+    append_audit_log(
+        &state,
+        &auth.tenant_id,
+        &auth.user_id,
+        "api_key.revoke",
+        "api_key",
+        &key_id,
+        json!(null),
+        json!(null),
+    )
+    .await;
+
+    Ok(Json(json!({"status": "revoked", "key_id": key_id})))
 }
