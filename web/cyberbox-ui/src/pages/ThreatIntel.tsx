@@ -1,9 +1,9 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  DatabaseZap,
   Globe,
   Plus,
   RefreshCcw,
+  ScanSearch,
   Search,
   ShieldAlert,
   Trash2,
@@ -12,11 +12,17 @@ import {
 import {
   createThreatIntelFeed,
   deleteThreatIntelFeed,
+  enrichIoc,
   getThreatIntelFeeds,
+  getThreatIntelProviders,
+  syncAbuseIpDbBlacklist,
   syncThreatIntelFeed,
+  toggleThreatIntelProvider,
+  type EnrichmentResult,
   type FeedType,
   type ThreatIntelFeed,
   type ThreatIntelFeedCreateInput,
+  type ThreatIntelProvider,
 } from '@/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,26 +30,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { WorkspaceEmptyState } from '@/components/workspace/empty-state';
-import { WorkspaceMetricCard } from '@/components/workspace/metric-card';
 import { WorkspaceModal } from '@/components/workspace/modal-shell';
 import { WorkspaceStatusBanner } from '@/components/workspace/status-banner';
+import { cn } from '@/lib/utils';
 
 const FEED_TYPES: Array<'all' | FeedType> = ['all', 'taxii', 'stix', 'csv', 'json'];
 
-function rel(iso?: string): string {
+function rel(iso?: string | null): string {
   if (!iso) return 'Never';
   const diff = Date.now() - new Date(iso).getTime();
-  if (diff < 0) return 'just now';
-  if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`;
+  if (diff < 60_000) return 'just now';
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
   return `${Math.floor(diff / 86_400_000)}d ago`;
-}
-
-function abs(iso?: string): string {
-  if (!iso) return 'Never';
-  const parsed = new Date(iso);
-  return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleString();
 }
 
 function typeVariant(type: FeedType): 'default' | 'secondary' | 'outline' | 'destructive' | 'success' | 'warning' | 'info' {
@@ -53,78 +52,107 @@ function typeVariant(type: FeedType): 'default' | 'secondary' | 'outline' | 'des
   return 'secondary';
 }
 
+const IOC_HISTORY_KEY = 'cyberbox-ioc-history';
+const MAX_IOC_HISTORY = 10;
+
+function loadIocHistory(): string[] {
+  try { return JSON.parse(localStorage.getItem(IOC_HISTORY_KEY) ?? '[]'); } catch { return []; }
+}
+function saveIocHistory(entries: string[]) {
+  localStorage.setItem(IOC_HISTORY_KEY, JSON.stringify(entries.slice(0, MAX_IOC_HISTORY)));
+}
+
 export function ThreatIntel() {
+  // Providers
+  const [providers, setProviders] = useState<ThreatIntelProvider[]>([]);
+  const [providersLoading, setProvidersLoading] = useState(true);
+
+  // IOC lookup
+  const [iocQuery, setIocQuery] = useState('');
+  const [iocLoading, setIocLoading] = useState(false);
+  const [iocResult, setIocResult] = useState<EnrichmentResult | null>(null);
+  const [iocError, setIocError] = useState('');
+  const [iocHistory, setIocHistory] = useState<string[]>(() => loadIocHistory());
+
+  // Blacklist
+  const [syncingBlacklist, setSyncingBlacklist] = useState(false);
+
+  // Feeds
   const [feeds, setFeeds] = useState<ThreatIntelFeed[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-  const [syncingId, setSyncingId] = useState<string | null>(null);
-  const [showAddForm, setShowAddForm] = useState(false);
   const [typeFilter, setTypeFilter] = useState<'all' | FeedType>('all');
   const [searchValue, setSearchValue] = useState('');
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
-  const [newType, setNewType] = useState<FeedType>('stix');
+  const [newType, setNewType] = useState<FeedType>('taxii');
   const [newUrl, setNewUrl] = useState('');
   const [newInterval, setNewInterval] = useState(3600);
   const [newEnabled, setNewEnabled] = useState(true);
-  const [creating, setCreating] = useState(false);
+
+  const loadProviders = useCallback(async () => {
+    setProvidersLoading(true);
+    try { setProviders(await getThreatIntelProviders()); } catch { /* ignore */ }
+    finally { setProvidersLoading(false); }
+  }, []);
 
   const loadFeeds = useCallback(async () => {
     setLoading(true);
     setError('');
-    try {
-      setFeeds(await getThreatIntelFeeds());
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      setLoading(false);
-    }
+    try { setFeeds(await getThreatIntelFeeds()); }
+    catch (err) { setError(String(err)); }
+    finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { void loadFeeds(); }, [loadFeeds]);
+  useEffect(() => { void loadProviders(); void loadFeeds(); }, [loadProviders, loadFeeds]);
 
   const filteredFeeds = useMemo(() => {
-    const query = searchValue.trim().toLowerCase();
+    const query = searchValue.toLowerCase();
     return feeds.filter((feed) => {
       if (typeFilter !== 'all' && feed.feed_type !== typeFilter) return false;
       if (!query) return true;
-      return [feed.name, feed.feed_type, feed.url]
-        .join(' ')
-        .toLowerCase()
-        .includes(query);
+      return [feed.name, feed.url, feed.feed_type].join(' ').toLowerCase().includes(query);
     });
-  }, [feeds, searchValue, typeFilter]);
+  }, [feeds, typeFilter, searchValue]);
 
-  const stats = useMemo(() => {
-    const enabled = feeds.filter((feed) => feed.enabled).length;
-    const manual = feeds.filter((feed) => feed.auto_sync_interval_secs <= 0).length;
-    const totalIocs = feeds.reduce((sum, feed) => sum + feed.ioc_count, 0);
-    return { enabled, manual, totalIocs };
-  }, [feeds]);
+  const abuseipdb = providers.find((p) => p.id === 'abuseipdb');
+  const virustotal = providers.find((p) => p.id === 'virustotal');
 
-  const onSync = async (feedId: string) => {
-    setSyncingId(feedId);
-    setMessage('Syncing feed...');
+  const handleToggle = async (id: string, enabled: boolean) => {
     try {
-      await syncThreatIntelFeed(feedId);
-      await loadFeeds();
-      setMessage('Feed synced.');
-    } catch (err) {
-      setMessage(String(err));
-    } finally {
-      setSyncingId(null);
-    }
+      await toggleThreatIntelProvider(id, enabled);
+      await loadProviders();
+      setMessage(`${id} ${enabled ? 'enabled' : 'disabled'}.`);
+    } catch (err) { setMessage(String(err)); }
   };
 
-  const onDelete = async (feedId: string) => {
-    if (!window.confirm('Delete this threat intelligence feed?')) return;
+  const handleSyncBlacklist = async () => {
+    setSyncingBlacklist(true);
+    setMessage('');
     try {
-      await deleteThreatIntelFeed(feedId);
-      setFeeds((current) => current.filter((feed) => feed.feed_id !== feedId));
-      setMessage('Feed deleted.');
-    } catch (err) {
-      setError(String(err));
-    }
+      const result = await syncAbuseIpDbBlacklist();
+      await loadProviders();
+      setMessage(`AbuseIPDB blacklist synced: ${result.count} IPs.`);
+    } catch (err) { setMessage(String(err)); }
+    finally { setSyncingBlacklist(false); }
+  };
+
+  const handleIocSearch = async (indicator?: string) => {
+    const q = (indicator ?? iocQuery).trim();
+    if (!q) return;
+    setIocLoading(true);
+    setIocError('');
+    setIocResult(null);
+    try {
+      const result = await enrichIoc(q);
+      setIocResult(result);
+      const next = [q, ...iocHistory.filter((h) => h !== q)].slice(0, MAX_IOC_HISTORY);
+      setIocHistory(next);
+      saveIocHistory(next);
+    } catch (err) { setIocError(String(err)); }
+    finally { setIocLoading(false); }
   };
 
   const onAddFeed = async (event: FormEvent) => {
@@ -132,26 +160,13 @@ export function ThreatIntel() {
     setCreating(true);
     setMessage('Creating feed...');
     try {
-      const input: ThreatIntelFeedCreateInput = {
-        name: newName,
-        feed_type: newType,
-        url: newUrl,
-        auto_sync_interval_secs: newInterval,
-        enabled: newEnabled,
-      };
+      const input: ThreatIntelFeedCreateInput = { name: newName, feed_type: newType, url: newUrl, auto_sync_interval_secs: newInterval, enabled: newEnabled };
       await createThreatIntelFeed(input);
-      setNewName('');
-      setNewUrl('');
-      setNewInterval(3600);
-      setNewEnabled(true);
-      setShowAddForm(false);
+      setNewName(''); setNewUrl(''); setNewInterval(3600); setNewEnabled(true); setShowAddForm(false);
       await loadFeeds();
       setMessage('Feed created.');
-    } catch (err) {
-      setMessage(String(err));
-    } finally {
-      setCreating(false);
-    }
+    } catch (err) { setMessage(String(err)); }
+    finally { setCreating(false); }
   };
 
   return (
@@ -160,7 +175,140 @@ export function ThreatIntel() {
       <div className="flex flex-wrap items-center gap-2">
         {message && <WorkspaceStatusBanner>{message}</WorkspaceStatusBanner>}
         {error && <WorkspaceStatusBanner tone="warning">{error}</WorkspaceStatusBanner>}
-        <span className="text-xs text-muted-foreground">{filteredFeeds.length} feeds</span>
+        <div className="ml-auto flex items-center gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={() => { void loadProviders(); void loadFeeds(); }}>
+            <RefreshCcw className="h-3.5 w-3.5" /> Refresh
+          </Button>
+        </div>
+      </div>
+
+      {/* ── Enrichment providers ──────────────────────────────────────── */}
+      <section className="grid gap-3 sm:grid-cols-2">
+        {[abuseipdb, virustotal].filter(Boolean).map((provider) => {
+          const p = provider!;
+          return (
+            <Card key={p.id}>
+              <CardContent className="px-3 py-2.5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <div className={cn('h-2 w-2 rounded-full', p.configured ? (p.enabled ? 'bg-accent' : 'bg-[hsl(43_96%_58%)]') : 'bg-destructive')} />
+                    <span className="text-sm font-medium text-foreground">{p.name}</span>
+                    <Badge variant={p.configured ? (p.enabled ? 'success' : 'secondary') : 'destructive'}>
+                      {!p.configured ? 'No key' : p.enabled ? 'Active' : 'Disabled'}
+                    </Badge>
+                  </div>
+                  {p.configured && (
+                    <Button type="button" size="sm" variant={p.enabled ? 'outline' : 'default'} className="h-6 text-[10px]" onClick={() => void handleToggle(p.id, !p.enabled)}>
+                      {p.enabled ? 'Disable' : 'Enable'}
+                    </Button>
+                  )}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+                  {p.capabilities.map((cap) => <Badge key={cap} variant="outline" className="text-[9px]">{cap.replace(/_/g, ' ')}</Badge>)}
+                  {p.id === 'abuseipdb' && p.last_sync && <span>Synced {rel(p.last_sync)}</span>}
+                  {p.id === 'abuseipdb' && p.blacklist_count > 0 && <span>{p.blacklist_count.toLocaleString()} IPs</span>}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </section>
+
+      {/* ── AbuseIPDB blacklist ───────────────────────────────────────── */}
+      {abuseipdb?.configured && (
+        <div className="flex items-center gap-3 rounded-lg border border-border/70 bg-card/80 px-3 py-2">
+          <ShieldAlert className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-xs text-foreground">AbuseIPDB Blacklist</span>
+          <span className="text-[10px] text-muted-foreground">
+            {abuseipdb.blacklist_count > 0 ? `${abuseipdb.blacklist_count.toLocaleString()} malicious IPs` : 'Not synced yet'}
+            {abuseipdb.last_sync && ` · Last sync ${rel(abuseipdb.last_sync)}`}
+            {' · Auto-sync every 4h'}
+          </span>
+          <Button type="button" size="sm" variant="outline" className="ml-auto h-6 text-[10px]" onClick={() => void handleSyncBlacklist()} disabled={syncingBlacklist}>
+            <RefreshCcw className={cn('h-3 w-3', syncingBlacklist && 'animate-spin')} />
+            {syncingBlacklist ? 'Syncing...' : 'Sync now'}
+          </Button>
+        </div>
+      )}
+
+      {/* ── IOC Lookup ────────────────────────────────────────────────── */}
+      <Card>
+        <CardContent className="px-3 py-3">
+          <div className="flex items-center gap-2">
+            <ScanSearch className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <form className="flex flex-1 items-center gap-2" onSubmit={(e) => { e.preventDefault(); void handleIocSearch(); }}>
+              <input
+                type="text"
+                value={iocQuery}
+                onChange={(e) => setIocQuery(e.target.value)}
+                placeholder="Paste an IP, domain, or hash to check reputation..."
+                className="h-8 flex-1 rounded-md border border-border/70 bg-background/45 px-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+              <Button type="submit" size="sm" disabled={iocLoading || !iocQuery.trim()}>
+                {iocLoading ? 'Checking...' : 'Lookup'}
+              </Button>
+            </form>
+          </div>
+
+          {iocHistory.length > 0 && !iocResult && !iocLoading && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {iocHistory.map((h) => (
+                <button key={h} type="button" className="rounded-md border border-border/70 bg-background/35 px-2 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground" onClick={() => { setIocQuery(h); void handleIocSearch(h); }}>
+                  {h}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {iocError && <WorkspaceStatusBanner tone="danger" className="mt-2">{iocError}</WorkspaceStatusBanner>}
+
+          {iocResult && (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div className="flex items-center gap-2 sm:col-span-2">
+                <Badge variant="outline">{iocResult.indicator_type}</Badge>
+                <code className="font-mono text-xs text-foreground">{iocResult.indicator}</code>
+              </div>
+
+              {iocResult.abuseipdb && (
+                <div className="rounded-lg border border-border/70 bg-background/35 p-3">
+                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">AbuseIPDB</div>
+                  <div className="grid gap-1.5 text-xs">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Confidence</span><Badge variant={iocResult.abuseipdb.abuse_confidence_score > 50 ? 'destructive' : iocResult.abuseipdb.abuse_confidence_score > 20 ? 'warning' : 'success'}>{iocResult.abuseipdb.abuse_confidence_score}%</Badge></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Reports</span><span className="text-foreground">{iocResult.abuseipdb.total_reports}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Country</span><span className="text-foreground">{iocResult.abuseipdb.country_code || '—'}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">ISP</span><span className="truncate text-foreground">{iocResult.abuseipdb.isp || '—'}</span></div>
+                    {iocResult.abuseipdb.is_whitelisted && <Badge variant="success">Whitelisted</Badge>}
+                  </div>
+                </div>
+              )}
+
+              {iocResult.virustotal && (
+                <div className="rounded-lg border border-border/70 bg-background/35 p-3">
+                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">VirusTotal</div>
+                  <div className="grid gap-1.5 text-xs">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Malicious</span><Badge variant={iocResult.virustotal.malicious > 0 ? 'destructive' : 'success'}>{iocResult.virustotal.malicious}</Badge></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Suspicious</span><span className="text-foreground">{iocResult.virustotal.suspicious}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Harmless</span><span className="text-foreground">{iocResult.virustotal.harmless}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Reputation</span><span className="text-foreground">{iocResult.virustotal.reputation}</span></div>
+                    {iocResult.virustotal.tags.length > 0 && <div className="flex flex-wrap gap-1">{iocResult.virustotal.tags.map((tag) => <Badge key={tag} variant="outline" className="text-[9px]">{tag}</Badge>)}</div>}
+                  </div>
+                </div>
+              )}
+
+              {!iocResult.abuseipdb && !iocResult.virustotal && (
+                <div className="rounded-lg border border-border/70 bg-background/35 p-3 text-xs text-muted-foreground sm:col-span-2">
+                  No enrichment data. Providers may be disabled or keys not configured.
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Feeds ─────────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-foreground">Feeds</span>
+        <span className="text-[10px] text-muted-foreground">{filteredFeeds.length} configured</span>
         <div className="relative ml-2">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <input type="text" value={searchValue} onChange={(e) => setSearchValue(e.target.value)} placeholder="Search feeds..." className="h-7 rounded-md border border-border/70 bg-card/60 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
@@ -169,72 +317,36 @@ export function ThreatIntel() {
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as 'all' | FeedType)} className="h-7 rounded-md border border-border/70 bg-card/60 px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring">
             {FEED_TYPES.map((type) => <option key={type} value={type}>{type === 'all' ? 'All types' : type.toUpperCase()}</option>)}
           </select>
-          <Button type="button" size="sm" variant="outline" onClick={() => void loadFeeds()} disabled={loading}>
-            <RefreshCcw className={loading ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} /> Refresh
+          <Button type="button" size="sm" onClick={() => setShowAddForm(true)}>
+            <Plus className="h-3.5 w-3.5" /> Add feed
           </Button>
-          <Button type="button" size="sm" onClick={() => setShowAddForm(true)}><Plus className="h-3.5 w-3.5" /> Add feed</Button>
         </div>
       </div>
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <WorkspaceMetricCard label="Feeds" value={String(feeds.length)} hint="Intelligence sources" />
-        <WorkspaceMetricCard label="Enabled" value={String(stats.enabled)} hint="Active for sync" />
-        <WorkspaceMetricCard label="IOCs" value={stats.totalIocs.toLocaleString()} hint="Total indicators" />
-        <WorkspaceMetricCard label="Manual" value={String(stats.manual)} hint="Manual sync only" />
-      </section>
-
       <section className="space-y-2">
         {!filteredFeeds.length && !loading ? (
-          <WorkspaceEmptyState title="No feeds match the current view" body="Adjust the filters or add a new feed to start collecting external threat intelligence." />
+          <WorkspaceEmptyState title="No feeds" body="Add a TAXII, STIX, CSV, or JSON feed to start collecting external intelligence." />
         ) : (
           filteredFeeds.map((feed) => (
-            <Card key={feed.feed_id}>
-              <CardContent className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(240px,0.7fr)]">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
+            <Card key={feed.feed_id} className="overflow-hidden">
+              <CardContent className="p-0">
+                <div className="px-3 py-2.5">
+                  <div className="flex items-center gap-3">
                     <Badge variant={typeVariant(feed.feed_type)}>{feed.feed_type}</Badge>
                     <Badge variant={feed.enabled ? 'success' : 'secondary'}>{feed.enabled ? 'enabled' : 'disabled'}</Badge>
-                    <Badge variant="outline">{feed.ioc_count.toLocaleString()} IOCs</Badge>
-                  </div>
-                  <div className="mt-4 font-display text-2xl font-semibold tracking-[-0.03em] text-foreground">{feed.name}</div>
-                  <div className="mt-2 break-all text-sm text-muted-foreground">{feed.url}</div>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Last synced</div>
-                      <div className="mt-2 text-sm font-medium text-foreground">{rel(feed.last_synced_at)}</div>
-                    </div>
-                    <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Sync interval</div>
-                      <div className="mt-2 text-sm font-medium text-foreground">{feed.auto_sync_interval_secs > 0 ? `${feed.auto_sync_interval_secs}s` : 'Manual'}</div>
-                    </div>
-                    <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Enabled</div>
-                      <div className="mt-2 text-sm font-medium text-foreground">{feed.enabled ? 'Yes' : 'No'}</div>
-                    </div>
-                    <div className="rounded-lg border border-border/70 bg-background/35 px-4 py-3">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Feed ID</div>
-                      <div className="mt-2 truncate text-sm font-medium text-foreground">{feed.feed_id}</div>
+                    <span className="truncate text-sm font-medium text-foreground">{feed.name}</span>
+                    <div className="ml-auto flex items-center gap-2 shrink-0 text-[10px] text-muted-foreground">
+                      <span>{feed.ioc_count ?? 0} IOCs</span>
+                      <span>Synced {rel(feed.last_synced_at)}</span>
+                      <Button type="button" variant="ghost" size="sm" className="h-6 px-2" onClick={() => { setMessage('Syncing...'); void syncThreatIntelFeed(feed.feed_id).then(() => { void loadFeeds(); setMessage('Feed synced.'); }).catch((err) => setMessage(String(err))); }}>
+                        <RefreshCcw className="h-3 w-3" />
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-6 px-2 text-destructive hover:text-destructive" onClick={() => { if (window.confirm(`Delete feed "${feed.name}"?`)) void deleteThreatIntelFeed(feed.feed_id).then(() => { void loadFeeds(); setMessage('Feed deleted.'); }).catch((err) => setMessage(String(err))); }}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
                     </div>
                   </div>
-                </div>
-
-                <div className="grid gap-4 rounded-xl border border-border/70 bg-background/35 p-4">
-                  <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Sync health</div>
-                    <div className="mt-3 text-sm text-muted-foreground">
-                      {feed.last_synced_at ? `Last sync at ${abs(feed.last_synced_at)}` : 'This feed has not synced yet.'}
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <Button type="button" className="w-full justify-center rounded-lg" onClick={() => void onSync(feed.feed_id)} disabled={syncingId === feed.feed_id}>
-                      <RefreshCcw className={syncingId === feed.feed_id ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
-                      {syncingId === feed.feed_id ? 'Syncing...' : 'Sync now'}
-                    </Button>
-                    <Button type="button" variant="outline" className="w-full justify-center rounded-lg" onClick={() => void onDelete(feed.feed_id)}>
-                      <Trash2 className="h-4 w-4" />
-                      Delete feed
-                    </Button>
-                  </div>
+                  <div className="mt-1 truncate text-[10px] text-muted-foreground">{feed.url}</div>
                 </div>
               </CardContent>
             </Card>
@@ -242,41 +354,22 @@ export function ThreatIntel() {
         )}
       </section>
 
-      <WorkspaceModal
-        open={showAddForm}
-        title="Add threat intel feed"
-        description="Define a new external source and how often Cyberbox should sync it."
-        onClose={() => setShowAddForm(false)}
-        panelClassName="max-w-2xl"
-      >
-        <form className="grid gap-4 md:grid-cols-2" onSubmit={(event) => void onAddFeed(event)}>
-          <div>
-            <div className="mb-2 text-sm font-medium text-foreground">Name</div>
-            <Input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Abuse.ch URLhaus" required />
+      {/* ── Add feed modal ────────────────────────────────────────────── */}
+      <WorkspaceModal open={showAddForm} title="Add feed" description="Connect an external threat intelligence source." onClose={() => setShowAddForm(false)} panelClassName="max-w-lg">
+        <form onSubmit={(e) => void onAddFeed(e)} className="space-y-3">
+          <div><div className="mb-1 text-xs font-medium text-foreground">Name</div><Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="abuse.ch URLhaus" autoFocus /></div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div><div className="mb-1 text-xs font-medium text-foreground">Type</div><Select value={newType} onChange={(e) => setNewType(e.target.value as FeedType)}><option value="taxii">TAXII</option><option value="stix">STIX</option><option value="csv">CSV</option><option value="json">JSON</option></Select></div>
+            <div><div className="mb-1 text-xs font-medium text-foreground">Sync interval (sec)</div><Input type="number" value={newInterval} onChange={(e) => setNewInterval(Number(e.target.value))} min={0} /></div>
           </div>
-          <div>
-            <div className="mb-2 text-sm font-medium text-foreground">Type</div>
-            <Select value={newType} onChange={(event) => setNewType(event.target.value as FeedType)}>
-              {FEED_TYPES.filter((type): type is FeedType => type !== 'all').map((type) => <option key={type} value={type}>{type.toUpperCase()}</option>)}
-            </Select>
+          <div><div className="mb-1 text-xs font-medium text-foreground">URL</div><Input value={newUrl} onChange={(e) => setNewUrl(e.target.value)} placeholder="https://..." /></div>
+          <div className="flex items-center gap-2">
+            <input type="checkbox" checked={newEnabled} onChange={(e) => setNewEnabled(e.target.checked)} id="feed-enabled" />
+            <label htmlFor="feed-enabled" className="text-xs text-foreground">Enabled</label>
           </div>
-          <div className="md:col-span-2">
-            <div className="mb-2 text-sm font-medium text-foreground">URL</div>
-            <Input value={newUrl} onChange={(event) => setNewUrl(event.target.value)} placeholder="https://urlhaus.abuse.ch/downloads/csv/" required />
-          </div>
-          <div>
-            <div className="mb-2 text-sm font-medium text-foreground">Sync interval (seconds)</div>
-            <Input type="number" min={0} value={String(newInterval)} onChange={(event) => setNewInterval(Number(event.target.value))} />
-          </div>
-          <label className="flex items-center gap-3 rounded-lg border border-border/70 bg-background/35 px-4 py-3 text-sm text-foreground">
-            <input type="checkbox" checked={newEnabled} onChange={(event) => setNewEnabled(event.target.checked)} />
-            Enabled
-          </label>
-          <div className="md:col-span-2 flex flex-wrap justify-end gap-3">
-            <Button type="button" variant="outline" onClick={() => setShowAddForm(false)}>Cancel</Button>
-            <Button type="submit" disabled={creating || !newName.trim() || !newUrl.trim()}>
-              {creating ? 'Creating...' : 'Create feed'}
-            </Button>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => setShowAddForm(false)}>Cancel</Button>
+            <Button type="submit" size="sm" disabled={creating || !newName.trim() || !newUrl.trim()}>{creating ? 'Creating...' : 'Add feed'}</Button>
           </div>
         </form>
       </WorkspaceModal>

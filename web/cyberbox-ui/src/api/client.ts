@@ -1284,3 +1284,31 @@ export async function enrichIoc(indicator: string): Promise<EnrichmentResult> {
     body: JSON.stringify({ indicator }),
   });
 }
+
+// ── Threat Intel Providers ────────────────────────────────────────────────
+
+export interface ThreatIntelProvider {
+  id: string;
+  name: string;
+  enabled: boolean;
+  configured: boolean;
+  capabilities: string[];
+  last_sync: string | null;
+  blacklist_count: number;
+}
+
+export async function getThreatIntelProviders(): Promise<ThreatIntelProvider[]> {
+  const resp = await apiRequest<{ providers: ThreatIntelProvider[] }>('/api/v1/threatintel/providers');
+  return resp.providers;
+}
+
+export async function toggleThreatIntelProvider(providerId: string, enabled: boolean): Promise<void> {
+  await apiRequest(`/api/v1/threatintel/providers/${providerId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+export async function syncAbuseIpDbBlacklist(): Promise<{ count: number }> {
+  return apiRequest<{ count: number }>('/api/v1/threatintel/blacklist/sync', { method: 'POST' });
+}

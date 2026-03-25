@@ -7,6 +7,7 @@
 /// All operations are best-effort: failures are logged as warnings and never panic.
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::Ordering;
 
 use dashmap::DashMap;
 use uuid::Uuid;
@@ -14,7 +15,7 @@ use uuid::Uuid;
 use cyberbox_auth::Role;
 use cyberbox_core::threatintel::ThreatIntelFeed;
 
-use crate::state::ApiKeyRecord;
+use crate::state::{ApiKeyRecord, AppState};
 
 const FEEDS_FILE: &str = "threat_intel_feeds.json";
 const RBAC_FILE: &str = "rbac_store.json";
@@ -173,5 +174,58 @@ pub fn load_api_keys(
             Err(e) => tracing::warn!(error = %e, "persist: failed to parse api_keys file"),
         },
         Err(e) => tracing::warn!(error = %e, "persist: failed to read api_keys file"),
+    }
+}
+
+// ── Provider state ───────────────────────────────────────────────────────────
+
+const PROVIDERS_FILE: &str = "providers.json";
+
+/// Persist provider enabled/disabled state to `<state_dir>/providers.json`.
+pub fn save_provider_state(state: &AppState) {
+    if state.state_dir.is_empty() {
+        return;
+    }
+    if let Err(e) = std::fs::create_dir_all(&state.state_dir) {
+        tracing::warn!(error = %e, dir = %state.state_dir, "persist: cannot create state dir");
+        return;
+    }
+    let path = Path::new(&state.state_dir).join(PROVIDERS_FILE);
+    let data = serde_json::json!({
+        "abuseipdb_enabled": state.abuseipdb_enabled.load(Ordering::Relaxed),
+        "virustotal_enabled": state.virustotal_enabled.load(Ordering::Relaxed),
+    });
+    match serde_json::to_string_pretty(&data) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(&path, json) {
+                tracing::warn!(error = %e, ?path, "persist: failed to write providers file");
+            }
+        }
+        Err(e) => tracing::warn!(error = %e, "persist: failed to serialize provider state"),
+    }
+}
+
+/// Load provider enabled/disabled state from `<state_dir>/providers.json`.
+pub fn load_provider_state(state: &AppState) {
+    if state.state_dir.is_empty() {
+        return;
+    }
+    let path = Path::new(&state.state_dir).join(PROVIDERS_FILE);
+    if !path.exists() {
+        return;
+    }
+    match std::fs::read_to_string(&path) {
+        Ok(data) => {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
+                if let Some(v) = json.get("abuseipdb_enabled").and_then(|v| v.as_bool()) {
+                    state.abuseipdb_enabled.store(v, Ordering::Relaxed);
+                }
+                if let Some(v) = json.get("virustotal_enabled").and_then(|v| v.as_bool()) {
+                    state.virustotal_enabled.store(v, Ordering::Relaxed);
+                }
+                tracing::info!("persist: loaded provider state");
+            }
+        }
+        Err(e) => tracing::warn!(error = %e, "persist: failed to read providers file"),
     }
 }

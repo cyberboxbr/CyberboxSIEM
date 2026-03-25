@@ -51,6 +51,7 @@ async fn main() -> anyhow::Result<()> {
         &state.api_key_auth_entries,
         &state.state_dir,
     );
+    persist::load_provider_state(&state);
 
     // Reload workflow state from the dedicated workflow store.
     match state.workflow_store.list_agents_all().await {
@@ -228,6 +229,45 @@ async fn main() -> anyhow::Result<()> {
             }
         });
         tracing::info!("threat-intel auto-sync task spawned (poll interval: 60s)");
+    }
+
+    // AbuseIPDB blacklist auto-sync (every 4 hours).
+    {
+        let s = state.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(4 * 3600));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            interval.tick().await; // first tick is immediate — do initial sync
+            loop {
+                if !s.abuseipdb_api_key.is_empty()
+                    && s.abuseipdb_enabled
+                        .load(std::sync::atomic::Ordering::Relaxed)
+                {
+                    match cyberbox_core::enrichment::fetch_abuseipdb_blacklist(
+                        &s.abuseipdb_api_key,
+                        90,
+                        10000,
+                        &s.http_client,
+                    )
+                    .await
+                    {
+                        Ok(ips) => {
+                            let count = ips.len();
+                            s.lookup_store.add_entries("abuseipdb_blacklist", ips);
+                            s.abuseipdb_blacklist_count
+                                .store(count, std::sync::atomic::Ordering::Relaxed);
+                            *s.abuseipdb_last_sync.lock().unwrap() = Some(chrono::Utc::now());
+                            tracing::info!(count, "AbuseIPDB blacklist auto-synced");
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "AbuseIPDB blacklist auto-sync failed");
+                        }
+                    }
+                }
+                interval.tick().await;
+            }
+        });
+        tracing::info!("AbuseIPDB blacklist auto-sync task spawned (interval: 4h)");
     }
 
     // Start syslog UDP/TCP receivers if enabled.

@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -248,6 +249,14 @@ pub struct AppState {
     pub abuseipdb_api_key: String,
     /// VirusTotal API key for on-demand IOC lookups (IP, domain, hash).
     pub virustotal_api_key: String,
+    /// Whether AbuseIPDB enrichment is enabled (toggled via UI).
+    pub abuseipdb_enabled: Arc<AtomicBool>,
+    /// Whether VirusTotal enrichment is enabled (toggled via UI).
+    pub virustotal_enabled: Arc<AtomicBool>,
+    /// Timestamp of the last AbuseIPDB blacklist sync.
+    pub abuseipdb_last_sync: Arc<std::sync::Mutex<Option<chrono::DateTime<chrono::Utc>>>>,
+    /// Number of IPs in the current AbuseIPDB blacklist.
+    pub abuseipdb_blacklist_count: Arc<AtomicUsize>,
 }
 
 impl AppState {
@@ -381,6 +390,10 @@ impl AppState {
             agent_device_certificate_ttl_secs: defaults.agent_device_certificate_ttl_secs.max(60),
             abuseipdb_api_key: String::new(),
             virustotal_api_key: String::new(),
+            abuseipdb_enabled: Arc::new(AtomicBool::new(false)),
+            virustotal_enabled: Arc::new(AtomicBool::new(false)),
+            abuseipdb_last_sync: Arc::new(std::sync::Mutex::new(None)),
+            abuseipdb_blacklist_count: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -527,6 +540,10 @@ impl AppState {
             agent_device_certificate_ttl_secs: config.agent_device_certificate_ttl_secs.max(60),
             abuseipdb_api_key: config.abuseipdb_api_key.clone(),
             virustotal_api_key: config.virustotal_api_key.clone(),
+            abuseipdb_enabled: Arc::new(AtomicBool::new(!config.abuseipdb_api_key.is_empty())),
+            virustotal_enabled: Arc::new(AtomicBool::new(!config.virustotal_api_key.is_empty())),
+            abuseipdb_last_sync: Arc::new(std::sync::Mutex::new(None)),
+            abuseipdb_blacklist_count: Arc::new(AtomicUsize::new(0)),
         })
     }
 }

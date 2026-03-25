@@ -167,6 +167,13 @@ pub fn api_router() -> Router<AppState> {
         .route("/api/v1/dashboard/stats", get(dashboard_stats))
         // IOC enrichment (VirusTotal + AbuseIPDB)
         .route("/api/v1/enrich/ioc", post(enrich_ioc_handler))
+        // Threat intel provider management
+        .route("/api/v1/threatintel/providers", get(list_providers))
+        .route("/api/v1/threatintel/providers/:id", patch(toggle_provider))
+        .route(
+            "/api/v1/threatintel/blacklist/sync",
+            post(sync_abuseipdb_blacklist),
+        )
 }
 
 pub async fn healthz() -> Json<Value> {
@@ -4384,12 +4391,20 @@ pub async fn enrich_ioc_handler(
 
     let result = cyberbox_core::enrichment::enrich_ioc(
         indicator,
-        if state.abuseipdb_api_key.is_empty() {
+        if state.abuseipdb_api_key.is_empty()
+            || !state
+                .abuseipdb_enabled
+                .load(std::sync::atomic::Ordering::Relaxed)
+        {
             None
         } else {
             Some(&state.abuseipdb_api_key)
         },
-        if state.virustotal_api_key.is_empty() {
+        if state.virustotal_api_key.is_empty()
+            || !state
+                .virustotal_enabled
+                .load(std::sync::atomic::Ordering::Relaxed)
+        {
             None
         } else {
             Some(&state.virustotal_api_key)
@@ -4399,4 +4414,128 @@ pub async fn enrich_ioc_handler(
     .await;
 
     Ok(Json(serde_json::to_value(result).unwrap_or_default()))
+}
+
+// ── Threat intel provider management ─────────────────────────────────────────
+
+pub async fn list_providers(
+    auth: AuthContext,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, CyberboxError> {
+    auth.require_any(&[Role::Admin, Role::Analyst, Role::Viewer])?;
+
+    Ok(Json(json!({
+        "providers": [
+            {
+                "id": "abuseipdb",
+                "name": "AbuseIPDB",
+                "enabled": state.abuseipdb_enabled.load(std::sync::atomic::Ordering::Relaxed),
+                "configured": !state.abuseipdb_api_key.is_empty(),
+                "capabilities": ["ip_reputation", "blacklist"],
+                "last_sync": *state.abuseipdb_last_sync.lock().unwrap(),
+                "blacklist_count": state.abuseipdb_blacklist_count.load(std::sync::atomic::Ordering::Relaxed),
+            },
+            {
+                "id": "virustotal",
+                "name": "VirusTotal",
+                "enabled": state.virustotal_enabled.load(std::sync::atomic::Ordering::Relaxed),
+                "configured": !state.virustotal_api_key.is_empty(),
+                "capabilities": ["ip_reputation", "domain_reputation", "hash_lookup"],
+                "last_sync": null,
+                "blacklist_count": 0,
+            }
+        ]
+    })))
+}
+
+pub async fn toggle_provider(
+    auth: AuthContext,
+    State(state): State<AppState>,
+    Path(provider_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, CyberboxError> {
+    auth.require_any(&[Role::Admin])?;
+
+    let enabled = body["enabled"]
+        .as_bool()
+        .ok_or_else(|| CyberboxError::BadRequest("enabled (bool) is required".to_string()))?;
+
+    match provider_id.as_str() {
+        "abuseipdb" => {
+            if enabled && state.abuseipdb_api_key.is_empty() {
+                return Err(CyberboxError::BadRequest(
+                    "AbuseIPDB API key is not configured".to_string(),
+                ));
+            }
+            state
+                .abuseipdb_enabled
+                .store(enabled, std::sync::atomic::Ordering::Relaxed);
+        }
+        "virustotal" => {
+            if enabled && state.virustotal_api_key.is_empty() {
+                return Err(CyberboxError::BadRequest(
+                    "VirusTotal API key is not configured".to_string(),
+                ));
+            }
+            state
+                .virustotal_enabled
+                .store(enabled, std::sync::atomic::Ordering::Relaxed);
+        }
+        _ => return Err(CyberboxError::NotFound),
+    }
+
+    persist::save_provider_state(&state);
+
+    append_audit_log(
+        &state,
+        &auth.tenant_id,
+        &auth.user_id,
+        if enabled {
+            "provider.enable"
+        } else {
+            "provider.disable"
+        },
+        "provider",
+        &provider_id,
+        json!(null),
+        json!({"enabled": enabled}),
+    )
+    .await;
+
+    Ok(Json(
+        json!({"status": "ok", "provider": provider_id, "enabled": enabled}),
+    ))
+}
+
+pub async fn sync_abuseipdb_blacklist(
+    auth: AuthContext,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, CyberboxError> {
+    auth.require_any(&[Role::Admin, Role::Analyst])?;
+
+    if state.abuseipdb_api_key.is_empty() {
+        return Err(CyberboxError::BadRequest(
+            "AbuseIPDB API key is not configured".to_string(),
+        ));
+    }
+
+    let ips = cyberbox_core::enrichment::fetch_abuseipdb_blacklist(
+        &state.abuseipdb_api_key,
+        90,
+        10000,
+        &state.http_client,
+    )
+    .await
+    .map_err(|e| CyberboxError::Internal(format!("blacklist sync failed: {e}")))?;
+
+    let count = ips.len();
+    state.lookup_store.add_entries("abuseipdb_blacklist", ips);
+    state
+        .abuseipdb_blacklist_count
+        .store(count, std::sync::atomic::Ordering::Relaxed);
+    *state.abuseipdb_last_sync.lock().unwrap() = Some(chrono::Utc::now());
+
+    tracing::info!(count, "AbuseIPDB blacklist synced");
+
+    Ok(Json(json!({"status": "synced", "count": count})))
 }
