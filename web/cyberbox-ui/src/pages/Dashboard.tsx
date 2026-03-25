@@ -381,7 +381,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
                           <span className="text-muted-foreground">{formatCompact(source.count)}</span>
                         </div>
                         <div className="h-1.5 overflow-hidden rounded-full bg-muted/60">
-                          <div className="h-full rounded-full bg-gradient-to-r from-[#5B3DF5] to-[#00FFA3]" style={{ width: `${Math.max(width, index === 0 ? 18 : 8)}%` }} />
+                          <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(width, index === 0 ? 18 : 8)}%` }} />
                         </div>
                       </div>
                     );

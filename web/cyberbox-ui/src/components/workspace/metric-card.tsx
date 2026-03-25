@@ -24,13 +24,13 @@ export function WorkspaceMetricCard({
 }: WorkspaceMetricCardProps) {
   return (
     <Card className={className}>
-      <CardContent className="flex items-start justify-between gap-3 p-4">
+      <CardContent className="flex items-start justify-between gap-2 px-3 py-2.5">
         <div>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">{label}</div>
-          <div className={cn('mt-1.5 font-display text-2xl font-semibold tracking-[-0.04em] text-foreground', valueClassName)}>
+          <div className="text-[9px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">{label}</div>
+          <div className={cn('mt-0.5 font-display text-lg font-semibold tracking-[-0.04em] text-foreground', valueClassName)}>
             {value}
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+          <p className="mt-0.5 text-[10px] text-muted-foreground">{hint}</p>
         </div>
         {Icon ? (
           <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-border/70 bg-background/55 text-primary">
