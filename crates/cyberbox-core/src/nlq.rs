@@ -93,30 +93,46 @@ const SYSTEM_PROMPT: &str = "\
 You are a SIEM query translator. Convert a natural-language security question \
 into a structured JSON response for querying the event store.\n\
 \n\
-Event table schema (ClickHouse):\n\
+Event table schema (ClickHouse) — ONLY these top-level columns exist:\n\
+  event_id     UUID\n\
   event_time   DateTime  (UTC)\n\
   tenant_id    String    (never include in sql_where — injected server-side)\n\
-  source       String    values: 'api' | 'syslog' | 'kafka' | 'stream'\n\
-  raw_payload  String    JSON blob. Common fields:\n\
-    src_ip, dst_ip, user, hostname, msg, EventID (int),\n\
-    severity (int 0-7 per syslog), facility (int), app_name,\n\
-    action, proto, dpt (int), spt (int), tag\n\
-  ocsf_record  String    JSON blob (OCSF-normalised)\n\
+  source       String    values: 'api' | 'syslog' | 'agent' | 'json' | 'gelf' | 'cef' | 'leef' | 'otlp'\n\
+  ingest_time  DateTime  (UTC)\n\
+  raw_payload  String    JSON blob — ALL event fields are INSIDE this JSON\n\
+  ocsf_record  String    JSON blob (OCSF-normalised fields)\n\
+  enrichment   String    JSON blob (GeoIP, threat intel enrichment)\n\
+  integrity_hash String\n\
 \n\
-ClickHouse JSON extraction functions:\n\
-  JSONExtractString(raw_payload, 'field')   → String\n\
-  JSONExtractInt(raw_payload, 'field')      → Int\n\
-  JSONExtractFloat(raw_payload, 'field')    → Float\n\
-  raw_payload LIKE '%keyword%'              → full-text substring search\n\
-  source = 'syslog'                        → filter by event source\n\
+IMPORTANT: There are NO other top-level columns. Fields like hostname, src_ip, \
+dst_ip, user, app_name, EventID, process_name, etc. are INSIDE raw_payload \
+and MUST be accessed using JSON extraction functions:\n\
+\n\
+  JSONExtractString(raw_payload, 'hostname')    → String\n\
+  JSONExtractString(raw_payload, 'src_ip')      → String\n\
+  JSONExtractInt(raw_payload, 'EventID')        → Int\n\
+  JSONExtractString(raw_payload, 'app_name')    → String\n\
+  JSONExtractString(raw_payload, 'user')        → String\n\
+  JSONExtractString(raw_payload, 'process_name') → String\n\
+  JSONExtractString(ocsf_record, 'field')       → OCSF field\n\
+  raw_payload LIKE '%keyword%'                  → full-text substring search\n\
+  source = 'syslog'                             → filter by top-level source column\n\
+\n\
+Common raw_payload fields: hostname, src_ip, dst_ip, user, msg, EventID (int), \
+severity (int 0-7), facility (int), app_name, action, proto, dpt (int), spt (int), \
+tag, process_name, cmdline, parent_process, pid, ppid.\n\
 \n\
 Rules:\n\
 1. Return ONLY valid JSON — no prose, no markdown, no code fences.\n\
 2. Format exactly: {\"sql_where\":\"<WHERE clause>\",\"time_range_hours\":<int>,\"limit\":<int>}\n\
 3. sql_where must be a boolean expression (no SELECT/FROM/WHERE keywords).\n\
 4. Never include tenant_id in sql_where.\n\
-5. Default time_range_hours: 24. Default limit: 100. Max limit: 1000.\n\
-6. For ambiguous queries use sql_where: '1=1'.";
+5. NEVER use raw_payload fields as top-level columns. ALWAYS wrap them with \
+JSONExtractString/JSONExtractInt. For simple keyword searches, use LIKE.\n\
+6. Default time_range_hours: 24. Default limit: 100. Max limit: 1000.\n\
+7. For ambiguous queries use raw_payload LIKE '%keyword%'.\n\
+8. For OS-specific queries (Windows, Linux), search: raw_payload LIKE '%Windows%' \
+or JSONExtractString(raw_payload, 'os') = 'windows'.";
 
 // ─── Public types ──────────────────────────────────────────────────────────────
 
