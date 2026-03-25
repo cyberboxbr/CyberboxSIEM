@@ -1516,7 +1516,7 @@ pub async fn alert_operation(
                     "close endpoint expects CloseAlertRequest body: {err}"
                 ))
             })?;
-            if request.actor != auth.user_id {
+            if request.actor != auth.user_id && !auth.has_role(&Role::Admin) {
                 return Err(CyberboxError::Forbidden);
             }
             let before = find_alert_snapshot(&state, &auth.tenant_id, alert_id).await?;
