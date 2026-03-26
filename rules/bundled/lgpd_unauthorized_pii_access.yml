@@ -2,47 +2,44 @@ title: LGPD - Unauthorized Access to PII Fields
 id: 0907f5d6-c2a5-4e3a-bf72-6f1000000005
 status: stable
 description: |
-  Detects access to PII fields (CPF, email, phone, address) from
-  non-approved applications or users. LGPD Art. 46 requires that data
-  controllers implement technical measures to protect personal data from
-  unauthorized access. Monitors database queries targeting PII columns.
+  Detects database queries targeting PII columns (CPF, RG, phone, address)
+  from non-approved applications. LGPD Art. 46 requires technical measures
+  to protect personal data from unauthorized access. Only triggers on
+  actual SQL query log entries from database engines.
 logsource:
   product: linux
   service: syslog
 detection:
-  selection_query:
-    message|contains:
-      - 'SELECT'
-      - 'query'
-      - 'read'
-      - 'fetch'
-      - 'get'
+  selection_db_engine:
+    app_name:
+      - 'postgres'
+      - 'postgresql'
+      - 'mysql'
+      - 'mysqld'
+      - 'mssql'
+      - 'sqlservr'
+      - 'mongod'
+      - 'oracle'
   selection_pii_columns:
     message|contains:
       - 'cpf'
       - 'rg_number'
-      - 'email'
       - 'telefone'
-      - 'phone'
       - 'endereco'
-      - 'address'
       - 'data_nascimento'
-      - 'birth_date'
       - 'nome_completo'
-      - 'full_name'
       - 'social_security'
   filter_approved_apps:
-    app_name:
+    message|contains:
       - 'crm-service'
       - 'hr-portal'
       - 'billing-service'
       - 'compliance-audit'
-  condition: selection_query and selection_pii_columns and not filter_approved_apps
+  condition: selection_db_engine and selection_pii_columns and not filter_approved_apps
 level: high
 tags:
   - attack.collection
   - attack.t1005
 falsepositives:
-  - New application not yet added to the approved apps filter
-  - Ad-hoc queries by authorized data analysts with proper consent
-  - Data protection officer performing access reviews
+  - New application not yet added to the approved filter
+  - DBA running ad-hoc queries with proper authorization

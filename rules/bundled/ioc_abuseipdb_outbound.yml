@@ -15,7 +15,7 @@ detection:
     message|contains|all:
       - ',pass,'
       - ',out,'
-  condition: selection | count() by source_ip > 200
+  condition: selection | count() by source_ip > 5000
   timeframe: 5m
 level: medium
 tags:
