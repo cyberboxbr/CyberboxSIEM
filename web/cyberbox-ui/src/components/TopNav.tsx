@@ -102,13 +102,13 @@ export function TopNav({ onOpenCommandPalette, onSignOut }: TopNavProps) {
     children?.some((c) => location.pathname.startsWith(c.to)) ?? false;
 
   return (
-    <header className="sticky top-0 z-50 border-b border-white/8 bg-[#0A1F44]">
+    <header className="sticky top-0 z-50 border-b border-white/8 bg-[#000000]">
       <div className="flex h-11 items-center gap-1 px-4">
         {/* Logo */}
         <NavLink to="/" className="mr-4 flex shrink-0 items-center gap-2.5">
           <img src="/cyberboxlogo.png" alt="Cyberbox" className="h-6 w-6 object-contain" />
           <span className="hidden text-xs font-bold uppercase tracking-[0.16em] text-white/90 sm:inline">
-            CYBER<span className="text-[#00FFA3]">BOX</span>
+            CYBER<span className="text-[#00F4A3]">BOX</span>
           </span>
         </NavLink>
 
@@ -125,7 +125,7 @@ export function TopNav({ onOpenCommandPalette, onSignOut }: TopNavProps) {
                     cn(
                       'rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
                       isActive
-                        ? 'bg-white/12 text-white'
+                        ? 'bg-[#00F4A3]/12 text-[#00F4A3]'
                         : 'text-white/80 hover:bg-white/10 hover:text-white',
                     )
                   }
@@ -145,7 +145,7 @@ export function TopNav({ onOpenCommandPalette, onSignOut }: TopNavProps) {
                   className={cn(
                     'flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
                     isOpen || childActive
-                      ? 'bg-white/12 text-white'
+                      ? 'bg-[#00F4A3]/12 text-[#00F4A3]'
                       : 'text-white/80 hover:bg-white/10 hover:text-white',
                   )}
                 >
