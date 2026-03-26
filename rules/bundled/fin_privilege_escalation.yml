@@ -1,0 +1,36 @@
+title: Financial - Privilege Escalation via Group Membership Change
+id: 0907f5d6-c2a5-4e3a-bf72-6f0000000004
+status: stable
+description: |
+  Detects privilege escalation attempts in financial environments where a user
+  is added to an administrative or privileged group. EventID 4728 (member added
+  to global security group) and 4732 (member added to local security group).
+  Financial institutions require strict change control for privileged access.
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    event_id:
+      - '4728'
+      - '4732'
+      - '4756'
+  selection_privileged_group:
+    message|contains:
+      - 'Administrators'
+      - 'Domain Admins'
+      - 'Enterprise Admins'
+      - 'Schema Admins'
+      - 'Account Operators'
+      - 'Backup Operators'
+      - 'Server Operators'
+      - 'DnsAdmins'
+      - 'Privileged'
+  condition: selection and selection_privileged_group
+level: critical
+tags:
+  - attack.privilege_escalation
+  - attack.t1078.003
+falsepositives:
+  - Approved access requests through change management process
+  - IT onboarding for new administrators

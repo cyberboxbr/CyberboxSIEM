@@ -1,0 +1,31 @@
+title: Financial - Multi-Service Brute Force from Single Source
+id: 0907f5d6-c2a5-4e3a-bf72-6f0000000006
+status: stable
+description: |
+  Detects brute force activity across multiple services from the same source IP.
+  Failed authentication events hitting different targets within a short window
+  indicate credential stuffing or automated attack tools. Critical in financial
+  environments where account lockout and monitoring are required by PCI-DSS.
+logsource:
+  product: linux
+  service: syslog
+detection:
+  selection:
+    message|contains|all:
+      - 'failed'
+    message|contains:
+      - 'authentication'
+      - 'login'
+      - 'password'
+      - 'logon'
+      - 'credential'
+  condition: selection | count() by source_ip > 20
+  timeframe: 5m
+level: high
+tags:
+  - attack.credential_access
+  - attack.t1110
+falsepositives:
+  - Misconfigured service accounts with expired credentials
+  - Password rotation scripts that fail temporarily
+  - Vulnerability scanners performing authentication checks

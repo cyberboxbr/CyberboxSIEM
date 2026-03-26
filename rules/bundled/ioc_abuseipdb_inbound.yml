@@ -1,0 +1,28 @@
+title: Inbound Connection from AbuseIPDB Blacklisted IP
+id: 0907f5d6-c2a5-4e3a-bf72-6f2000000001
+status: stable
+description: |
+  Detects inbound authentication success or session events. When combined
+  with the AbuseIPDB blacklist lookup table, analysts can correlate source
+  IPs against known-malicious infrastructure. The blacklist is auto-synced
+  every 4 hours via the threat intel module.
+logsource:
+  product: linux
+  service: syslog
+detection:
+  selection:
+    message|contains:
+      - 'Accepted publickey'
+      - 'Accepted password'
+      - 'session opened'
+      - 'authenticated'
+  condition: selection | count() by source_ip > 3
+  timeframe: 10m
+level: medium
+tags:
+  - attack.initial_access
+  - attack.t1190
+  - attack.t1133
+falsepositives:
+  - Legitimate SSH sessions from known admin IPs
+  - Automated deployment tools

@@ -1,0 +1,41 @@
+title: LGPD - Data Deletion or Erasure Request
+id: 0907f5d6-c2a5-4e3a-bf72-6f1000000004
+status: stable
+description: |
+  Detects and logs data deletion requests for LGPD compliance tracking.
+  LGPD Art. 18 grants data subjects the right to erasure of personal data.
+  This rule captures deletion operations targeting personal data to ensure
+  proper audit trail and compliance with data subject requests.
+logsource:
+  product: linux
+  service: syslog
+detection:
+  selection_action:
+    message|contains:
+      - 'delete'
+      - 'remove'
+      - 'erase'
+      - 'purge'
+      - 'anonymize'
+      - 'anonimizar'
+      - 'excluir'
+      - 'remover'
+  selection_data:
+    message|contains:
+      - 'personal'
+      - 'user_data'
+      - 'dados_pessoais'
+      - 'titular'
+      - 'cpf'
+      - 'customer'
+      - 'cliente'
+      - 'pii'
+  condition: selection_action and selection_data
+level: medium
+tags:
+  - attack.impact
+  - attack.t1485
+falsepositives:
+  - Legitimate data subject erasure requests (LGPD Art. 18)
+  - Automated data retention policy enforcement
+  - Database maintenance and cleanup operations

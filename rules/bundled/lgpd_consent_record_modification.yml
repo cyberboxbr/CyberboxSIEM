@@ -1,0 +1,39 @@
+title: LGPD - Consent Record Modification
+id: 0907f5d6-c2a5-4e3a-bf72-6f1000000003
+status: stable
+description: |
+  Detects modifications to consent management records in databases. LGPD Art. 8
+  requires that consent be documented and revocable. Unauthorized changes to
+  consent records could indicate tampering to circumvent data subject rights
+  or fabricate consent for unauthorized data processing.
+logsource:
+  product: linux
+  service: syslog
+detection:
+  selection_operation:
+    message|contains:
+      - 'UPDATE'
+      - 'DELETE'
+      - 'INSERT'
+      - 'ALTER'
+      - 'TRUNCATE'
+  selection_consent_tables:
+    message|contains:
+      - 'consent'
+      - 'consentimento'
+      - 'permission'
+      - 'opt_in'
+      - 'opt_out'
+      - 'data_subject'
+      - 'titular'
+      - 'lgpd_consent'
+      - 'privacy_preference'
+  condition: selection_operation and selection_consent_tables
+level: critical
+tags:
+  - attack.impact
+  - attack.t1565
+falsepositives:
+  - Legitimate consent updates triggered by data subject requests
+  - Automated consent management platform operations
+  - Database migration scripts updating consent schema

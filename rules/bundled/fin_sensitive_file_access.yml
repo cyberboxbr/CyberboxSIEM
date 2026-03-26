@@ -1,0 +1,46 @@
+title: Financial - Sensitive Financial File Access
+id: 0907f5d6-c2a5-4e3a-bf72-6f0000000007
+status: stable
+description: |
+  Detects access to files containing financial data such as spreadsheets,
+  database exports, and documents with financial keywords. Monitors for
+  access patterns that may indicate unauthorized data collection from
+  financial systems, including PCI cardholder data environments.
+logsource:
+  product: windows
+  service: security
+detection:
+  selection_access:
+    event_id:
+      - '4663'
+      - '4656'
+  selection_financial_files:
+    message|contains:
+      - 'financial'
+      - 'accounting'
+      - 'payroll'
+      - 'salary'
+      - 'credit_card'
+      - 'cardholder'
+      - 'bank_statement'
+      - 'wire_transfer'
+      - 'invoice'
+      - 'ledger'
+  selection_file_types:
+    message|contains:
+      - '.xlsx'
+      - '.csv'
+      - '.mdb'
+      - '.accdb'
+      - '.sql'
+      - '.bak'
+      - '.pdf'
+  condition: selection_access and selection_financial_files and selection_file_types
+level: medium
+tags:
+  - attack.collection
+  - attack.t1005
+falsepositives:
+  - Authorized finance department staff accessing daily reports
+  - Backup processes accessing financial data stores
+  - Audit and compliance teams performing reviews

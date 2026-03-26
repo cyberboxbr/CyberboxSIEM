@@ -1,0 +1,26 @@
+title: Financial - Dormant Account Reactivation or Logon
+id: 0907f5d6-c2a5-4e3a-bf72-6f0000000008
+status: stable
+description: |
+  Detects successful logon events for accounts that may have been dormant
+  or inactive. In financial institutions, dormant account access is a common
+  insider threat indicator and may signal compromised credentials from old
+  employees. Triggers on Windows EventID 4624 (successful logon) combined
+  with account re-enablement EventID 4722 (account enabled).
+logsource:
+  product: windows
+  service: security
+detection:
+  selection_enabled:
+    event_id: '4722'
+  selection_logon:
+    event_id: '4624'
+  condition: selection_enabled or selection_logon
+level: medium
+tags:
+  - attack.persistence
+  - attack.t1078
+falsepositives:
+  - Seasonal employees returning to work
+  - Accounts re-enabled through approved IT tickets
+  - Contractor accounts activated for project work

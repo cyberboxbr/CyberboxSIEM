@@ -1,0 +1,43 @@
+title: Financial - Ransomware Behavior Indicators
+id: 0907f5d6-c2a5-4e3a-bf72-6f0000000009
+status: stable
+description: |
+  Detects ransomware-like behavior including shadow copy deletion, recovery
+  mode changes, and mass file encryption indicators. Critical for financial
+  institutions where ransomware can cause catastrophic data loss and
+  regulatory violations. Covers common ransomware tooling and techniques.
+logsource:
+  product: windows
+  service: security
+detection:
+  selection_shadow_copy:
+    message|contains:
+      - 'vssadmin'
+      - 'Delete Shadows'
+      - 'shadowcopy delete'
+      - 'wmic shadowcopy'
+      - 'vssadmin delete shadows'
+  selection_recovery:
+    message|contains:
+      - 'bcdedit'
+      - 'recoveryenabled'
+      - 'bootstatuspolicy'
+      - 'ignoreallfailures'
+  selection_encryption:
+    message|contains:
+      - 'cipher /w'
+      - '.encrypted'
+      - '.locked'
+      - '.crypt'
+      - 'ransom'
+      - 'YOUR_FILES'
+      - 'README_DECRYPT'
+  condition: selection_shadow_copy or selection_recovery or selection_encryption
+level: critical
+tags:
+  - attack.impact
+  - attack.t1486
+falsepositives:
+  - Legitimate volume shadow copy management by backup software
+  - System administrators configuring boot options
+  - Disk encryption tools (BitLocker, VeraCrypt) during setup

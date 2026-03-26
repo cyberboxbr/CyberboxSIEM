@@ -1,0 +1,28 @@
+title: Outbound Connections to Multiple External IPs
+id: 0907f5d6-c2a5-4e3a-bf72-6f2000000002
+status: stable
+description: |
+  Detects a host making outbound connections to many distinct external IPs
+  in a short window — may indicate C2 beaconing, malware callback, or
+  port scanning. Cross-reference flagged IPs with the AbuseIPDB blacklist
+  via the IOC enrichment panel for triage.
+logsource:
+  product: linux
+  service: syslog
+detection:
+  selection:
+    app_name: filterlog
+    message|contains|all:
+      - ',pass,'
+      - ',out,'
+  condition: selection | count() by source_ip > 200
+  timeframe: 5m
+level: medium
+tags:
+  - attack.command_and_control
+  - attack.t1071
+  - attack.exfiltration
+  - attack.t1048
+falsepositives:
+  - Web servers handling high volumes of outbound API calls
+  - DNS resolvers with many upstream queries

@@ -1,0 +1,41 @@
+title: LGPD - Data Transfer to External Destination
+id: 0907f5d6-c2a5-4e3a-bf72-6f1000000002
+status: stable
+description: |
+  Detects data transfers to external systems or third-party destinations.
+  LGPD Art. 33 requires explicit consent or legal basis for international
+  data transfers. Monitors outbound connections carrying data payloads
+  to non-approved external endpoints.
+logsource:
+  product: linux
+  service: syslog
+detection:
+  selection_transfer:
+    message|contains:
+      - 'upload'
+      - 'transfer'
+      - 'send'
+      - 'POST'
+      - 'PUT'
+      - 'scp'
+      - 'sftp'
+      - 'rsync'
+  selection_external:
+    message|contains:
+      - 'external'
+      - 'cloud'
+      - 's3.amazonaws.com'
+      - 'blob.core.windows.net'
+      - 'storage.googleapis.com'
+      - 'dropbox.com'
+      - 'drive.google.com'
+      - 'onedrive.live.com'
+  condition: selection_transfer and selection_external
+level: high
+tags:
+  - attack.exfiltration
+  - attack.t1048
+falsepositives:
+  - Approved cloud backup processes with data processing agreements
+  - Authorized integrations with contracted third-party processors
+  - Regulatory reporting to government portals

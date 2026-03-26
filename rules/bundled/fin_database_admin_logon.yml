@@ -1,0 +1,43 @@
+title: Financial - Database Administrative Logon
+id: 0907f5d6-c2a5-4e3a-bf72-6f0000000002
+status: stable
+description: |
+  Detects administrative logins to database servers (MSSQL, PostgreSQL, MySQL).
+  In financial environments, direct database access should be rare and audited.
+  Covers sa/root/admin accounts connecting to database services.
+logsource:
+  product: linux
+  service: syslog
+detection:
+  selection_app:
+    app_name:
+      - mssql
+      - sqlservr
+      - postgres
+      - postgresql
+      - mysqld
+      - mysql
+      - mariadbd
+  selection_action:
+    message|contains:
+      - 'login succeeded'
+      - 'authentication succeeded'
+      - 'connection authorized'
+      - 'LOG:  connection authenticated'
+      - 'Login succeeded for user'
+  selection_admin:
+    message|contains:
+      - ' sa '
+      - 'root'
+      - 'admin'
+      - 'dba'
+      - 'superuser'
+  condition: selection_app and selection_action and selection_admin
+level: high
+tags:
+  - attack.credential_access
+  - attack.t1078
+falsepositives:
+  - Scheduled database maintenance by approved DBAs
+  - Automated backup scripts using service accounts
+  - Database health monitoring tools

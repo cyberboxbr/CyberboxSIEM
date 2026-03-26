@@ -1,0 +1,32 @@
+title: Financial - SMB Lateral Movement to Admin Shares
+id: 0907f5d6-c2a5-4e3a-bf72-6f0000000010
+status: stable
+description: |
+  Detects SMB lateral movement via connections to administrative shares
+  (C$, ADMIN$, IPC$) from workstations. In financial environments, lateral
+  movement between systems is a key indicator of post-exploitation activity
+  and must be detected to prevent access to payment processing systems
+  and cardholder data environments (PCI-DSS Requirement 10).
+logsource:
+  product: windows
+  service: security
+detection:
+  selection_share_access:
+    event_id: '5140'
+    message|contains:
+      - 'C$'
+      - 'ADMIN$'
+      - 'IPC$'
+  selection_logon_type:
+    event_id: '4624'
+    message|contains:
+      - 'Logon Type:			3'
+  condition: selection_share_access or selection_logon_type
+level: high
+tags:
+  - attack.lateral_movement
+  - attack.t1021.002
+falsepositives:
+  - IT management tools (SCCM, PDQ Deploy) using admin shares
+  - Network scanning by authorized vulnerability assessment tools
+  - Group Policy processing accessing SYSVOL and NETLOGON shares

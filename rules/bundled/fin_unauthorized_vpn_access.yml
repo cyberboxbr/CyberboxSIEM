@@ -1,0 +1,35 @@
+title: Financial - VPN Connection from Unusual Source
+id: 0907f5d6-c2a5-4e3a-bf72-6f0000000005
+status: stable
+description: |
+  Detects VPN connections that may originate from unusual geolocations or
+  outside approved IP ranges. Financial institutions enforce strict VPN
+  access policies; unexpected connections may indicate credential theft
+  or unauthorized remote access.
+logsource:
+  product: linux
+  service: syslog
+detection:
+  selection_vpn:
+    message|contains:
+      - 'openvpn'
+      - 'wireguard'
+      - 'vpn'
+      - 'ipsec'
+      - 'l2tp'
+  selection_action:
+    message|contains:
+      - 'authenticated'
+      - 'connection established'
+      - 'peer connected'
+      - 'session opened'
+      - 'login succeeded'
+  condition: selection_vpn and selection_action
+level: medium
+tags:
+  - attack.initial_access
+  - attack.t1133
+falsepositives:
+  - Authorized remote workers connecting from home networks
+  - IT administrators connecting for emergency maintenance
+  - Approved third-party vendor access

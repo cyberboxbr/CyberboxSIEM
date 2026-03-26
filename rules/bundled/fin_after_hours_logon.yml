@@ -1,0 +1,27 @@
+title: Financial - After Hours Logon Activity
+id: 0907f5d6-c2a5-4e3a-bf72-6f0000000001
+status: stable
+description: |
+  Detects logon events outside business hours (before 6 AM or after 10 PM).
+  Common indicator of unauthorized access in financial institutions where
+  strict access windows are enforced. Triggers on Windows Security EventID
+  4624 (successful logon). Should be correlated with approved change windows.
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    event_id: '4624'
+  filter_system_accounts:
+    TargetUserName|endswith: '$'
+  timefilter:
+    message|re: 'T(0[0-5]|2[2-3]):\d{2}:\d{2}'
+  condition: selection and timefilter and not filter_system_accounts
+level: medium
+tags:
+  - attack.initial_access
+  - attack.t1078
+falsepositives:
+  - Authorized maintenance windows and on-call staff
+  - Automated batch jobs running under service accounts
+  - Staff in different time zones accessing systems remotely
