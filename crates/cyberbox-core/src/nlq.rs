@@ -290,10 +290,31 @@ fn strip_code_fences(s: &str) -> &str {
 }
 
 /// Reject SQL tokens that could be dangerous if the LLM's response were
-/// compromised.  This is defence-in-depth; the store also enforces SELECT-only
-/// on the `sql` field and always injects the `tenant_id` predicate server-side.
+/// compromised.  Uses word-boundary detection to avoid false positives on
+/// substrings (e.g. "updated_at" won't match "update").
+/// String literals are masked before checking, so keywords inside quotes are allowed.
 pub fn sanitise_where(raw: &str) -> String {
-    const DANGEROUS: &[&str] = &[
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return "1=1".to_string();
+    }
+
+    // Mask string literals so keywords inside quotes don't trigger
+    let masked = mask_string_literals(trimmed);
+
+    // Check for comment/terminator patterns (not word-boundary dependent)
+    for pattern in ["--", "/*", "*/", ";"] {
+        if masked.contains(pattern) {
+            tracing::warn!(
+                rejected = raw,
+                "NLQ: rejected unsafe WHERE clause (comment/terminator)"
+            );
+            return "1=1".to_string();
+        }
+    }
+
+    // Check for dangerous SQL keywords at word boundaries
+    const DANGEROUS_KEYWORDS: &[&str] = &[
         "drop",
         "insert",
         "update",
@@ -303,28 +324,109 @@ pub fn sanitise_where(raw: &str) -> String {
         "truncate",
         "exec",
         "execute",
-        "--",
-        "/*",
-        "*/",
-        ";",
+        "union",
+        "select",
+        "from",
+        "join",
+        "grant",
+        "revoke",
+        "copy",
+        "attach",
+        "detach",
+        "system",
+        "optimize",
+        "describe",
+        "show",
+        "format",
+        "into",
+        "pragma",
+        "information_schema",
+        "sleep",
+        "benchmark",
         "xp_",
         "sp_",
-        "union",
-        "information_schema",
-        "sleep(",
     ];
-    let lower = raw.to_ascii_lowercase();
-    for token in DANGEROUS {
-        if lower.contains(token) {
-            tracing::warn!(rejected = raw, "NLQ: rejected unsafe WHERE clause");
+
+    let masked_lower = masked.to_ascii_lowercase();
+    for keyword in DANGEROUS_KEYWORDS {
+        if contains_keyword_at_boundary(&masked_lower, keyword) {
+            tracing::warn!(rejected = raw, keyword, "NLQ: rejected unsafe WHERE clause");
             return "1=1".to_string();
         }
     }
-    if raw.trim().is_empty() {
-        "1=1".to_string()
-    } else {
-        raw.to_string()
+
+    trimmed.to_string()
+}
+
+/// Mask the content of single- and double-quoted string literals with spaces,
+/// preserving the overall string length so position-based checks remain valid.
+fn mask_string_literals(input: &str) -> String {
+    let mut result = String::with_capacity(input.len());
+    let chars: Vec<char> = input.chars().collect();
+    let mut i = 0;
+    let mut in_single = false;
+    let mut in_double = false;
+
+    while i < chars.len() {
+        let ch = chars[i];
+        if in_single {
+            if ch == '\'' {
+                if chars.get(i + 1) == Some(&'\'') {
+                    result.push(' ');
+                    result.push(' ');
+                    i += 2;
+                    continue;
+                }
+                in_single = false;
+            }
+            result.push(' ');
+        } else if in_double {
+            if ch == '"' {
+                if chars.get(i + 1) == Some(&'"') {
+                    result.push(' ');
+                    result.push(' ');
+                    i += 2;
+                    continue;
+                }
+                in_double = false;
+            }
+            result.push(' ');
+        } else {
+            match ch {
+                '\'' => {
+                    in_single = true;
+                    result.push(' ');
+                }
+                '"' => {
+                    in_double = true;
+                    result.push(' ');
+                }
+                _ => result.push(ch),
+            }
+        }
+        i += 1;
     }
+    result
+}
+
+/// Check if `keyword` appears in `input` at a word boundary (not part of an identifier).
+fn contains_keyword_at_boundary(input: &str, keyword: &str) -> bool {
+    let bytes = input.as_bytes();
+    let kw = keyword.as_bytes();
+    let mut pos = 0;
+    while pos + kw.len() <= bytes.len() {
+        if &bytes[pos..pos + kw.len()] == kw {
+            let before_ok =
+                pos == 0 || !bytes[pos - 1].is_ascii_alphanumeric() && bytes[pos - 1] != b'_';
+            let after_ok = pos + kw.len() == bytes.len()
+                || !bytes[pos + kw.len()].is_ascii_alphanumeric() && bytes[pos + kw.len()] != b'_';
+            if before_ok && after_ok {
+                return true;
+            }
+        }
+        pos += 1;
+    }
+    false
 }
 
 // ─── Sigma rule generator ────────────────────────────────────────────────────
@@ -637,6 +739,20 @@ mod tests {
     #[test]
     fn sanitise_blocks_comment_injection() {
         assert_eq!(sanitise_where("1=1 -- ignore the rest"), "1=1");
+    }
+
+    #[test]
+    fn sanitise_allows_keywords_in_strings() {
+        let w = "raw_payload LIKE '%select from union%'";
+        assert_eq!(sanitise_where(w), w);
+    }
+
+    #[test]
+    fn sanitise_blocks_mixed_case() {
+        assert_eq!(
+            sanitise_where("1=1 UnIoN SELECT * FROM system.users"),
+            "1=1"
+        );
     }
 
     #[test]

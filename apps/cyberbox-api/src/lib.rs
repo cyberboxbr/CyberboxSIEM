@@ -58,7 +58,36 @@ pub fn build_router(state: AppState) -> Router {
         .layer(Extension(ApiKeyAuthStore(api_key_auth_entries)))
         .layer(DefaultBodyLimit::max(max_ingest_body_bytes))
         .layer(RequestDecompressionLayer::new())
-        .layer(CorsLayer::permissive())
+        .layer({
+            use axum::http::{header, Method};
+            use tower_http::cors::AllowOrigin;
+            let origins = std::env::var("CYBERBOX__CORS_ALLOWED_ORIGINS")
+                .unwrap_or_else(|_| "https://siem.cyberboxsecurity.com.br".to_string());
+            let origin_list: Vec<axum::http::HeaderValue> = origins
+                .split(',')
+                .filter_map(|o| o.trim().parse().ok())
+                .collect();
+            CorsLayer::new()
+                .allow_origin(AllowOrigin::list(origin_list))
+                .allow_methods([
+                    Method::GET,
+                    Method::POST,
+                    Method::PATCH,
+                    Method::DELETE,
+                    Method::OPTIONS,
+                ])
+                .allow_headers([
+                    header::AUTHORIZATION,
+                    header::CONTENT_TYPE,
+                    "x-api-key".parse().unwrap(),
+                    "x-tenant-id".parse().unwrap(),
+                    "x-user-id".parse().unwrap(),
+                    "x-roles".parse().unwrap(),
+                    "x-agent-id".parse().unwrap(),
+                ])
+                .allow_credentials(true)
+                .max_age(std::time::Duration::from_secs(3600))
+        })
         .layer(TraceLayer::new_for_http())
         // Propagate or generate X-Request-ID on every request/response.
         .layer(PropagateRequestIdLayer::x_request_id())

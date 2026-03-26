@@ -30,7 +30,7 @@ export function getMsalConfig(): Configuration {
       postLogoutRedirectUri: REDIRECT_URI,
     },
     cache: {
-      cacheLocation: 'localStorage',
+      cacheLocation: 'sessionStorage',
     },
   };
 }

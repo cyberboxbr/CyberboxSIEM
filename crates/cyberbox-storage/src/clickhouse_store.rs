@@ -14,6 +14,21 @@ use cyberbox_models::{
 
 use crate::traits::{apply_case_patch, AlertStore, CaseStore, EventStore, RuleStore};
 
+/// Validate that a ClickHouse identifier (table name, database name) contains only
+/// safe characters: alphanumerics, underscores, dots, and hyphens.
+fn validate_identifier(name: &str, label: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err(format!("{label} must not be empty"));
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-')
+    {
+        return Err(format!("{label} contains invalid characters: {name}"));
+    }
+    Ok(())
+}
+
 #[derive(Clone)]
 pub struct ClickHouseEventStore {
     client: reqwest::Client,
@@ -57,8 +72,14 @@ impl ClickHouseEventStore {
     const DEFAULT_CONCURRENCY_LIMIT: usize = 64;
 
     pub fn new(url: &str, user: &str, password: &str, database: &str, table: &str) -> Self {
+        validate_identifier(database, "database").expect("invalid ClickHouse database name");
+        validate_identifier(table, "table").expect("invalid ClickHouse table name");
         Self {
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .connect_timeout(std::time::Duration::from_secs(5))
+                .build()
+                .expect("reqwest client build"),
             concurrency_limiter: std::sync::Arc::new(tokio::sync::Semaphore::new(
                 Self::DEFAULT_CONCURRENCY_LIMIT,
             )),

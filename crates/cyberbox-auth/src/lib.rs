@@ -437,7 +437,8 @@ where
                     } else {
                         // Key not in dynamic store — fall through to static key / JWT
                         if let Some(api_key_ext) = parts.extensions.get::<IngestApiKey>().cloned() {
-                            if raw_key == api_key_ext.0 {
+                            use subtle::ConstantTimeEq;
+                            if raw_key.as_bytes().ct_eq(api_key_ext.0.as_bytes()).into() {
                                 debug!("API key authentication successful");
                                 let tenant_id = parts
                                     .headers
@@ -503,7 +504,13 @@ where
         } else if let Some(api_key_ext) = parts.extensions.get::<IngestApiKey>().cloned() {
             // Static API key for machine-to-machine ingestion
             match extract_api_key(&parts.headers) {
-                Some(key) if key == api_key_ext.0 => {
+                Some(key)
+                    if {
+                        use subtle::ConstantTimeEq;
+                        let ct: bool = key.as_bytes().ct_eq(api_key_ext.0.as_bytes()).into();
+                        ct
+                    } =>
+                {
                     debug!("API key authentication successful");
                     let tenant_id = parts
                         .headers

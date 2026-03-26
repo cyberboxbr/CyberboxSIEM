@@ -27,6 +27,7 @@ struct Config {
     persistence_probe_interval_ms: u64,
     target_eps: Option<u64>,
     report_path: Option<String>,
+    api_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -608,6 +609,12 @@ fn build_headers(config: &Config) -> Result<HeaderMap> {
         "x-roles",
         HeaderValue::from_static("admin,analyst,viewer,ingestor"),
     );
+    if let Ok(key) = std::env::var("LOADGEN_API_KEY") {
+        headers.insert(
+            "x-api-key",
+            HeaderValue::from_str(&key).context("invalid api key header value")?,
+        );
+    }
     Ok(headers)
 }
 
@@ -633,6 +640,7 @@ impl Config {
                 .unwrap_or(2000),
             target_eps: parse_u64_arg(&args, "--target-eps"),
             report_path: parse_string_arg(&args, "--report-path"),
+            api_key: parse_string_arg(&args, "--api-key"),
         })
     }
 
