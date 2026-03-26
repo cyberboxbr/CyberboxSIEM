@@ -411,35 +411,25 @@ export function Dashboard({ onRefresh }: DashboardProps) {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Top triggered rules</CardTitle>
-              <CardDescription>Detections creating the most pressure.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-1.5">
-              {topRules.length === 0 ? (
-                <WorkspaceEmptyState title="No rule activity" body="Triggered rules show up when alerts flow." />
-              ) : (
-                topRules.map((rule) => (
-                  <div key={rule.rule_id} className="flex items-center justify-between gap-2 rounded-lg border border-border/70 bg-background/35 px-3 py-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Badge variant={severityVariant((['critical', 'high', 'medium', 'low'].includes(rule.severity) ? rule.severity : 'medium') as Severity)} className="shrink-0">
-                        {rule.severity}
-                      </Badge>
-                      <span className="truncate text-sm font-medium text-foreground">{rule.rule_title}</span>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-xs text-muted-foreground">{rule.alert_count}</span>
-                      <BellRing className="h-3 w-3 text-primary" />
-                    </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
 
         </div>
       </section>
+
+      {/* ── Top triggered rules (full width) ─────────────────────────── */}
+      {topRules.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-xs font-medium text-foreground">Top triggered rules</div>
+          {topRules.map((rule) => (
+            <div key={rule.rule_id} className="flex items-center gap-3 rounded-lg border border-border/70 bg-background/35 px-3 py-2">
+              <Badge variant={severityVariant((['critical', 'high', 'medium', 'low'].includes(rule.severity) ? rule.severity : 'medium') as Severity)} className="shrink-0">
+                {rule.severity}
+              </Badge>
+              <span className="text-sm font-medium text-foreground">{rule.rule_title}</span>
+              <span className="ml-auto text-xs text-muted-foreground">{rule.alert_count} alerts</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

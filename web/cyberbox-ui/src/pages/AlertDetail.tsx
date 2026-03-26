@@ -383,7 +383,7 @@ export function AlertDetail({ alertId, onBack }: AlertDetailProps) {
                             {ctx?.time && <span>{abs(ctx.time)}</span>}
                           </div>
                         </div>
-                        <Button asChild size="sm" variant="outline"><Link to={`/search?${params.toString()}`}>Pivot in search<Search className="h-4 w-4" /></Link></Button>
+                        <Button asChild size="sm" variant="outline"><a href={`/search?${params.toString()}`} target="_blank" rel="noopener noreferrer">Pivot in search<Search className="h-4 w-4" /></a></Button>
                       </div>
                     );
                   })}

@@ -46,7 +46,7 @@ export function Search() {
   const queryParam = searchParams.get('q') ?? '';
   const queryFromParam = searchParams.get('from');
   const queryToParam = searchParams.get('to');
-  const [mode, setMode] = useState<Mode>('sql');
+  const [mode, setMode] = useState<Mode>(queryParam ? 'sql' : 'live');
   const [sqlText, setSqlText] = useState(queryParam);
   const [nlqText, setNlqText] = useState('');
   const [timeFrom, setTimeFrom] = useState(() => normalizeLocal(queryFromParam, defaults.from));
@@ -76,6 +76,7 @@ export function Search() {
   const epsWindowRef = useRef<number[]>([]);
   const liveFilterRef = useRef(liveTailFilter);
   const livePausedRef = useRef(liveTailPaused);
+  const manualStopRef = useRef(false);
   const autoRunQueryRef = useRef<string | null>(null);
 
   useEffect(() => { saveHistory(history); }, [history]);
@@ -85,8 +86,9 @@ export function Search() {
   const buildTimeRange = useCallback((): TimeRange => ({ start: new Date(timeFrom).toISOString(), end: new Date(timeTo).toISOString() }), [timeFrom, timeTo]);
   const pushHistory = useCallback((nextMode: 'sql' | 'nlq', query: string) => setHistory((curr) => [{ mode: nextMode, query, ts: Date.now() }, ...curr.filter((entry) => entry.query !== query)].slice(0, MAX_HISTORY)), []);
 
-  const stopLiveTail = useCallback(() => { if (sseRef.current) sseRef.current.close(); sseRef.current = null; setLiveTailActive(false); setLiveTailPaused(false); setLiveTailEps(0); }, []);
+  const stopLiveTail = useCallback(() => { manualStopRef.current = true; if (sseRef.current) sseRef.current.close(); sseRef.current = null; setLiveTailActive(false); setLiveTailPaused(false); setLiveTailEps(0); }, []);
   const startLiveTail = useCallback(async () => {
+    manualStopRef.current = false;
     stopLiveTail();
     liveRowsRef.current = [];
     epsWindowRef.current = [];
@@ -122,7 +124,7 @@ export function Search() {
   }, [stopLiveTail]);
 
   useEffect(() => () => { if (sseRef.current) sseRef.current.close(); }, []);
-  useEffect(() => { if (mode === 'live' && !liveTailActive) void startLiveTail(); if (mode !== 'live' && liveTailActive) stopLiveTail(); }, [liveTailActive, mode, startLiveTail, stopLiveTail]);
+  useEffect(() => { if (mode === 'live' && !liveTailActive && !manualStopRef.current) void startLiveTail(); if (mode !== 'live' && liveTailActive) stopLiveTail(); if (mode !== 'live') manualStopRef.current = false; }, [liveTailActive, mode, startLiveTail, stopLiveTail]);
 
   const applyQuickRange = (hours: number, label: string) => {
     const now = new Date();
