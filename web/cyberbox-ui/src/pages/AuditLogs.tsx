@@ -14,6 +14,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { WorkspaceEmptyState } from '@/components/workspace/empty-state';
 import { WorkspaceMetricCard } from '@/components/workspace/metric-card';
 import { WorkspaceStatusBanner } from '@/components/workspace/status-banner';
+import { exportCsv } from '@/lib/export';
 import { cn } from '@/lib/utils';
 
 interface DiffRow {
@@ -232,6 +233,16 @@ export function AuditLogs() {
             <RefreshCcw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
             {loading ? 'Loading...' : hasSearched ? 'Refresh' : 'Load'}
           </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => {
+            exportCsv(
+              entries.map((e) => ({
+                timestamp: e.timestamp, actor: e.actor, action: e.action,
+                entity_type: e.entity_type, entity_id: e.entity_id,
+              })),
+              ['timestamp', 'actor', 'action', 'entity_type', 'entity_id'],
+              `cyberbox-audit-log-${Date.now()}`,
+            );
+          }} disabled={entries.length === 0}>CSV</Button>
         </div>
       </div>
 

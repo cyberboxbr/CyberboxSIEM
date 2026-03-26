@@ -16,6 +16,7 @@ import DashboardEventVolumeChart from '@/components/dashboard/event-volume-chart
 import { WorkspaceEmptyState } from '@/components/workspace/empty-state';
 import { WorkspaceMetricCard } from '@/components/workspace/metric-card';
 import { WorkspaceStatusBanner } from '@/components/workspace/status-banner';
+import { exportPdf } from '@/lib/export';
 import { cn } from '@/lib/utils';
 
 interface DashboardProps {
@@ -229,6 +230,25 @@ export function Dashboard({ onRefresh }: DashboardProps) {
           <Button type="button" size="sm" variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
             <RefreshCcw className={cn('h-3.5 w-3.5', isRefreshing && 'animate-spin')} />
             Refresh
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => {
+            exportPdf({
+              title: 'Executive Summary',
+              subtitle: `${rangeLabel} window — Generated ${new Date().toLocaleString()}`,
+              filename: `cyberbox-executive-summary-${Date.now()}`,
+              kpis: [
+                { label: 'Events', value: formatCompact(stats?.total_events ?? 0) },
+                { label: 'Open Alerts', value: String(stats?.open_alerts ?? 0) },
+                { label: 'Agents', value: `${stats?.active_agents ?? 0}/${stats?.total_agents ?? 0}` },
+                { label: 'Rules', value: String(stats?.active_rules ?? 0) },
+                { label: 'EPS', value: stats ? stats.current_eps.toFixed(1) : '0' },
+                { label: 'MITRE', value: `${activeCoverage}%` },
+              ],
+              columns: ['Rule', 'Severity', 'Alert Count'],
+              rows: topRules.map((r) => ({ Rule: r.rule_title, Severity: r.severity, 'Alert Count': r.alert_count })),
+            });
+          }}>
+            PDF
           </Button>
         </div>
       </div>

@@ -29,6 +29,7 @@ import { WorkspaceEmptyState } from '@/components/workspace/empty-state';
 import { WorkspaceMetricCard } from '@/components/workspace/metric-card';
 import { WorkspaceModal } from '@/components/workspace/modal-shell';
 import { WorkspaceStatusBanner } from '@/components/workspace/status-banner';
+import { exportCsv, exportPdf } from '@/lib/export';
 import { cn } from '@/lib/utils';
 
 type FilterTab = 'all' | 'open' | 'in_progress' | 'resolved' | 'closed';
@@ -265,6 +266,38 @@ export function Cases() {
           <Button type="button" size="sm" onClick={() => setShowCreate(true)}>
             <Plus className="h-3.5 w-3.5" /> New case
           </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => {
+            exportCsv(
+              filteredCases.map((c) => ({
+                case_id: c.case_id, severity: c.severity, status: c.status,
+                title: c.title, assignee: c.assignee ?? '',
+                alert_count: c.alert_ids.length,
+                created_at: c.created_at, updated_at: c.updated_at,
+                resolution: c.resolution ?? '',
+              })),
+              ['case_id', 'severity', 'status', 'title', 'assignee', 'alert_count', 'created_at', 'updated_at', 'resolution'],
+              `cyberbox-cases-${Date.now()}`,
+            );
+          }} disabled={filteredCases.length === 0}>CSV</Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => {
+            exportPdf({
+              title: 'Case Report',
+              subtitle: `${filteredCases.length} cases — Generated ${new Date().toLocaleString()}`,
+              filename: `cyberbox-case-report-${Date.now()}`,
+              kpis: [
+                { label: 'Open', value: String(stats.open) },
+                { label: 'In Progress', value: String(stats.inProgress) },
+                { label: 'Resolved', value: String(stats.resolved) },
+                { label: 'SLA Breaches', value: String(stats.breached) },
+              ],
+              columns: ['Severity', 'Status', 'Title', 'Assignee', 'Alerts', 'Updated'],
+              rows: filteredCases.map((c) => ({
+                Severity: c.severity, Status: c.status, Title: c.title,
+                Assignee: c.assignee ?? 'Unassigned', Alerts: c.alert_ids.length,
+                Updated: c.updated_at,
+              })),
+            });
+          }} disabled={filteredCases.length === 0}>PDF</Button>
         </div>
       </div>
 

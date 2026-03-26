@@ -20,6 +20,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { WorkspaceEmptyState } from '@/components/workspace/empty-state';
 import { WorkspaceMetricCard } from '@/components/workspace/metric-card';
 import { WorkspaceStatusBanner } from '@/components/workspace/status-banner';
+import { exportCsv, exportPdf } from '@/lib/export';
 import { cn } from '@/lib/utils';
 import { useAlertStream } from '@/hooks/useAlertStream';
 
@@ -222,6 +223,38 @@ export function AlertQueue() {
           <Button type="button" size="sm" variant="outline" onClick={() => void refresh()}>
             <RefreshCcw className="h-3.5 w-3.5" /> Refresh
           </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => {
+            exportCsv(
+              filtered.map((a) => ({
+                alert_id: a.alert_id, severity: a.severity, status: a.status,
+                rule_title: a.rule_title || a.rule_id, hit_count: a.hit_count,
+                first_seen: a.first_seen, last_seen: a.last_seen,
+                hostname: a.agent_meta?.hostname ?? '', assignee: a.assignee ?? '',
+              })),
+              ['alert_id', 'severity', 'status', 'rule_title', 'hit_count', 'first_seen', 'last_seen', 'hostname', 'assignee'],
+              `cyberbox-alerts-${Date.now()}`,
+            );
+          }} disabled={filtered.length === 0}>CSV</Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => {
+            exportPdf({
+              title: 'Alert Report',
+              subtitle: `${filtered.length} alerts — Generated ${new Date().toLocaleString()}`,
+              filename: `cyberbox-alert-report-${Date.now()}`,
+              kpis: [
+                { label: 'Critical', value: String(stats.critical) },
+                { label: 'High', value: String(stats.high) },
+                { label: 'Medium', value: String(stats.medium) },
+                { label: 'Low', value: String(stats.low) },
+              ],
+              columns: ['Severity', 'Status', 'Rule', 'Hits', 'First Seen', 'Host'],
+              rows: filtered.map((a) => ({
+                Severity: a.severity, Status: a.status,
+                Rule: a.rule_title || a.rule_id.slice(0, 8),
+                Hits: a.hit_count, 'First Seen': a.first_seen,
+                Host: a.agent_meta?.hostname ?? '',
+              })),
+            });
+          }} disabled={filtered.length === 0}>PDF</Button>
         </div>
       </div>
 
