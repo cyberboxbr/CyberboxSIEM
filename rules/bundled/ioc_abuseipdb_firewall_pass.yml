@@ -1,47 +1,20 @@
 title: High Volume Firewall Pass from Single External IP
 id: 0907f5d6-c2a5-4e3a-bf72-6f2000000003
-status: stable
+status: experimental
 description: |
-  Detects a high volume of allowed inbound firewall connections from a
-  single external source IP. Excludes internal-to-internal traffic by
-  filtering out RFC1918 source IPs in the filterlog CSV message field.
-  Only triggers when the CSV source column contains a public IP.
+  Disabled — requires external IP extraction from filterlog CSV which
+  the current Sigma compiler cannot do. Re-enable when the enrichment
+  pipeline extracts src_ip/dst_ip as top-level fields.
 logsource:
   product: linux
   service: syslog
 detection:
   selection:
-    app_name: filterlog
-    message|contains|all:
-      - ',pass,'
-      - ',in,'
-  filter_internal_traffic:
-    message|contains:
-      - ',192.168.'
-      - ',10.'
-      - ',172.16.'
-      - ',172.17.'
-      - ',172.18.'
-      - ',172.19.'
-      - ',172.20.'
-      - ',172.21.'
-      - ',172.22.'
-      - ',172.23.'
-      - ',172.24.'
-      - ',172.25.'
-      - ',172.26.'
-      - ',172.27.'
-      - ',172.28.'
-      - ',172.29.'
-      - ',172.30.'
-      - ',172.31.'
-      - ',127.'
-  condition: selection and not filter_internal_traffic | count() by source_ip > 500
-  timeframe: 5m
+    app_name: __disabled_placeholder__
+  condition: selection
 level: high
 tags:
   - attack.initial_access
   - attack.t1190
 falsepositives:
-  - Legitimate external services accessed through the firewall
-  - CDN or cloud provider IPs with high connection volume
+  - N/A (rule disabled)
