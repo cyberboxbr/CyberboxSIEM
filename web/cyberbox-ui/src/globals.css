@@ -120,37 +120,37 @@
 
   [data-theme="light"] {
     color-scheme: light;
-    --background: 220 20% 97%;
-    --foreground: 217 75% 15%;           /* Azul Profundo as text */
+    --background: 220 16% 94%;           /* warm gray, not pure white */
+    --foreground: 217 60% 12%;           /* Azul Profundo — darker for readability */
     --card: 0 0% 100%;
-    --card-foreground: 217 75% 15%;
+    --card-foreground: 217 60% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 217 75% 15%;
-    --primary: 252 90% 56%;              /* Roxo — slightly darker for light bg */
+    --popover-foreground: 217 60% 12%;
+    --primary: 252 80% 50%;              /* Roxo — darker for AA contrast on white */
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 18% 92%;
-    --secondary-foreground: 217 75% 18%;
-    --muted: 220 16% 92%;
-    --muted-foreground: 214 14% 44%;
-    --accent: 158 100% 40%;              /* Verde — slightly darker for contrast */
+    --secondary: 220 14% 88%;
+    --secondary-foreground: 217 60% 16%;
+    --muted: 220 14% 90%;
+    --muted-foreground: 217 16% 36%;     /* much darker for readability */
+    --accent: 158 80% 32%;               /* Verde — dark enough to read on white */
     --accent-foreground: 0 0% 100%;
-    --destructive: 0 72% 52%;
+    --destructive: 0 72% 48%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 18% 84%;
-    --input: 220 20% 94%;
-    --ring: 252 90% 56%;
+    --border: 220 14% 78%;               /* stronger borders */
+    --input: 220 16% 92%;
+    --ring: 252 80% 50%;
     --sidebar: 217 75% 15%;              /* Keep Azul Profundo for sidebar */
     --sidebar-foreground: 220 20% 92%;
     --sidebar-border: 217 40% 22%;
     --sidebar-accent: 252 90% 60%;
     --sidebar-muted: 217 30% 24%;
     --sidebar-ring: 252 90% 60%;
-    --chart-1: 158 100% 40%;
-    --chart-2: 199 84% 47%;
-    --chart-3: 252 90% 56%;
-    --chart-4: 344 76% 54%;
-    --chart-5: 43 94% 54%;
-    --shadow-core: 220 40% 40%;
+    --chart-1: 158 80% 32%;
+    --chart-2: 199 80% 40%;
+    --chart-3: 252 80% 50%;
+    --chart-4: 344 70% 48%;
+    --chart-5: 43 90% 46%;
+    --shadow-core: 220 30% 50%;
 
     --body-bg: hsl(var(--background));
     --sidebar-bg: hsl(var(--sidebar));
@@ -185,12 +185,12 @@
     --sev-critical: hsl(var(--destructive));
     --sev-critical-bg: hsl(var(--destructive) / 0.12);
     --sev-critical-border: hsl(var(--destructive) / 0.24);
-    --sev-high: hsl(24 95% 56%);
-    --sev-high-bg: hsl(24 95% 56% / 0.12);
-    --sev-high-border: hsl(24 95% 56% / 0.26);
-    --sev-medium: hsl(43 94% 54%);
-    --sev-medium-bg: hsl(43 94% 54% / 0.12);
-    --sev-medium-border: hsl(43 94% 54% / 0.24);
+    --sev-high: hsl(24 90% 46%);
+    --sev-high-bg: hsl(24 90% 46% / 0.12);
+    --sev-high-border: hsl(24 90% 46% / 0.26);
+    --sev-medium: hsl(43 85% 42%);
+    --sev-medium-bg: hsl(43 85% 42% / 0.12);
+    --sev-medium-border: hsl(43 85% 42% / 0.24);
     --sev-low: hsl(var(--chart-2));
     --sev-low-bg: hsl(var(--chart-2) / 0.12);
     --sev-low-border: hsl(var(--chart-2) / 0.24);
