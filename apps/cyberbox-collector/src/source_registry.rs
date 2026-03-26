@@ -304,10 +304,21 @@ fn detect_platform(hostname: &str, app_name: &str) -> String {
     }
 
     // Windows
-    if a.contains("cyberbox-agent") || a.contains("microsoft-windows") {
+    if a.contains("microsoft-windows") {
         return "windows".to_string();
     }
-    if h.contains("server-") || h.contains("win-") || h.contains(".local") {
+    if h.contains("win-") || h.contains(".local") {
+        return "windows".to_string();
+    }
+    // cyberbox-agent can run on any OS — don't assume Windows
+    if a.contains("cyberbox-agent") {
+        // Check hostname hints for OS
+        if h.contains("server-") || h.contains("win-") || h.contains("desktop-") {
+            return "windows".to_string();
+        }
+        return "linux".to_string(); // default for agent on unknown host
+    }
+    if h.contains("server-") {
         return "windows".to_string();
     }
     if a.contains("mssql") || a.contains("iis") || a.contains("exchange") {
