@@ -27,6 +27,7 @@ struct Config {
     persistence_probe_interval_ms: u64,
     target_eps: Option<u64>,
     report_path: Option<String>,
+    #[allow(dead_code)]
     api_key: Option<String>,
 }
 
