@@ -267,7 +267,7 @@ where
             }
             match parse_syslog(complete.as_bytes(), &source_ip) {
                 Some(msg) => {
-                    registry.observe(&source_ip, &msg.hostname, &msg.app_name);
+                    registry.observe(&source_ip, &msg.hostname, &msg.app_name, &msg.message);
                     let ev = to_incoming_event(&msg, &tenant_id);
                     metrics.tcp_received.fetch_add(1, Relaxed);
                     if tx.send(ev).await.is_err() {

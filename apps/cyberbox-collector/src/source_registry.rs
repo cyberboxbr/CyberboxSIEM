@@ -6,8 +6,9 @@
 //! sends heartbeats for all known sources, so they appear in the Agent Fleet
 //! page alongside real agents.
 //!
-//! Sources are keyed by **hostname** (not source IP), so multiple devices
-//! behind the same NAT gateway appear as separate agents.
+//! Platform detection uses an evidence-scoring system that accumulates signals
+//! from multiple syslog messages (app_name, message content, hostname patterns)
+//! and picks the platform with the highest confidence after enough evidence.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -24,32 +25,255 @@ const TICK_INTERVAL_SECS: u64 = 30;
 /// Sources not seen for this duration are considered stale (offline).
 const STALE_AFTER: Duration = Duration::from_secs(5 * 60);
 
-/// Per-source bookkeeping entry.
-struct SourceEntry {
-    /// Source IP address of the syslog sender.
-    source_ip: String,
-    /// When this source was first observed.
-    #[allow(dead_code)]
-    first_seen: Instant,
-    /// When the last syslog message was received from this source.
-    last_seen: Instant,
-    /// Whether we have successfully called `/agents/register` for this source.
-    registered: bool,
-    /// Auto-detected platform type.
-    platform: String,
-    /// A sample app_name or provider for device-type detection.
-    sample_app: String,
+/// Minimum evidence score before we lock in a platform detection.
+const CONFIDENCE_THRESHOLD: i32 = 3;
+
+// ── Platform scoring ─────────────────────────────────────────────────────────
+
+#[derive(Default)]
+struct PlatformScores {
+    windows: i32,
+    linux: i32,
+    firewall: i32,
+    router: i32,
+    network: i32,
+    macos: i32,
+    messages_seen: u32,
+    locked: bool,
 }
 
+impl PlatformScores {
+    fn best(&self) -> &'static str {
+        let candidates = [
+            (self.firewall, "firewall"),
+            (self.router, "router"),
+            (self.network, "network"),
+            (self.windows, "windows"),
+            (self.linux, "linux"),
+            (self.macos, "macos"),
+        ];
+        candidates
+            .iter()
+            .max_by_key(|(score, _)| *score)
+            .filter(|(score, _)| *score > 0)
+            .map(|(_, name)| *name)
+            .unwrap_or("syslog")
+    }
+
+    fn is_confident(&self) -> bool {
+        let best_score = [
+            self.windows,
+            self.linux,
+            self.firewall,
+            self.router,
+            self.network,
+            self.macos,
+        ]
+        .into_iter()
+        .max()
+        .unwrap_or(0);
+        best_score >= CONFIDENCE_THRESHOLD
+    }
+
+    /// Ingest evidence from one syslog message.
+    fn observe(&mut self, hostname: &str, app_name: &str, message: &str) {
+        if self.locked {
+            return;
+        }
+        self.messages_seen += 1;
+
+        let h = hostname.to_lowercase();
+        let a = app_name.to_lowercase();
+        let m_lower;
+        // Only lowercase message if we need it (avoid allocation on hot path)
+        let m = if message.len() < 4096 {
+            m_lower = message.to_lowercase();
+            m_lower.as_str()
+        } else {
+            m_lower = message[..4096].to_lowercase();
+            m_lower.as_str()
+        };
+
+        // ── Firewall / network device signals ────────────────────────
+        if a == "filterlog" {
+            self.firewall += 10;
+        }
+        if h.contains("opnsense") || h.contains("pfsense") {
+            self.firewall += 10;
+        }
+        if a.contains("fortigate") || h.contains("fortinet") || h.contains("fortigate") {
+            self.firewall += 10;
+        }
+        if h.contains("paloalto") || h.contains("pan-os") {
+            self.firewall += 10;
+        }
+        if h.contains("sophos") || a.contains("sophosxg") {
+            self.firewall += 10;
+        }
+        if h.contains("mikrotik") || a.contains("routeros") {
+            self.router += 10;
+        }
+        if h.contains("unifi") || h.contains("ubnt") || a.contains("ubnt") {
+            self.network += 10;
+        }
+        if a.contains("haproxy") || a.contains("keepalived") {
+            self.network += 3;
+        }
+        // Cisco
+        if h.contains("cisco") || a.contains("cisco") || a == "%asa" || a == "%fwsm" {
+            self.firewall += 10;
+        }
+        if m.contains("%asa-") || m.contains("%fwsm-") || m.contains("%pix-") {
+            self.firewall += 8;
+        }
+        if m.contains("%sec-") || m.contains("%sys-") || m.contains("%link-") {
+            self.network += 5;
+        }
+        if a.contains("ios") && (m.contains("%") || h.contains("switch") || h.contains("router")) {
+            self.network += 5;
+        }
+        // Juniper
+        if h.contains("juniper") || h.contains("junos") || a.contains("junos") {
+            self.firewall += 8;
+        }
+        if m.contains("rt_flow") || m.contains("rt_ids") {
+            self.firewall += 6;
+        }
+        // Check Point
+        if a.contains("checkpoint") || m.contains("smartdefense") || m.contains("fw-1") {
+            self.firewall += 8;
+        }
+        // WatchGuard
+        if h.contains("watchguard") || a.contains("watchguard") || m.contains("firebox") {
+            self.firewall += 8;
+        }
+
+        // ── Windows signals (strong) ─────────────────────────────────
+        if a.contains("microsoft-windows") {
+            self.windows += 10;
+        }
+        if m.contains("microsoft-windows-sysmon") {
+            self.windows += 10;
+        }
+        if m.contains("eventid") && (m.contains("security") || m.contains("system")) {
+            self.windows += 5;
+        }
+        if m.contains("c:\\") || m.contains("\\windows\\") {
+            self.windows += 4;
+        }
+        if a.contains("mssql") || a.contains("iis") || a.contains("exchange") {
+            self.windows += 8;
+        }
+        if a.contains("winlogbeat") || a.contains("nxlog") {
+            self.windows += 8;
+        }
+        if m.contains("powershell") || m.contains("cmd.exe") || m.contains(".exe") {
+            self.windows += 2;
+        }
+
+        // ── Windows signals (hostname hints) ─────────────────────────
+        if h.contains("win-") || h.contains("desktop-") {
+            self.windows += 3;
+        }
+        if h.ends_with(".local") {
+            self.windows += 1; // weak — macOS also uses .local
+            self.macos += 1;
+        }
+
+        // ── Linux signals (strong) ───────────────────────────────────
+        if a == "sshd" || a == "sudo" || a == "su" {
+            self.linux += 5;
+        }
+        if a == "systemd" || a.starts_with("systemd-") {
+            self.linux += 8;
+        }
+        if a == "cron" || a == "crond" || a == "anacron" {
+            self.linux += 5;
+        }
+        if a == "kernel" || a.starts_with("kernel:") {
+            self.linux += 5;
+        }
+        if a.contains("auditd") || a == "audit" {
+            self.linux += 6;
+        }
+        if a == "nginx" || a == "apache2" || a == "httpd" {
+            self.linux += 3;
+        }
+        if a == "docker" || a == "containerd" || a == "podman" {
+            self.linux += 4;
+        }
+        if a == "kubelet" || a == "kube-apiserver" || a == "kube-proxy" || a == "etcd" {
+            self.linux += 6;
+        }
+        if m.contains("kubernetes") || m.contains("k8s.io/") || m.contains("kube-system") {
+            self.linux += 3;
+        }
+        if a == "calico" || a == "cilium" || a == "flannel" || a == "coredns" {
+            self.linux += 4;
+        }
+        if a == "postfix" || a.contains("dovecot") || a == "rsyslogd" {
+            self.linux += 4;
+        }
+        if m.contains("/var/log/") || m.contains("/etc/") || m.contains("/usr/") {
+            self.linux += 3;
+        }
+        if m.contains("\x1b[") || m.contains("\\033[") {
+            // ANSI escape codes — typical of Linux agent/app logs
+            self.linux += 2;
+        }
+
+        // ── macOS signals ────────────────────────────────────────────
+        if a == "sandboxd" || a == "loginwindow" || a.contains("coreaudio") {
+            self.macos += 8;
+        }
+        if m.contains("com.apple.") {
+            self.macos += 5;
+        }
+
+        // ── cyberbox-agent — neutral, check message for hints ────────
+        if a == "cyberbox-agent" {
+            // The agent itself is cross-platform; look at message content
+            if m.contains("windows") || m.contains(".exe") || m.contains("sysmon") {
+                self.windows += 2;
+            }
+            if m.contains("linux") || m.contains("/var/") || m.contains("systemd") {
+                self.linux += 2;
+            }
+            // If hostname looks like a Windows server name
+            if h.starts_with("server-") || h.starts_with("win-") || h.starts_with("desktop-") {
+                self.windows += 2;
+            }
+        }
+
+        // Lock after enough evidence
+        if self.messages_seen >= 5 && self.is_confident() {
+            self.locked = true;
+        }
+    }
+}
+
+// ── Source entry ──────────────────────────────────────────────────────────────
+
+/// Per-source bookkeeping entry.
+struct SourceEntry {
+    source_ip: String,
+    #[allow(dead_code)]
+    first_seen: Instant,
+    last_seen: Instant,
+    registered: bool,
+    scores: PlatformScores,
+}
+
+impl SourceEntry {
+    fn platform(&self) -> &'static str {
+        self.scores.best()
+    }
+}
+
+// ── Source registry ──────────────────────────────────────────────────────────
+
 /// Lock-free registry of syslog sources observed by the collector.
-///
-/// The hot-path method [`observe`] is called from the UDP/TCP receive loops and
-/// performs only a DashMap insert/update — no blocking, no I/O.
-///
-/// A separate background task ([`run`]) handles the HTTP registration and
-/// heartbeat calls on a 30-second interval.
 pub struct SourceRegistry {
-    /// Keyed by hostname (not source IP).
     sources: DashMap<String, SourceEntry>,
 }
 
@@ -66,14 +290,8 @@ impl SourceRegistry {
         }
     }
 
-    /// Record a syslog message from `source_ip` with the parsed `hostname`.
-    ///
-    /// `app_name` is the syslog app-name field (e.g. "filterlog", "cyberbox-agent",
-    /// "sshd") used to auto-detect the device/OS type.
-    ///
-    /// This is called on every successfully parsed syslog message in the UDP
-    /// and TCP receive loops. It must be non-blocking.
-    pub fn observe(&self, source_ip: &str, hostname: &str, app_name: &str) {
+    /// Record a syslog message. Called on every parsed message — must be non-blocking.
+    pub fn observe(&self, source_ip: &str, hostname: &str, app_name: &str, message: &str) {
         let key = if hostname.is_empty() || hostname == source_ip {
             source_ip.to_string()
         } else {
@@ -88,21 +306,17 @@ impl SourceRegistry {
                 if !source_ip.is_empty() {
                     e.source_ip = source_ip.to_string();
                 }
-                // Update platform detection with new evidence
-                if !app_name.is_empty() && e.sample_app.is_empty() {
-                    e.sample_app = app_name.to_string();
-                    e.platform = detect_platform(hostname, app_name);
-                }
+                e.scores.observe(hostname, app_name, message);
             })
             .or_insert_with(|| {
-                let platform = detect_platform(hostname, app_name);
+                let mut scores = PlatformScores::default();
+                scores.observe(hostname, app_name, message);
                 SourceEntry {
                     source_ip: source_ip.to_string(),
                     first_seen: now,
                     last_seen: now,
                     registered: false,
-                    platform,
-                    sample_app: app_name.to_string(),
+                    scores,
                 }
             });
     }
@@ -117,7 +331,6 @@ impl SourceRegistry {
         api_key: Option<String>,
     ) {
         let mut interval = tokio::time::interval(Duration::from_secs(TICK_INTERVAL_SECS));
-        // First tick fires immediately — skip it so we give sources time to appear.
         interval.tick().await;
 
         info!(
@@ -142,14 +355,13 @@ impl SourceRegistry {
     async fn tick(&self, client: &Client, api_url: &str, tenant_id: &str, api_key: Option<&str>) {
         let now = Instant::now();
 
-        // Collect entries to process (avoid holding DashMap refs across await).
         let entries: Vec<(String, String, String, bool, bool)> = self
             .sources
             .iter()
             .map(|entry| {
                 let hostname = entry.key().clone();
                 let source_ip = entry.value().source_ip.clone();
-                let platform = entry.value().platform.clone();
+                let platform = entry.value().platform().to_string();
                 let registered = entry.value().registered;
                 let stale = now.duration_since(entry.value().last_seen) > STALE_AFTER;
                 (hostname, source_ip, platform, registered, stale)
@@ -159,7 +371,6 @@ impl SourceRegistry {
         for (hostname, source_ip, platform, registered, stale) in entries {
             let agent_id = format!("syslog-{hostname}");
 
-            // Register if not yet done.
             if !registered {
                 match self
                     .register(
@@ -183,7 +394,6 @@ impl SourceRegistry {
                 }
             }
 
-            // Send heartbeat for active (non-stale) sources that are registered.
             if !stale {
                 if let Err(e) = self
                     .heartbeat(client, api_url, tenant_id, &agent_id, api_key)
@@ -273,74 +483,4 @@ impl SourceRegistry {
 
         Ok(())
     }
-}
-
-/// Auto-detect platform/device type from hostname and syslog app_name.
-fn detect_platform(hostname: &str, app_name: &str) -> String {
-    let h = hostname.to_lowercase();
-    let a = app_name.to_lowercase();
-
-    // Firewall / network devices
-    if a.contains("filterlog") || h.contains("opnsense") {
-        return "firewall".to_string();
-    }
-    if h.contains("pfsense") || a.contains("pf") && a.contains("log") {
-        return "firewall".to_string();
-    }
-    if h.contains("fortinet") || h.contains("fortigate") || a.contains("fortigate") {
-        return "firewall".to_string();
-    }
-    if h.contains("paloalto") || h.contains("pan-os") || a.contains("threat") && a.contains("log") {
-        return "firewall".to_string();
-    }
-    if h.contains("sophos") || h.contains("utm") || a.contains("sophosxg") {
-        return "firewall".to_string();
-    }
-    if h.contains("mikrotik") || a.contains("routeros") {
-        return "router".to_string();
-    }
-    if h.contains("unifi") || h.contains("ubnt") || a.contains("ubnt") {
-        return "network".to_string();
-    }
-
-    // Windows
-    if a.contains("microsoft-windows") {
-        return "windows".to_string();
-    }
-    if h.contains("win-") || h.contains(".local") {
-        return "windows".to_string();
-    }
-    // cyberbox-agent can run on any OS — don't assume Windows
-    if a.contains("cyberbox-agent") {
-        // Check hostname hints for OS
-        if h.contains("server-") || h.contains("win-") || h.contains("desktop-") {
-            return "windows".to_string();
-        }
-        return "linux".to_string(); // default for agent on unknown host
-    }
-    if h.contains("server-") {
-        return "windows".to_string();
-    }
-    if a.contains("mssql") || a.contains("iis") || a.contains("exchange") {
-        return "windows".to_string();
-    }
-
-    // Linux
-    if a.contains("sshd")
-        || a.contains("sudo")
-        || a.contains("systemd")
-        || a.contains("cron")
-        || a.contains("kernel")
-    {
-        return "linux".to_string();
-    }
-    if a.contains("nginx") || a.contains("apache") || a.contains("httpd") {
-        return "linux".to_string();
-    }
-    if a.contains("docker") || a.contains("containerd") {
-        return "linux".to_string();
-    }
-
-    // Generic syslog
-    "syslog".to_string()
 }
