@@ -35,7 +35,7 @@ export function SignIn() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#0a0a0a] text-foreground">
+    <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
       <div className="w-full max-w-sm px-6">
         {/* Logo + brand */}
         <div className="flex flex-col items-center">

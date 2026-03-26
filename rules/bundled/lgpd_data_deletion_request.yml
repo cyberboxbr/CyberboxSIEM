@@ -10,16 +10,26 @@ logsource:
   product: linux
   service: syslog
 detection:
+  selection_db_engine:
+    app_name:
+      - 'postgres'
+      - 'postgresql'
+      - 'mysql'
+      - 'mysqld'
+      - 'mssql'
+      - 'sqlservr'
+      - 'mongod'
+      - 'oracle'
   selection_action:
     message|contains:
-      - 'delete'
-      - 'remove'
+      - 'DELETE'
+      - 'TRUNCATE'
       - 'erase'
       - 'purge'
       - 'anonymize'
       - 'anonimizar'
       - 'excluir'
-      - 'remover'
+      - 'DROP TABLE'
   selection_data:
     message|contains:
       - 'personal'
@@ -30,7 +40,7 @@ detection:
       - 'customer'
       - 'cliente'
       - 'pii'
-  condition: selection_action and selection_data
+  condition: selection_db_engine and selection_action and selection_data
 level: medium
 tags:
   - attack.impact

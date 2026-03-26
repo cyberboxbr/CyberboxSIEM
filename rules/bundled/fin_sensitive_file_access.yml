@@ -10,8 +10,11 @@ logsource:
   product: windows
   service: security
 detection:
+  selection_source:
+    app_name:
+      - 'cyberbox-agent'
   selection_access:
-    event_id:
+    message|contains:
       - '4663'
       - '4656'
   selection_financial_files:
@@ -35,7 +38,7 @@ detection:
       - '.sql'
       - '.bak'
       - '.pdf'
-  condition: selection_access and selection_financial_files and selection_file_types
+  condition: selection_source and selection_access and selection_financial_files and selection_file_types
 level: medium
 tags:
   - attack.collection

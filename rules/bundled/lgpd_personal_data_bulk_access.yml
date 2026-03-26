@@ -10,6 +10,16 @@ logsource:
   product: linux
   service: syslog
 detection:
+  selection_db_engine:
+    app_name:
+      - 'postgres'
+      - 'postgresql'
+      - 'mysql'
+      - 'mysqld'
+      - 'mssql'
+      - 'sqlservr'
+      - 'mongod'
+      - 'oracle'
   selection_pii:
     message|contains:
       - 'cpf'
@@ -30,7 +40,7 @@ detection:
       - 'dump'
       - 'extract'
       - 'report'
-  condition: selection_pii and selection_bulk | count() > 50
+  condition: selection_db_engine and selection_pii and selection_bulk | count() > 50
   timeframe: 10m
 level: high
 tags:

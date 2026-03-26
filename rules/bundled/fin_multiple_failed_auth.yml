@@ -10,16 +10,24 @@ logsource:
   product: linux
   service: syslog
 detection:
-  selection:
-    message|contains|all:
-      - 'failed'
-    message|contains:
-      - 'authentication'
+  selection_source:
+    app_name:
+      - 'sshd'
+      - 'audit'
+      - 'cyberbox-agent'
+      - 'sudo'
       - 'login'
-      - 'password'
-      - 'logon'
-      - 'credential'
-  condition: selection | count() by source_ip > 20
+      - 'systemd-logind'
+  selection_auth_failure:
+    message|contains:
+      - 'Failed password'
+      - 'authentication failure'
+      - 'login failed'
+      - 'logon failure'
+      - 'invalid credentials'
+      - 'Access denied'
+      - 'failed to authenticate'
+  condition: selection_source and selection_auth_failure | count() by source_ip > 20
   timeframe: 5m
 level: high
 tags:

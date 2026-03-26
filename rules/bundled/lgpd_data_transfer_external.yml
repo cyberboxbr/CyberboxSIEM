@@ -10,16 +10,26 @@ logsource:
   product: linux
   service: syslog
 detection:
+  selection_db_engine:
+    app_name:
+      - 'postgres'
+      - 'postgresql'
+      - 'mysql'
+      - 'mysqld'
+      - 'mssql'
+      - 'sqlservr'
+      - 'mongod'
+      - 'oracle'
+      - 'pgbouncer'
   selection_transfer:
     message|contains:
-      - 'upload'
-      - 'transfer'
-      - 'send'
-      - 'POST'
-      - 'PUT'
-      - 'scp'
-      - 'sftp'
-      - 'rsync'
+      - 'COPY'
+      - 'pg_dump'
+      - 'mysqldump'
+      - 'bcp'
+      - 'export'
+      - 'INTO OUTFILE'
+      - 'bulk insert'
   selection_external:
     message|contains:
       - 'external'
@@ -30,7 +40,7 @@ detection:
       - 'dropbox.com'
       - 'drive.google.com'
       - 'onedrive.live.com'
-  condition: selection_transfer and selection_external
+  condition: selection_db_engine and selection_transfer and selection_external
 level: high
 tags:
   - attack.exfiltration

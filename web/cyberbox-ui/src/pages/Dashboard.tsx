@@ -247,7 +247,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
       {sevTotal > 0 && (
         <div className="flex h-2 overflow-hidden rounded-full bg-muted/40">
           {sevCounts.critical > 0 && <div className="bg-destructive" style={{ width: `${(sevCounts.critical / sevTotal) * 100}%` }} />}
-          {sevCounts.high > 0 && <div className="bg-[hsl(24_95%_62%)]" style={{ width: `${(sevCounts.high / sevTotal) * 100}%` }} />}
+          {sevCounts.high > 0 && <div style={{ width: `${(sevCounts.high / sevTotal) * 100}%`, background: 'var(--bar-high)' }} />}
           {sevCounts.medium > 0 && <div className="bg-accent" style={{ width: `${(sevCounts.medium / sevTotal) * 100}%` }} />}
           {sevCounts.low > 0 && <div className="bg-chart-2" style={{ width: `${(sevCounts.low / sevTotal) * 100}%` }} />}
         </div>

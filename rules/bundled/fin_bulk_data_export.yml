@@ -2,31 +2,37 @@ title: Financial - Bulk Data Export or Download
 id: 0907f5d6-c2a5-4e3a-bf72-6f0000000003
 status: stable
 description: |
-  Detects large volume data exports or downloads from financial systems.
-  Potential indicator of data exfiltration, insider threat, or compromised
-  account harvesting sensitive financial records. Triggers when export,
-  download, or dump operations exceed threshold within a 10-minute window.
+  Detects large volume data exports from database engines. Triggers on
+  SQL export/dump commands logged by database servers (not generic app logs).
 logsource:
   product: linux
   service: syslog
 detection:
-  selection:
+  selection_db_engine:
+    app_name:
+      - 'postgres'
+      - 'postgresql'
+      - 'mysql'
+      - 'mysqld'
+      - 'mssql'
+      - 'sqlservr'
+      - 'mongod'
+      - 'oracle'
+  selection_export:
     message|contains:
-      - 'export'
-      - 'download'
-      - 'dump'
-      - 'bulk extract'
-      - 'data transfer'
-      - 'SELECT.*INTO OUTFILE'
+      - 'COPY'
+      - 'INTO OUTFILE'
       - 'bcp'
-      - 'COPY.*TO'
-  condition: selection | count() by source_ip > 100
+      - 'pg_dump'
+      - 'mysqldump'
+      - 'mongoexport'
+      - 'bulk extract'
+  condition: selection_db_engine and selection_export | count() > 100
   timeframe: 10m
 level: high
 tags:
   - attack.exfiltration
   - attack.t1048
 falsepositives:
-  - Authorized end-of-day batch reporting processes
+  - Authorized batch reporting processes
   - Database migration or ETL pipelines
-  - Compliance audit data extraction

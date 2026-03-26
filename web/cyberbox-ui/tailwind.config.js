@@ -54,6 +54,7 @@ export default {
           muted: 'hsl(var(--sidebar-muted))',
           ring: 'hsl(var(--sidebar-ring))',
         },
+        warning: 'hsl(var(--warning))',
         chart: {
           1: 'hsl(var(--chart-1))',
           2: 'hsl(var(--chart-2))',

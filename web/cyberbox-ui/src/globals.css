@@ -115,6 +115,7 @@
     --card-border: hsl(var(--border));
     --chart-axis: hsl(var(--muted-foreground));
     --chart-grid: hsl(var(--border) / 0.68);
+    --warning: 43 96% 58%;
     --warn: hsl(43 96% 58%);
   }
 
@@ -136,7 +137,7 @@
     --accent-foreground: 0 0% 100%;
     --destructive: 0 72% 48%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 14% 78%;               /* stronger borders */
+    --border: 220 14% 72%;               /* stronger borders — visible on white cards */
     --input: 220 16% 92%;
     --ring: 252 80% 50%;
     --sidebar: 217 75% 15%;              /* Keep Azul Profundo for sidebar */
@@ -216,6 +217,7 @@
     --card-border: hsl(var(--border));
     --chart-axis: hsl(var(--muted-foreground));
     --chart-grid: hsl(var(--border) / 0.78);
+    --warning: 43 85% 38%;               /* darker amber for AA on white */
     --warn: hsl(43 94% 54%);
   }
 

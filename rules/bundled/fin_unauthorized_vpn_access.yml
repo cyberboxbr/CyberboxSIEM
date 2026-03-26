@@ -10,13 +10,16 @@ logsource:
   product: linux
   service: syslog
 detection:
-  selection_vpn:
-    message|contains:
+  selection_source:
+    app_name:
       - 'openvpn'
       - 'wireguard'
-      - 'vpn'
+      - 'strongswan'
+      - 'charon'
+      - 'xl2tpd'
+      - 'pptpd'
       - 'ipsec'
-      - 'l2tp'
+      - 'opnsense'
   selection_action:
     message|contains:
       - 'authenticated'
@@ -24,7 +27,8 @@ detection:
       - 'peer connected'
       - 'session opened'
       - 'login succeeded'
-  condition: selection_vpn and selection_action
+      - 'tunnel established'
+  condition: selection_source and selection_action
 level: medium
 tags:
   - attack.initial_access

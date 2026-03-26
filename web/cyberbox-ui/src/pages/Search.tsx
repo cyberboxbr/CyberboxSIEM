@@ -5,10 +5,8 @@ import { Bot, Columns3, Download, Pause, Play, Radio, RefreshCcw, Search as Sear
 import { connectEventSSE, naturalLanguageQuery, runSearch, type SearchQueryResponse, type TimeRange } from '@/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { WorkspaceMetricCard } from '@/components/workspace/metric-card';
 import { WorkspaceStatusBanner } from '@/components/workspace/status-banner';
 import { WorkspaceTableShell } from '@/components/workspace/table-shell';
 import { cn } from '@/lib/utils';
@@ -214,52 +212,138 @@ export function Search() {
   const toggleColumn = (column: string) => setHiddenCols((current) => { const next = new Set(current); if (next.has(column)) next.delete(column); else next.add(column); return next; });
 
   return (
-    <div className="flex flex-col gap-3">
-      <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_200px]">
-        <Card>
-          <CardContent className="p-4">
-            <form onSubmit={onSubmit} className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2">{(['sql', 'nlq', 'live'] as Mode[]).map((value) => <Button key={value} type="button" variant={mode === value ? 'default' : 'outline'} size="sm" className="rounded-full" onClick={() => setMode(value)}>{value === 'sql' ? 'SQL' : value === 'nlq' ? 'AI ask' : 'Live tail'}{value === 'live' && liveTailActive && <span className="ml-1 h-2 w-2 rounded-full bg-primary" />}</Button>)}</div>
-              {mode === 'sql' && <Textarea value={sqlText} onChange={(e) => setSqlText(e.target.value)} className="min-h-[120px] font-mono text-[12px]" placeholder="Leave empty for all events, or write a filter like: raw_payload LIKE '%failed%'" spellCheck={false} onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); void executeSearch(); } }} />}
-              {mode === 'nlq' && <Textarea value={nlqText} onChange={(e) => setNlqText(e.target.value)} className="min-h-[80px]" placeholder="Show me failed SSH logins from external IPs in the last four hours." spellCheck={false} onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); void executeSearch(); } }} />}
-              {mode === 'live' && <Input value={liveTailFilter} onChange={(e) => setLiveTailFilter(e.target.value)} placeholder="Filter live events by hostname, IP, process, or user..." />}
-              {mode !== 'live' ? <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"><div className="space-y-3 lg:col-span-2"><div className="flex flex-wrap gap-2">{QUICK_RANGES.map((range) => <Button key={range.label} type="button" variant={activeQuickRange === range.label ? 'default' : 'outline'} size="sm" className="rounded-full" onClick={() => applyQuickRange(range.hours, range.label)}>{range.label}</Button>)}</div><div className="grid gap-3 sm:grid-cols-2"><Input type="datetime-local" value={timeFrom} onChange={(e) => { setTimeFrom(e.target.value); setActiveQuickRange(''); }} /><Input type="datetime-local" value={timeTo} onChange={(e) => { setTimeTo(e.target.value); setActiveQuickRange(''); }} /></div></div><Button type="submit" className="lg:self-end" disabled={loading}><SearchIcon className="h-4 w-4" />{loading ? 'Running...' : mode === 'sql' ? 'Run search' : 'Ask AI'}</Button></div> : <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-background/35 p-4"><div className="flex flex-wrap items-center gap-2"><Badge variant={liveTailActive ? 'success' : 'outline'}>{liveTailActive ? 'Live' : 'Stopped'}</Badge><Badge variant="secondary">{liveTailEps} eps</Badge><Badge variant="secondary">{liveTailCount.toLocaleString()} events</Badge></div><div className="flex flex-wrap gap-2">{liveTailActive && <Button type="button" variant="outline" onClick={() => setLiveTailPaused((value) => { if (value) setRows(filterRows(liveRowsRef.current, liveFilterRef.current)); return !value; })}>{liveTailPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}{liveTailPaused ? 'Resume' : 'Pause'}</Button>}{!liveTailActive ? <Button type="button" onClick={() => void startLiveTail()}><Radio className="h-4 w-4" />Start tail</Button> : <Button type="button" variant="destructive" onClick={stopLiveTail}><Square className="h-4 w-4" />Stop</Button>}</div></div>}
-            </form>
-          </CardContent>
-        </Card>
+    <div className="flex flex-col gap-2">
+      {/* ── Query bar ────────────────────────────────────────────────── */}
+      <form onSubmit={onSubmit}>
+        <div className="flex items-center gap-2 border-b border-border/50 pb-2">
+          <div className="flex items-center gap-1 rounded-lg border border-border/70 bg-card/60 p-0.5">
+            {(['sql', 'nlq', 'live'] as Mode[]).map((value) => (
+              <button key={value} type="button" onClick={() => setMode(value)} className={cn('rounded-md px-2.5 py-1 text-xs font-medium transition-colors', mode === value ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+                {value === 'sql' ? 'SQL' : value === 'nlq' ? 'AI' : 'Live'}{value === 'live' && liveTailActive && <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-accent" />}
+              </button>
+            ))}
+          </div>
 
-        <div className="space-y-2">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Saved</div>
-          {SAVED_QUERIES.map((query) => <button key={query.label} type="button" className="w-full rounded-md border border-border/70 bg-background/35 px-2 py-1.5 text-left transition-colors hover:bg-muted/45" onClick={() => { setMode('sql'); setSqlText(query.sql); }}><div className="text-xs font-medium text-foreground">{query.label}</div><div className="mt-0.5 line-clamp-1 text-[10px] text-muted-foreground">{query.sql}</div></button>)}
-          <div className="mt-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Recent</div>
-          {history.length === 0 ? <div className="text-[10px] text-muted-foreground">No recent queries.</div> : history.slice(0, 5).map((entry, index) => <button key={`${entry.query}-${entry.ts}-${index}`} type="button" className="w-full rounded-md border border-border/70 bg-background/35 px-2 py-1.5 text-left transition-colors hover:bg-muted/45" onClick={() => onHistorySelect(entry)}><div className="flex items-center gap-1.5"><Badge variant={entry.mode === 'sql' ? 'outline' : 'info'}>{entry.mode}</Badge><span className="text-[10px] text-muted-foreground">{relativeTime(entry.ts)}</span></div><div className="mt-0.5 line-clamp-1 text-[10px] text-foreground">{entry.query}</div></button>)}
+          {mode !== 'live' && (
+            <div className="flex items-center gap-1 rounded-lg border border-border/70 bg-card/60 p-0.5">
+              {QUICK_RANGES.map((range) => (
+                <button key={range.label} type="button" onClick={() => applyQuickRange(range.hours, range.label)} className={cn('rounded-md px-2 py-1 text-[10px] font-medium transition-colors', activeQuickRange === range.label ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+                  {range.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {mode !== 'live' && (
+            <>
+              <input type="datetime-local" value={timeFrom} onChange={(e) => { setTimeFrom(e.target.value); setActiveQuickRange(''); }} className="h-7 rounded-md border border-border/70 bg-card/60 px-2 text-[10px] text-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+              <input type="datetime-local" value={timeTo} onChange={(e) => { setTimeTo(e.target.value); setActiveQuickRange(''); }} className="h-7 rounded-md border border-border/70 bg-card/60 px-2 text-[10px] text-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+            </>
+          )}
+
+          {mode !== 'live' ? (
+            <Button type="submit" size="sm" disabled={loading}><SearchIcon className="h-3.5 w-3.5" />{loading ? 'Running...' : mode === 'sql' ? 'Search' : 'Ask AI'}</Button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Badge variant={liveTailActive ? 'success' : 'outline'}>{liveTailActive ? 'Live' : 'Stopped'}</Badge>
+              <span className="text-[10px] text-muted-foreground">{liveTailEps} eps · {liveTailCount.toLocaleString()}</span>
+              {liveTailActive && <Button type="button" variant="outline" size="sm" onClick={() => setLiveTailPaused((v) => { if (v) setRows(filterRows(liveRowsRef.current, liveFilterRef.current)); return !v; })}>{liveTailPaused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}</Button>}
+              {!liveTailActive ? <Button type="button" size="sm" onClick={() => void startLiveTail()}><Radio className="h-3 w-3" />Start</Button> : <Button type="button" variant="destructive" size="sm" onClick={stopLiveTail}><Square className="h-3 w-3" />Stop</Button>}
+            </div>
+          )}
+
+          {/* Saved query dropdown */}
+          <div className="ml-auto flex items-center gap-1.5">
+            {SAVED_QUERIES.map((q) => (
+              <button key={q.label} type="button" onClick={() => { setMode('sql'); setSqlText(q.sql); }} className="rounded-md border border-border/70 bg-card/60 px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground" title={q.sql}>
+                {q.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </section>
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <WorkspaceMetricCard label="Results" value={rows.length.toLocaleString()} hint={total && total > rows.length ? `of ${total.toLocaleString()} total` : 'current page or live window'} />
-        <WorkspaceMetricCard label="Hosts" value={uniqueHosts.toLocaleString()} hint="distinct hostnames in current results" />
-        <WorkspaceMetricCard label="Sources" value={uniqueSources.toLocaleString()} hint="distinct sources represented" />
-        <WorkspaceMetricCard label="Latency" value={queryDuration != null ? `${queryDuration}ms` : 'n/a'} hint="last completed search duration" />
-      </section>
+        {/* Query input */}
+        {mode === 'sql' && <Textarea value={sqlText} onChange={(e) => setSqlText(e.target.value)} className="mt-2 min-h-[60px] rounded-lg border-border/50 bg-card/40 font-mono text-[11px] focus:border-primary/40" placeholder="raw_payload LIKE '%failed%'  (empty = all events, Ctrl+Enter to run)" spellCheck={false} onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); void executeSearch(); } }} />}
+        {mode === 'nlq' && <Textarea value={nlqText} onChange={(e) => setNlqText(e.target.value)} className="mt-2 min-h-[48px] rounded-lg border-border/50 bg-card/40 text-xs focus:border-primary/40" placeholder="Show me failed SSH logins from the last 4 hours" spellCheck={false} onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); void executeSearch(); } }} />}
+        {mode === 'live' && <input value={liveTailFilter} onChange={(e) => setLiveTailFilter(e.target.value)} placeholder="Filter live events..." className="mt-2 h-8 w-full rounded-lg border border-border/50 bg-card/40 px-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" />}
+      </form>
 
-      {generatedFilter && <Card><CardHeader><CardTitle>AI-generated filter</CardTitle><CardDescription>The NLQ layer translated your request into this search filter.</CardDescription></CardHeader><CardContent><pre className="overflow-x-auto rounded-lg border border-border/70 bg-background/35 p-4 text-xs text-foreground">{generatedFilter}</pre></CardContent></Card>}
+      {generatedFilter && (
+        <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-1.5">
+          <span className="text-[10px] text-primary">AI generated:</span>
+          <code className="ml-2 font-mono text-[10px] text-foreground">{generatedFilter}</code>
+        </div>
+      )}
       {error && <WorkspaceStatusBanner tone="danger">{error}</WorkspaceStatusBanner>}
 
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div><CardTitle>Search results</CardTitle><CardDescription>Inspect events, sort columns, export current rows, or open the full record inspector.</CardDescription></div>
-            <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" onClick={() => setColumnPanelOpen((value) => !value)}><Columns3 className="h-4 w-4" />Columns</Button><Button type="button" variant="outline" size="sm" onClick={() => exportCsv(rows, visibleColumns)} disabled={rows.length === 0}><Download className="h-4 w-4" />Export CSV</Button><Button type="button" variant="outline" size="sm" onClick={() => void executeSearch()} disabled={mode === 'live' || loading}><RefreshCcw className="h-4 w-4" />Refresh</Button></div>
-          </div>
-          {Object.keys(severityCounts).length > 0 && <div className="flex flex-wrap gap-2">{Object.entries(severityCounts).map(([severity, count]) => <Badge key={severity} variant={sevVariant(severity)}>{count} {severity}</Badge>)}</div>}
-          {columnPanelOpen && <div className="grid gap-2 rounded-lg border border-border/70 bg-background/35 p-4 sm:grid-cols-2 xl:grid-cols-4">{columns.map((column) => <label key={column} className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card/70 px-3 py-2 text-sm text-foreground"><input type="checkbox" checked={!hiddenCols.has(column)} onChange={() => toggleColumn(column)} /><span>{column}</span></label>)}</div>}
-        </CardHeader>
-        <CardContent>
-          {rows.length === 0 && !loading ? <div className="flex min-h-[260px] flex-col items-center justify-center rounded-lg border border-dashed border-border/80 bg-background/30 px-6 text-center"><div className="font-display text-2xl font-semibold text-foreground">Run a query to explore events</div><p className="mt-3 max-w-md text-sm text-muted-foreground">Use SQL, natural language, or live tail to inspect tenant-scoped telemetry.</p></div> : loading && rows.length === 0 ? <div className="flex min-h-[220px] items-center justify-center text-sm text-muted-foreground">Searching events...</div> : <WorkspaceTableShell className="bg-transparent"><table className="min-w-full divide-y divide-border/70 text-sm"><thead className="bg-background/50"><tr><th className="px-4 py-3 text-left text-xs uppercase tracking-[0.24em] text-muted-foreground">#</th>{visibleColumns.map((column) => <th key={column} className="px-4 py-3 text-left text-xs uppercase tracking-[0.24em] text-muted-foreground cursor-pointer" onClick={() => { if (sortCol === column) setSortAsc((value) => !value); else { setSortCol(column); setSortAsc(true); } }}>{column}{sortCol === column && <span className="ml-2">{sortAsc ? '▲' : '▼'}</span>}</th>)}</tr></thead><tbody className="divide-y divide-border/60">{sortedRows.map((row, index) => <tr key={`${index}-${String(row._time ?? row.event_time ?? '')}`} className="cursor-pointer bg-card/30 transition-colors hover:bg-muted/40" onClick={() => setSelectedRow(row)}><td className="px-4 py-3 text-muted-foreground">{index + 1}</td>{visibleColumns.map((column) => <td key={column} className="max-w-[280px] px-4 py-3 align-top text-foreground">{column === 'severity' && typeof row[column] === 'string' ? <Badge variant={sevVariant(String(row[column]))}>{String(row[column])}</Badge> : (column === '_time' || column === 'event_time') && typeof row[column] === 'string' ? formatTimestamp(String(row[column])) : row[column] !== null && typeof row[column] === 'object' ? <span className="text-muted-foreground">{'{...}'}</span> : <span className="line-clamp-2 break-all">{String(row[column] ?? '')}</span>}</td>)}</tr>)}</tbody></table></WorkspaceTableShell>}
-          {hasMore && nextCursor && <div className="mt-5 flex justify-center"><Button type="button" variant="outline" onClick={() => void executeSqlSearch(sqlText, parseCursor(nextCursor), true)} disabled={loading}>{loading ? 'Loading...' : 'Load more results'}</Button></div>}
-        </CardContent>
-      </Card>
+      {/* ── Results toolbar ───────────────────────────────────────────── */}
+      <div className="flex items-center gap-3 border-b border-border/50 pb-2">
+        <span className="text-xs text-foreground">{rows.length.toLocaleString()} results</span>
+        {total && total > rows.length && <span className="text-[10px] text-muted-foreground">of {total.toLocaleString()}</span>}
+        <span className="text-[10px] text-muted-foreground">{uniqueHosts} hosts · {uniqueSources} sources</span>
+        {queryDuration != null && <span className="text-[10px] text-muted-foreground">{queryDuration}ms</span>}
+        {Object.keys(severityCounts).length > 0 && Object.entries(severityCounts).map(([sev, count]) => <Badge key={sev} variant={sevVariant(sev)} className="text-[9px]">{count} {sev}</Badge>)}
+        <div className="ml-auto flex items-center gap-1.5">
+          <Button type="button" variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => setColumnPanelOpen((v) => !v)}><Columns3 className="h-3 w-3" />Columns</Button>
+          <Button type="button" variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => exportCsv(rows, visibleColumns)} disabled={rows.length === 0}><Download className="h-3 w-3" />CSV</Button>
+          <Button type="button" variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => void executeSearch()} disabled={mode === 'live' || loading}><RefreshCcw className="h-3 w-3" /></Button>
+        </div>
+      </div>
+
+      {columnPanelOpen && (
+        <div className="flex flex-wrap gap-1.5 pb-2">
+          {columns.map((col) => (
+            <label key={col} className="flex items-center gap-1.5 rounded-md border border-border/70 px-2 py-1 text-[10px] text-foreground">
+              <input type="checkbox" className="h-3 w-3" checked={!hiddenCols.has(col)} onChange={() => toggleColumn(col)} />{col}
+            </label>
+          ))}
+        </div>
+      )}
+
+      {/* ── Results table ─────────────────────────────────────────────── */}
+      {rows.length === 0 && !loading ? (
+        <div className="flex min-h-[200px] items-center justify-center text-sm text-muted-foreground">
+          {mode === 'live' ? 'Start the live tail to see events' : 'Run a query to explore events'}
+        </div>
+      ) : loading && rows.length === 0 ? (
+        <div className="flex min-h-[200px] items-center justify-center text-sm text-muted-foreground">Searching...</div>
+      ) : (
+        <WorkspaceTableShell className="bg-transparent">
+          <table className="min-w-full text-xs">
+            <thead>
+              <tr className="border-b border-border/50">
+                <th className="px-2 py-1.5 text-left text-[10px] uppercase tracking-[0.2em] text-muted-foreground">#</th>
+                {visibleColumns.map((col) => (
+                  <th key={col} className="cursor-pointer px-2 py-1.5 text-left text-[10px] uppercase tracking-[0.2em] text-muted-foreground hover:text-foreground" onClick={() => { if (sortCol === col) setSortAsc((v) => !v); else { setSortCol(col); setSortAsc(true); } }}>
+                    {col}{sortCol === col && <span className="ml-1">{sortAsc ? '▲' : '▼'}</span>}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sortedRows.map((row, i) => (
+                <tr key={`${i}-${String(row._time ?? row.event_time ?? '')}`} className="cursor-pointer border-b border-border/30 transition-colors hover:bg-muted/30" onClick={() => setSelectedRow(row)}>
+                  <td className="px-2 py-1.5 text-muted-foreground">{i + 1}</td>
+                  {visibleColumns.map((col) => (
+                    <td key={col} className="max-w-[280px] px-2 py-1.5 align-top text-foreground">
+                      {col === 'severity' && typeof row[col] === 'string' ? <Badge variant={sevVariant(String(row[col]))}>{String(row[col])}</Badge>
+                        : (col === '_time' || col === 'event_time') && typeof row[col] === 'string' ? <span className="text-muted-foreground">{formatTimestamp(String(row[col]))}</span>
+                        : row[col] !== null && typeof row[col] === 'object' ? <span className="text-muted-foreground">{'{...}'}</span>
+                        : <span className="line-clamp-2 break-all">{String(row[col] ?? '')}</span>}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </WorkspaceTableShell>
+      )}
+
+      {hasMore && nextCursor && (
+        <div className="flex justify-center py-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => void executeSqlSearch(sqlText, parseCursor(nextCursor), true)} disabled={loading}>{loading ? 'Loading...' : 'Load more'}</Button>
+        </div>
+      )}
 
       {selectedRow && <DetailDrawer row={selectedRow} columns={columns} onClose={() => setSelectedRow(null)} />}
     </div>
