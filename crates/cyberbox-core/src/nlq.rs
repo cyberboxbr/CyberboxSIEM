@@ -649,16 +649,21 @@ async fn call_anthropic(
             content: user_msg,
         }],
     };
-    let resp = client
-        .post(ANTHROPIC_MESSAGES_URL)
-        .header("x-api-key", api_key)
-        .header("anthropic-version", "2023-06-01")
-        .json(&req)
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<ClaudeResponse>()
-        .await?;
+    let resp = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        client
+            .post(ANTHROPIC_MESSAGES_URL)
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01")
+            .json(&req)
+            .send(),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("LLM API call timed out after 30s"))?
+    .map_err(|e| anyhow::anyhow!("LLM API request failed: {e}"))?
+    .error_for_status()?
+    .json::<ClaudeResponse>()
+    .await?;
     Ok(resp
         .content
         .into_iter()
@@ -688,15 +693,20 @@ async fn call_openai(
             },
         ],
     };
-    let resp = client
-        .post(OPENAI_CHAT_URL)
-        .header("Authorization", format!("Bearer {api_key}"))
-        .json(&req)
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<OpenAIResponse>()
-        .await?;
+    let resp = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        client
+            .post(OPENAI_CHAT_URL)
+            .header("Authorization", format!("Bearer {api_key}"))
+            .json(&req)
+            .send(),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("LLM API call timed out after 30s"))?
+    .map_err(|e| anyhow::anyhow!("LLM API request failed: {e}"))?
+    .error_for_status()?
+    .json::<OpenAIResponse>()
+    .await?;
     Ok(resp
         .choices
         .into_iter()

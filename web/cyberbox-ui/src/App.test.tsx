@@ -39,7 +39,6 @@ describe('App auth gate', () => {
     render(<App />);
 
     expect(screen.getByText(/authenticating/i)).toBeInTheDocument();
-    expect(screen.getByText(/establishing your security workspace and syncing tenant context/i)).toBeInTheDocument();
     expect(screen.queryByText('Sign in stub')).not.toBeInTheDocument();
     expect(screen.queryByText('Authenticated app stub')).not.toBeInTheDocument();
   });

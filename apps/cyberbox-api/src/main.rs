@@ -339,6 +339,60 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // Threshold counter and suppression map cleanup (every 5 min).
+    {
+        let s = state.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(300));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                // Clean expired suppression entries
+                let now = std::time::Instant::now();
+                let before_sup = s.suppression_map.len();
+                s.suppression_map.retain(|_, exp| now < *exp);
+                let removed_sup = before_sup - s.suppression_map.len();
+
+                // Clean threshold counters that haven't been touched (cap at 100K entries)
+                let counter_len = s.threshold_counters.len();
+                if counter_len > 100_000 {
+                    // Evict half by removing entries with lowest counts
+                    let mut entries: Vec<(String, u32)> = s
+                        .threshold_counters
+                        .iter()
+                        .map(|e| (e.key().clone(), *e.value()))
+                        .collect();
+                    entries.sort_by_key(|(_, count)| *count);
+                    let to_remove = counter_len / 2;
+                    for (key, _) in entries.into_iter().take(to_remove) {
+                        s.threshold_counters.remove(&key);
+                    }
+                    tracing::info!(
+                        removed = to_remove,
+                        remaining = s.threshold_counters.len(),
+                        "threshold counter eviction"
+                    );
+                }
+
+                // Clean expired WebSocket tokens
+                let before_ws = s.ws_tokens.len();
+                s.ws_tokens.retain(|_, (_, exp)| now < *exp);
+                let removed_ws = before_ws - s.ws_tokens.len();
+
+                if removed_sup > 0 || removed_ws > 0 {
+                    tracing::debug!(
+                        removed_suppressions = removed_sup,
+                        removed_ws_tokens = removed_ws,
+                        threshold_counters = s.threshold_counters.len(),
+                        "periodic cleanup completed"
+                    );
+                }
+            }
+        });
+        tracing::info!("periodic DashMap cleanup task spawned (interval: 5m)");
+    }
+
+    let shutdown_state = state.clone();
     let app = build_router(state);
 
     let addr: SocketAddr = config.bind_addr.parse()?;
@@ -349,6 +403,33 @@ async fn main() -> anyhow::Result<()> {
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
+    .with_graceful_shutdown(async move {
+        #[cfg(unix)]
+        {
+            let ctrl_c = tokio::signal::ctrl_c();
+            let mut sigterm =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    .expect("SIGTERM handler");
+            tokio::select! {
+                _ = ctrl_c => tracing::info!("SIGINT received, shutting down"),
+                _ = sigterm.recv() => tracing::info!("SIGTERM received, shutting down"),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            tokio::signal::ctrl_c().await.ok();
+            tracing::info!("SIGINT received, shutting down");
+        }
+        // Persist state
+        persist::save_feeds(
+            &shutdown_state.threat_intel_feeds,
+            &shutdown_state.state_dir,
+        );
+        persist::save_rbac(&shutdown_state.rbac_store, &shutdown_state.state_dir);
+        persist::save_api_keys(&shutdown_state.api_key_store, &shutdown_state.state_dir);
+        persist::save_provider_state(&shutdown_state);
+        tracing::info!("graceful shutdown complete");
+    })
     .await?;
     Ok(())
 }

@@ -245,6 +245,8 @@ pub struct AppState {
     pub agent_device_certificate_signing_secret: String,
     /// Signed agent device certificate lifetime.
     pub agent_device_certificate_ttl_secs: u64,
+    /// Per-tenant mutation rate limiter: "tenant_id:endpoint" -> (count, window_start).
+    pub mutation_rate_limiter: Arc<DashMap<String, (u32, std::time::Instant)>>,
     /// AbuseIPDB API key for on-demand IP reputation lookups.
     pub abuseipdb_api_key: String,
     /// VirusTotal API key for on-demand IOC lookups (IP, domain, hash).
@@ -388,6 +390,7 @@ impl AppState {
             api_key_auth_entries: Arc::new(DashMap::new()),
             agent_device_certificate_signing_secret: format!("dev-device-cert-{}", Uuid::new_v4()),
             agent_device_certificate_ttl_secs: defaults.agent_device_certificate_ttl_secs.max(60),
+            mutation_rate_limiter: Arc::new(DashMap::new()),
             abuseipdb_api_key: String::new(),
             virustotal_api_key: String::new(),
             abuseipdb_enabled: Arc::new(AtomicBool::new(false)),
@@ -538,6 +541,7 @@ impl AppState {
             api_key_auth_entries: Arc::new(DashMap::new()),
             agent_device_certificate_signing_secret,
             agent_device_certificate_ttl_secs: config.agent_device_certificate_ttl_secs.max(60),
+            mutation_rate_limiter: Arc::new(DashMap::new()),
             abuseipdb_api_key: config.abuseipdb_api_key.clone(),
             virustotal_api_key: config.virustotal_api_key.clone(),
             abuseipdb_enabled: Arc::new(AtomicBool::new(!config.abuseipdb_api_key.is_empty())),

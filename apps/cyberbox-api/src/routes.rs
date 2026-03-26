@@ -50,6 +50,35 @@ use crate::extractors::SimdJson;
 use crate::persist;
 use crate::state::AppState;
 
+/// Check mutation rate limit: max 60 mutations per tenant per minute.
+fn check_mutation_rate(
+    state: &AppState,
+    tenant_id: &str,
+    endpoint: &str,
+) -> Result<(), CyberboxError> {
+    let key = format!("{tenant_id}:{endpoint}");
+    let now = std::time::Instant::now();
+    let window = std::time::Duration::from_secs(60);
+    let max_per_window: u32 = 60;
+
+    let mut entry = state.mutation_rate_limiter.entry(key).or_insert((0, now));
+    let (count, window_start) = entry.value_mut();
+
+    if now.duration_since(*window_start) > window {
+        *count = 1;
+        *window_start = now;
+        return Ok(());
+    }
+
+    *count += 1;
+    if *count > max_per_window {
+        return Err(CyberboxError::BadRequest(
+            "rate limit exceeded: too many mutations per minute".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub fn api_router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/events:ingest", post(ingest_events))
@@ -176,8 +205,16 @@ pub fn api_router() -> Router<AppState> {
         )
 }
 
-pub async fn healthz() -> Json<Value> {
-    Json(json!({"status": "ok", "time": Utc::now()}))
+pub async fn healthz(State(state): State<AppState>) -> Json<Value> {
+    Json(json!({
+        "status": "ok",
+        "time": Utc::now(),
+        "clickhouse": state.clickhouse_event_store.is_some(),
+        "threshold_counters": state.threshold_counters.len(),
+        "suppression_entries": state.suppression_map.len(),
+        "ws_tokens": state.ws_tokens.len(),
+        "agents": state.agents.len(),
+    }))
 }
 
 pub async fn metrics(State(state): State<AppState>) -> String {
@@ -660,8 +697,19 @@ async fn append_audit_log(
             entity_type,
             entity_id,
             error = %err,
-            "failed to write workflow audit log"
+            "audit log write failed, retrying in 500ms"
         );
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        if let Err(err2) = state.workflow_store.append_audit_log(audit.clone()).await {
+            tracing::error!(
+                tenant_id = %tenant_id,
+                action,
+                entity_type,
+                entity_id,
+                error = %err2,
+                "audit log write failed after retry — compliance trail may be incomplete"
+            );
+        }
     }
     if let Err(err) = state.storage.append_audit_log(audit).await {
         tracing::warn!(
@@ -914,6 +962,7 @@ pub async fn create_rule(
     Json(payload): Json<CreateRuleRequest>,
 ) -> Result<Json<DetectionRule>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst])?;
+    check_mutation_rate(&state, &auth.tenant_id, "create_rule")?;
 
     let compiled_plan = state.sigma_compiler.compile(&payload.sigma_source)?;
     let schedule = normalize_rule_schedule(&payload.schedule_or_stream, payload.schedule)?;
@@ -2373,6 +2422,7 @@ async fn create_case(
     Json(payload): Json<CreateCaseRequest>,
 ) -> Result<Json<CaseRecord>, CyberboxError> {
     auth.require_any(&[Role::Admin, Role::Analyst])?;
+    check_mutation_rate(&state, &auth.tenant_id, "create_case")?;
     if payload.title.trim().is_empty() {
         return Err(CyberboxError::BadRequest(
             "title cannot be empty".to_string(),
@@ -4218,6 +4268,7 @@ pub async fn create_api_key(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, CyberboxError> {
     auth.require_any(&[Role::Admin])?;
+    check_mutation_rate(&state, &auth.tenant_id, "create_api_key")?;
 
     let name = body["name"].as_str().unwrap_or("").trim().to_string();
     if name.is_empty() {

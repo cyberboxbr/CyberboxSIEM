@@ -371,6 +371,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     if (authMode === 'bypass') {
       setTokenProvider(null);
+      window.localStorage.removeItem(BYPASS_IDENTITY_STORAGE_KEY);
       window.location.reload();
       return;
     }

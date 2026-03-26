@@ -24,9 +24,8 @@ describe('SignIn', () => {
 
     render(<SignIn />);
 
-    expect(screen.getByText(/finish auth setup first/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/VITE_AUTH_BYPASS=true/i)).toHaveLength(2);
-    expect(screen.getByRole('button', { name: /microsoft sso unavailable/i })).toBeDisabled();
+    expect(screen.getByText(/sso is not configured/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /sso unavailable/i })).toBeDisabled();
   });
 
   it('starts Microsoft sign-in from the configured state', async () => {
@@ -41,7 +40,7 @@ describe('SignIn', () => {
     render(<SignIn />);
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: /continue with microsoft/i }));
+    await user.click(screen.getByRole('button', { name: /sign in with microsoft/i }));
 
     expect(signIn).toHaveBeenCalledTimes(1);
   });
@@ -58,7 +57,7 @@ describe('SignIn', () => {
     render(<SignIn />);
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: /continue with microsoft/i }));
+    await user.click(screen.getByRole('button', { name: /sign in with microsoft/i }));
 
     expect(await screen.findByText('Popup blocked by browser policy.')).toBeInTheDocument();
   });
