@@ -232,8 +232,8 @@ export default function DashboardEventVolumeChart({ data }: DashboardEventVolume
       >
         <defs>
           <linearGradient id={`dashboard-event-fill-${gradientId}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#00FFA3" stopOpacity="0.28" />
-            <stop offset="100%" stopColor="#00FFA3" stopOpacity="0.03" />
+            <stop offset="0%" stopColor="#00F4A3" stopOpacity="0.28" />
+            <stop offset="100%" stopColor="#00F4A3" stopOpacity="0.03" />
           </linearGradient>
         </defs>
 
@@ -285,7 +285,7 @@ export default function DashboardEventVolumeChart({ data }: DashboardEventVolume
         <path
           d={linePath}
           fill="none"
-          stroke="#00FFA3"
+          stroke="#00F4A3"
           strokeWidth="2.5"
           strokeLinejoin="round"
           strokeLinecap="round"
@@ -296,11 +296,11 @@ export default function DashboardEventVolumeChart({ data }: DashboardEventVolume
           x2={activePoint.x}
           y1={PADDING.top}
           y2={baselineY}
-          stroke="rgba(0, 255, 163, 0.28)"
+          stroke="rgba(0, 244, 163, 0.28)"
           strokeDasharray="4 6"
         />
-        <circle cx={activePoint.x} cy={activePoint.y} r="6" fill="#0f172a" stroke="#00FFA3" strokeWidth="3" />
-        <circle cx={activePoint.x} cy={activePoint.y} r="16" fill="rgba(0, 255, 163, 0.12)" />
+        <circle cx={activePoint.x} cy={activePoint.y} r="6" fill="#0f172a" stroke="#00F4A3" strokeWidth="3" />
+        <circle cx={activePoint.x} cy={activePoint.y} r="16" fill="rgba(0, 244, 163, 0.12)" />
       </svg>
     </div>
   );

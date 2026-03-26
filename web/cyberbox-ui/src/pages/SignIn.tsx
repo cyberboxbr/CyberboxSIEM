@@ -42,7 +42,7 @@ export function SignIn() {
           <img src="/cyberboxlogo.png" alt="Cyberbox" className="h-28 w-28 object-contain" />
           <div className="mt-6 text-center">
             <span className="text-sm font-bold uppercase tracking-[0.18em] text-foreground">
-              CYBER<span className="text-[#00FFA3]">BOX</span> SECURITY
+              CYBER<span className="text-[#00F4A3]">BOX</span> SECURITY
             </span>
           </div>
         </div>

@@ -8,45 +8,45 @@
   :root,
   [data-theme="dark"] {
     color-scheme: dark;
-    /* ── Cyberbox Branding Guide — Core palette ─────────────────────── */
-    /* Azul Profundo #0A1F44 | Roxo Tecnológico #5B3DF5               */
-    /* Verde Neon #00FFA3     | Cinza Escuro #1A1A1A                   */
-    --background: 0 0% 10%;              /* #1A1A1A — Cinza Escuro */
-    --foreground: 220 20% 92%;           /* light text on dark */
-    --card: 240 16% 15%;                 /* #222230 — elevated surface */
-    --card-foreground: 220 20% 92%;
-    --popover: 240 16% 16%;
-    --popover-foreground: 220 20% 92%;
-    --primary: 252 90% 60%;              /* #5B3DF5 — Roxo Tecnológico */
-    --primary-foreground: 0 0% 100%;     /* white on purple */
-    --secondary: 217 24% 18%;
-    --secondary-foreground: 220 20% 92%;
-    --muted: 240 12% 18%;
-    --muted-foreground: 214 12% 58%;     /* #8892A0 — Cinza Claro */
-    --accent: 158 100% 50%;              /* #00FFA3 — Verde Neon */
-    --accent-foreground: 0 0% 8%;        /* dark text on green */
+    /* ── Cyberbox Brand Palette ─────────────────────────────────────── */
+    /* Deep Violet #6B2DBD | Black #000000 | Acid Green #00F4A3       */
+    /* Electric Cyan #32F5E1 | Charcoal #1A1A1A | Cool Gray #A2A9B0  */
+    --background: 0 0% 10%;              /* #1A1A1A — Charcoal */
+    --foreground: 0 0% 96%;              /* #F4F4F4 — White Smoke */
+    --card: 0 0% 13%;                    /* slightly elevated surface */
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 14%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 270 62% 46%;              /* #6B2DBD — Deep Violet */
+    --primary-foreground: 0 0% 100%;     /* white on violet */
+    --secondary: 0 0% 16%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 0 0% 18%;
+    --muted-foreground: 210 7% 66%;      /* #A2A9B0 — Cool Gray */
+    --accent: 160 100% 48%;              /* #00F4A3 — Acid Green */
+    --accent-foreground: 0 0% 4%;        /* dark text on green */
     --destructive: 0 78% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 240 10% 22%;
-    --input: 240 12% 18%;
-    --ring: 252 90% 60%;                 /* matches primary */
+    --border: 0 0% 20%;
+    --input: 0 0% 16%;
+    --ring: 270 62% 46%;                 /* matches primary */
     --radius: 0.75rem;
 
-    /* ── Sidebar — Azul Profundo ──────────────────────────────────── */
-    --sidebar: 217 75% 15%;              /* #0A1F44 */
-    --sidebar-foreground: 220 20% 92%;
-    --sidebar-border: 217 40% 22%;
-    --sidebar-accent: 252 90% 60%;       /* Roxo — active nav item */
-    --sidebar-muted: 217 30% 24%;
-    --sidebar-ring: 252 90% 60%;
+    /* ── Sidebar (not used with TopNav, kept for compat) ─────────── */
+    --sidebar: 0 0% 0%;                  /* #000000 — Black */
+    --sidebar-foreground: 0 0% 96%;
+    --sidebar-border: 0 0% 18%;
+    --sidebar-accent: 160 100% 48%;      /* Acid Green */
+    --sidebar-muted: 0 0% 22%;
+    --sidebar-ring: 270 62% 46%;
 
     /* ── Chart palette ────────────────────────────────────────────── */
-    --chart-1: 158 100% 50%;             /* Verde Neon */
-    --chart-2: 199 89% 60%;              /* Cyan */
-    --chart-3: 252 90% 60%;              /* Roxo */
+    --chart-1: 160 100% 48%;             /* Acid Green */
+    --chart-2: 172 91% 58%;              /* Electric Cyan */
+    --chart-3: 270 62% 46%;              /* Deep Violet */
     --chart-4: 339 84% 66%;              /* Pink */
     --chart-5: 43 96% 58%;               /* Amber */
-    --shadow-core: 240 30% 4%;
+    --shadow-core: 0 0% 2%;
 
     /* ── Semantic aliases ─────────────────────────────────────────── */
     --body-bg: hsl(var(--background));
@@ -121,37 +121,37 @@
 
   [data-theme="light"] {
     color-scheme: light;
-    --background: 220 16% 94%;           /* warm gray, not pure white */
-    --foreground: 217 60% 12%;           /* Azul Profundo — darker for readability */
+    --background: 0 0% 96%;              /* #F4F4F4 — White Smoke */
+    --foreground: 0 0% 10%;              /* #1A1A1A — Charcoal */
     --card: 0 0% 100%;
-    --card-foreground: 217 60% 12%;
+    --card-foreground: 0 0% 10%;
     --popover: 0 0% 100%;
-    --popover-foreground: 217 60% 12%;
-    --primary: 252 80% 50%;              /* Roxo — darker for AA contrast on white */
+    --popover-foreground: 0 0% 10%;
+    --primary: 270 62% 40%;              /* Deep Violet — darker for AA on white */
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 14% 88%;
-    --secondary-foreground: 217 60% 16%;
-    --muted: 220 14% 90%;
-    --muted-foreground: 217 16% 36%;     /* much darker for readability */
-    --accent: 158 80% 32%;               /* Verde — dark enough to read on white */
+    --secondary: 0 0% 90%;
+    --secondary-foreground: 0 0% 14%;
+    --muted: 0 0% 92%;
+    --muted-foreground: 0 0% 40%;        /* readable gray on white */
+    --accent: 160 80% 32%;               /* Acid Green — darkened for AA on white */
     --accent-foreground: 0 0% 100%;
     --destructive: 0 72% 48%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 14% 72%;               /* stronger borders — visible on white cards */
-    --input: 220 16% 92%;
-    --ring: 252 80% 50%;
-    --sidebar: 217 75% 15%;              /* Keep Azul Profundo for sidebar */
-    --sidebar-foreground: 220 20% 92%;
-    --sidebar-border: 217 40% 22%;
-    --sidebar-accent: 252 90% 60%;
-    --sidebar-muted: 217 30% 24%;
-    --sidebar-ring: 252 90% 60%;
-    --chart-1: 158 80% 32%;
-    --chart-2: 199 80% 40%;
-    --chart-3: 252 80% 50%;
+    --border: 0 0% 78%;                  /* visible on white */
+    --input: 0 0% 94%;
+    --ring: 270 62% 40%;
+    --sidebar: 0 0% 0%;                  /* Black — matches TopNav */
+    --sidebar-foreground: 0 0% 96%;
+    --sidebar-border: 0 0% 18%;
+    --sidebar-accent: 160 100% 48%;
+    --sidebar-muted: 0 0% 22%;
+    --sidebar-ring: 270 62% 40%;
+    --chart-1: 160 80% 32%;
+    --chart-2: 172 70% 42%;
+    --chart-3: 270 62% 40%;
     --chart-4: 344 70% 48%;
     --chart-5: 43 90% 46%;
-    --shadow-core: 220 30% 50%;
+    --shadow-core: 0 0% 50%;
 
     --body-bg: hsl(var(--background));
     --sidebar-bg: hsl(var(--sidebar));

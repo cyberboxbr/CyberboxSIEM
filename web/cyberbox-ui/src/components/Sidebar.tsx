@@ -161,7 +161,7 @@ export function Sidebar({
           <img src="/cyberboxlogo.png" alt="Cyberbox" className="h-7 w-7 shrink-0 object-contain" />
           {!desktopCollapsed && (
             <span className="text-xs font-bold uppercase tracking-[0.18em] text-sidebar-foreground">
-              CYBER<span className="text-[#00FFA3]">BOX</span> SECURITY
+              CYBER<span className="text-[#00F4A3]">BOX</span> SECURITY
             </span>
           )}
         </div>

@@ -15,7 +15,7 @@ function SurfaceLoading({ label }: { label: string }) {
       <div className="flex flex-col items-center gap-5">
         <img src="/cyberboxlogo.png" alt="Cyberbox" className="h-10 w-10 animate-pulse object-contain" />
         <span className="text-xs font-bold uppercase tracking-[0.18em] text-foreground">
-          CYBER<span className="text-[#00FFA3]">BOX</span>
+          CYBER<span className="text-[#00F4A3]">BOX</span>
         </span>
         <div className="flex items-center gap-2">
           <div className="h-1 w-1 animate-pulse rounded-full bg-primary" />
