@@ -8,6 +8,7 @@ use cyberbox_core::{telemetry, AppConfig};
 use cyberbox_storage::{ClickHouseWriteBuffer, WriteBufferConfig};
 
 /// Sample disk usage of the root filesystem.
+#[allow(clippy::unnecessary_cast)]
 async fn sample_disk_usage() -> anyhow::Result<(u64, u64)> {
     #[cfg(unix)]
     {
