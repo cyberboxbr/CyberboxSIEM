@@ -1,28 +1,21 @@
 title: Outbound Connections to Multiple External IPs
 id: 0907f5d6-c2a5-4e3a-bf72-6f2000000002
-status: stable
+status: experimental
 description: |
-  Detects a host making outbound connections to many distinct external IPs
-  in a short window — may indicate C2 beaconing, malware callback, or
-  port scanning. Cross-reference flagged IPs with the AbuseIPDB blacklist
-  via the IOC enrichment panel for triage.
+  Disabled — firewall filterlog pass,out events include all normal NAT
+  traffic (DNS, HTTP, etc.) which generates thousands of events per
+  minute from internal hosts. Re-enable when the collector extracts
+  actual destination IPs as top-level fields for proper filtering.
 logsource:
   product: linux
   service: syslog
 detection:
   selection:
-    app_name: filterlog
-    message|contains|all:
-      - ',pass,'
-      - ',out,'
-  condition: selection | count() by source_ip > 5000
-  timeframe: 5m
+    app_name: __disabled_placeholder__
+  condition: selection
 level: medium
 tags:
   - attack.command_and_control
   - attack.t1071
-  - attack.exfiltration
-  - attack.t1048
 falsepositives:
-  - Web servers handling high volumes of outbound API calls
-  - DNS resolvers with many upstream queries
+  - N/A (rule disabled)
