@@ -391,14 +391,14 @@ export function Dashboard({ onRefresh }: DashboardProps) {
           <CardHeader>
             <CardTitle>Disk usage</CardTitle>
             <CardDescription>
-              Log storage utilization{diskCurrent ? ` — ${diskCurrent.used_pct}% used` : ''}.
+              Log storage utilization{diskCurrent ? <>{' — '}<span className={diskCurrent.used_pct >= 80 ? 'text-destructive font-medium' : ''}>{diskCurrent.used_pct}% used</span></> : ''}.
             </CardDescription>
           </CardHeader>
           <CardContent className="h-[200px]">
             {diskVolume.length === 0 ? (
               <WorkspaceEmptyState title="Sampling" body="Disk usage samples every 30 min." />
             ) : (
-              <DashboardEventVolumeChart data={diskVolume} hideOverlay fixedYMax={100} yUnit="%" />
+              <DashboardEventVolumeChart data={diskVolume} hideOverlay fixedYMax={100} yUnit="%" dangerThreshold={80} />
             )}
           </CardContent>
         </Card>

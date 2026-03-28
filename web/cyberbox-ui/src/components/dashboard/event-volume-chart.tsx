@@ -19,6 +19,8 @@ interface DashboardEventVolumeChartProps {
   fixedYMax?: number;
   /** Unit suffix for Y-axis labels (e.g. "%"). */
   yUnit?: string;
+  /** When the latest value exceeds this, the chart turns red. */
+  dangerThreshold?: number;
 }
 
 const MIN_WIDTH = 320;
@@ -82,7 +84,7 @@ function visibleTickIndices(length: number): number[] {
   return Array.from(tickSet).sort((left, right) => left - right);
 }
 
-export default function DashboardEventVolumeChart({ data, hideOverlay = false, fixedYMax, yUnit }: DashboardEventVolumeChartProps) {
+export default function DashboardEventVolumeChart({ data, hideOverlay = false, fixedYMax, yUnit, dangerThreshold }: DashboardEventVolumeChartProps) {
   const frameRef = useRef<HTMLDivElement | null>(null);
   const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
   const [activeIndex, setActiveIndex] = useState(Math.max(data.length - 1, 0));
@@ -142,6 +144,12 @@ export default function DashboardEventVolumeChart({ data, hideOverlay = false, f
     () => Math.round(data.reduce((sum, point) => sum + point.count, 0) / Math.max(data.length, 1)),
     [data],
   );
+
+  const latestValue = data.length > 0 ? data[data.length - 1].count : 0;
+  const isDanger = dangerThreshold != null && latestValue >= dangerThreshold;
+  const lineColor = isDanger ? '#EF4444' : '#00F4A3';
+  const fillColorStart = isDanger ? 'rgba(239, 68, 68, 0.28)' : 'rgba(0, 244, 163, 0.28)';
+  const fillColorEnd = isDanger ? 'rgba(239, 68, 68, 0.03)' : 'rgba(0, 244, 163, 0.03)';
 
   const points = useMemo(
     () => data.map((point, index) => {
@@ -240,8 +248,8 @@ export default function DashboardEventVolumeChart({ data, hideOverlay = false, f
       >
         <defs>
           <linearGradient id={`dashboard-event-fill-${gradientId}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#00F4A3" stopOpacity="0.28" />
-            <stop offset="100%" stopColor="#00F4A3" stopOpacity="0.03" />
+            <stop offset="0%" stopColor={fillColorStart} stopOpacity="1" />
+            <stop offset="100%" stopColor={fillColorEnd} stopOpacity="1" />
           </linearGradient>
         </defs>
 
@@ -293,7 +301,7 @@ export default function DashboardEventVolumeChart({ data, hideOverlay = false, f
         <path
           d={linePath}
           fill="none"
-          stroke="#00F4A3"
+          stroke={lineColor}
           strokeWidth="2.5"
           strokeLinejoin="round"
           strokeLinecap="round"
@@ -304,11 +312,11 @@ export default function DashboardEventVolumeChart({ data, hideOverlay = false, f
           x2={activePoint.x}
           y1={PADDING.top}
           y2={baselineY}
-          stroke="rgba(0, 244, 163, 0.28)"
+          stroke={isDanger ? 'rgba(239, 68, 68, 0.28)' : 'rgba(0, 244, 163, 0.28)'}
           strokeDasharray="4 6"
         />
-        <circle cx={activePoint.x} cy={activePoint.y} r="6" fill="#0f172a" stroke="#00F4A3" strokeWidth="3" />
-        <circle cx={activePoint.x} cy={activePoint.y} r="16" fill="rgba(0, 244, 163, 0.12)" />
+        <circle cx={activePoint.x} cy={activePoint.y} r="6" fill="#0f172a" stroke={lineColor} strokeWidth="3" />
+        <circle cx={activePoint.x} cy={activePoint.y} r="16" fill={isDanger ? 'rgba(239, 68, 68, 0.12)' : 'rgba(0, 244, 163, 0.12)'} />
       </svg>
     </div>
   );
