@@ -21,7 +21,7 @@ Rede interna SAFEBOX (ex.: 192.168.1.0/24)
                     ├── Coletor de logs (syslog UDP :514 / TCP :601)
                     ├── Motor de detecção (regras Sigma)
                     ├── Alertas em tempo real
-                    └── Dashboard SIEM → https://siem.safebox.cyberboxsecurity.com.br
+                    └── Dashboard SIEM → https://siem.cyberboxsecurity.com.br
 ```
 
 ### IPs e portas importantes
@@ -33,7 +33,7 @@ Rede interna SAFEBOX (ex.: 192.168.1.0/24)
 | IP da SAFEBOX na VPN | `10.10.0.10` | — |
 | Syslog UDP (dispositivos de rede) | `10.10.0.1:514` | UDP |
 | Syslog TCP (agentes, rsyslog) | `10.10.0.1:601` | TCP |
-| Dashboard SIEM | `https://siem.safebox.cyberboxsecurity.com.br` | HTTPS (via VPN) |
+| Dashboard SIEM | `https://siem.cyberboxsecurity.com.br` | HTTPS (via VPN) |
 
 ---
 
@@ -832,7 +832,7 @@ if (-not (Get-Service Sysmon64 -ErrorAction SilentlyContinue)) {
 ### 7.1 — Acessar o Dashboard
 
 1. **Conecte o WireGuard** (o túnel precisa estar ativo)
-2. Acesse: **https://siem.safebox.cyberboxsecurity.com.br**
+2. Acesse: **https://siem.cyberboxsecurity.com.br**
 3. Faça login com as credenciais fornecidas pela CyberboxSecurity
 
 ### 7.2 — Confirmar que os logs estão chegando

@@ -62,7 +62,7 @@ pub fn build_router(state: AppState) -> Router {
             use axum::http::{header, Method};
             use tower_http::cors::AllowOrigin;
             let origins = std::env::var("CYBERBOX__CORS_ALLOWED_ORIGINS")
-                .unwrap_or_else(|_| "https://siem.safebox.cyberboxsecurity.com.br".to_string());
+                .unwrap_or_else(|_| "https://siem.cyberboxsecurity.com.br".to_string());
             let origin_list: Vec<axum::http::HeaderValue> = origins
                 .split(',')
                 .filter_map(|o| o.trim().parse().ok())

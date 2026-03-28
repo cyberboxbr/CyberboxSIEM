@@ -215,7 +215,7 @@ secrets:
 ingress:
   enabled: true
   className: "nginx"
-  host: "siem.safebox.cyberboxsecurity.com.br"
+  host: "siem.cyberboxsecurity.com.br"
   certificateArn: ""
   annotations: {}
   tls: true
