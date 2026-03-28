@@ -6,6 +6,9 @@ use std::time::{Duration, Instant};
 use dashmap::DashMap;
 use uuid::Uuid;
 
+/// Disk usage samples: (timestamp, used_bytes, total_bytes).
+pub type DiskUsageSamples = Arc<Mutex<Vec<(chrono::DateTime<chrono::Utc>, u64, u64)>>>;
+
 use arc_swap::ArcSwap;
 use metrics_exporter_prometheus::PrometheusHandle;
 use tokio::sync::broadcast;
@@ -261,7 +264,7 @@ pub struct AppState {
     pub abuseipdb_blacklist_count: Arc<AtomicUsize>,
     /// Ring buffer of disk usage samples (timestamp, used_bytes, total_bytes).
     /// Sampled every 30 minutes, kept for 7 days (336 samples max).
-    pub disk_usage_samples: Arc<std::sync::Mutex<Vec<(chrono::DateTime<chrono::Utc>, u64, u64)>>>,
+    pub disk_usage_samples: DiskUsageSamples,
 }
 
 impl AppState {

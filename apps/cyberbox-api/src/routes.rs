@@ -4596,6 +4596,7 @@ pub async fn sync_abuseipdb_blacklist(
 // ── Disk usage ──────────────────────────────────────────────────────────────
 
 /// Synchronously sample disk usage of the root filesystem.
+#[allow(clippy::unnecessary_cast)]
 fn sample_disk_usage_sync() -> Option<(u64, u64)> {
     #[cfg(unix)]
     {
