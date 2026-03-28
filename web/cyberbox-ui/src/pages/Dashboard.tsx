@@ -387,7 +387,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
             {diskVolume.length === 0 ? (
               <WorkspaceEmptyState title="Sampling" body="Disk usage samples every 30 min." />
             ) : (
-              <DashboardEventVolumeChart data={diskVolume} />
+              <DashboardEventVolumeChart data={diskVolume} hideOverlay />
             )}
           </CardContent>
         </Card>

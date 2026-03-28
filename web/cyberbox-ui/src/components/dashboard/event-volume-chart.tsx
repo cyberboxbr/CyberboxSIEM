@@ -13,6 +13,8 @@ interface DashboardEventVolumeChartProps {
     time: string;
     count: number;
   }>;
+  /** Hide the peak/avg + selected-point overlay cards. */
+  hideOverlay?: boolean;
 }
 
 const MIN_WIDTH = 320;
@@ -76,7 +78,7 @@ function visibleTickIndices(length: number): number[] {
   return Array.from(tickSet).sort((left, right) => left - right);
 }
 
-export default function DashboardEventVolumeChart({ data }: DashboardEventVolumeChartProps) {
+export default function DashboardEventVolumeChart({ data, hideOverlay = false }: DashboardEventVolumeChartProps) {
   const frameRef = useRef<HTMLDivElement | null>(null);
   const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
   const [activeIndex, setActiveIndex] = useState(Math.max(data.length - 1, 0));
@@ -209,19 +211,21 @@ export default function DashboardEventVolumeChart({ data }: DashboardEventVolume
       onPointerLeave={() => setActiveIndex(data.length - 1)}
       onPointerMove={handlePointerMove}
     >
-      <div className="pointer-events-none absolute left-3 right-3 top-3 flex items-center justify-between gap-2">
-        <div className="rounded-md border border-border/70 bg-background/82 px-2 py-1 shadow-sm backdrop-blur">
-          <span className="text-[9px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Peak </span>
-          <span className="font-mono text-xs font-semibold text-foreground">{formatCompact(peak)}</span>
-          <span className="ml-1.5 text-[9px] text-muted-foreground">{formatCompact(averageCount)} avg</span>
-        </div>
+      {!hideOverlay && (
+        <div className="pointer-events-none absolute left-3 right-3 top-3 flex items-center justify-between gap-2">
+          <div className="rounded-md border border-border/70 bg-background/82 px-2 py-1 shadow-sm backdrop-blur">
+            <span className="text-[9px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Peak </span>
+            <span className="font-mono text-xs font-semibold text-foreground">{formatCompact(peak)}</span>
+            <span className="ml-1.5 text-[9px] text-muted-foreground">{formatCompact(averageCount)} avg</span>
+          </div>
 
-        <div className="rounded-md border border-primary/20 bg-primary/8 px-2 py-1 text-right shadow-sm backdrop-blur">
-          <span data-testid="dashboard-chart-selected-label" className="text-[9px] font-medium text-muted-foreground">{activePoint.label}</span>
-          <span data-testid="dashboard-chart-selected-value" className="ml-1.5 font-mono text-xs font-semibold text-foreground">{formatCompact(activePoint.value)}</span>
-          <span className="ml-1 text-[9px] text-muted-foreground">events</span>
+          <div className="rounded-md border border-primary/20 bg-primary/8 px-2 py-1 text-right shadow-sm backdrop-blur">
+            <span data-testid="dashboard-chart-selected-label" className="text-[9px] font-medium text-muted-foreground">{activePoint.label}</span>
+            <span data-testid="dashboard-chart-selected-value" className="ml-1.5 font-mono text-xs font-semibold text-foreground">{formatCompact(activePoint.value)}</span>
+            <span className="ml-1 text-[9px] text-muted-foreground">events</span>
+          </div>
         </div>
-      </div>
+      )}
 
       <svg
         width={width}
