@@ -8,7 +8,7 @@ import {
   RefreshCcw,
 } from 'lucide-react';
 
-import { getAlerts, getDashboardStats, type AlertRecord, type DashboardStats, type Severity } from '@/api/client';
+import { getAlerts, getDashboardStats, getDiskUsage, type AlertRecord, type DashboardStats, type DiskUsageSample, type Severity } from '@/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -99,14 +99,17 @@ export function Dashboard({ onRefresh }: DashboardProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [diskSamples, setDiskSamples] = useState<DiskUsageSample[]>([]);
+  const [diskCurrent, setDiskCurrent] = useState<{ used_bytes: number; total_bytes: number; used_pct: number } | null>(null);
 
   const loadDashboardData = useCallback(
     async (showLoader: boolean) => {
       if (showLoader || !stats) setIsLoading(true);
 
-      const [statsResult, alertsResult] = await Promise.allSettled([
+      const [statsResult, alertsResult, diskResult] = await Promise.allSettled([
         getDashboardStats(timeRange),
         getAlerts({ status: 'open', limit: 8 }),
+        getDiskUsage(),
       ]);
 
       let updated = false;
@@ -125,6 +128,11 @@ export function Dashboard({ onRefresh }: DashboardProps) {
           ),
         );
         updated = true;
+      }
+
+      if (diskResult.status === 'fulfilled') {
+        setDiskSamples(diskResult.value.samples);
+        setDiskCurrent(diskResult.value.current);
       }
 
       setError(updated && statsResult.status === 'fulfilled' && alertsResult.status === 'fulfilled'
@@ -187,7 +195,22 @@ export function Dashboard({ onRefresh }: DashboardProps) {
     [stats],
   );
 
-  const topRules = useMemo(() => (stats?.top_rules ?? []).slice(0, 5), [stats]);
+  const topRules = useMemo(
+    () =>
+      [...(stats?.top_rules ?? [])]
+        .sort((a, b) => b.alert_count - a.alert_count || a.rule_id.localeCompare(b.rule_id))
+        .slice(0, 5),
+    [stats],
+  );
+
+  const diskVolume = useMemo(
+    () =>
+      diskSamples.map((s) => ({
+        time: new Date(s.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        count: Math.round(s.used_pct),
+      })),
+    [diskSamples],
+  );
   const activeCoverage = stats?.total_agents ? Math.round((stats.active_agents / stats.total_agents) * 100) : 0;
 
   const hasData = (stats?.total_events ?? 0) > 0 || alerts.length > 0 || topSources.length > 0 || (stats?.total_agents ?? 0) > 0;
@@ -308,112 +331,125 @@ export function Dashboard({ onRefresh }: DashboardProps) {
         </Card>
       </section>
 
-      {/* ── Detail grid ──────────────────────────────────────────────── */}
-      <section className="grid gap-3 xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,0.7fr)]">
-        <div className="grid gap-3">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Analyst queue</CardTitle>
-                  <CardDescription>Open alerts, riskiest first.</CardDescription>
-                </div>
-                {alerts.length > 0 && (
-                  <Button asChild size="sm" variant="ghost">
-                    <Link to="/alerts">View all <ArrowRight className="h-3 w-3" /></Link>
-                  </Button>
-                )}
+      {/* ── Detail grid (3 columns) ─────────────────────────────────── */}
+      <section className="grid gap-3 xl:grid-cols-3">
+        {/* ── Analyst queue ── */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Analyst queue</CardTitle>
+                <CardDescription>Open alerts, riskiest first.</CardDescription>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-1.5">
-              {alerts.length === 0 ? (
-                <WorkspaceEmptyState title="Queue is clear" body="Alerts will land here as detections trigger." />
-              ) : (
-                alerts.map((alert) => (
-                  <Link
-                    key={alert.alert_id}
-                    to={`/alerts/${alert.alert_id}`}
-                    className="group flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-background/35 px-3 py-2 transition-colors hover:bg-muted/55"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Badge variant={severityVariant(alert.severity)} className="shrink-0">{alert.severity}</Badge>
-                      <span className="truncate text-sm font-medium text-foreground">
-                        {alert.rule_title || `Rule ${alert.rule_id.slice(0, 8)}`}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3 shrink-0">
-                      <span className="text-xs text-muted-foreground">{alert.hit_count} hits</span>
-                      <span className="text-[10px] text-muted-foreground">{formatRelative(alert.first_seen)}</span>
-                      <ArrowRight className="h-3 w-3 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-                    </div>
-                  </Link>
-                ))
+              {alerts.length > 0 && (
+                <Button asChild size="sm" variant="ghost">
+                  <Link to="/alerts">View all <ArrowRight className="h-3 w-3" /></Link>
+                </Button>
               )}
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-1.5">
+            {alerts.length === 0 ? (
+              <WorkspaceEmptyState title="Queue is clear" body="Alerts will land here as detections trigger." />
+            ) : (
+              alerts.map((alert) => (
+                <Link
+                  key={alert.alert_id}
+                  to={`/alerts/${alert.alert_id}`}
+                  className="group flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-background/35 px-3 py-2 transition-colors hover:bg-muted/55"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Badge variant={severityVariant(alert.severity)} className="shrink-0">{alert.severity}</Badge>
+                    <span className="truncate text-sm font-medium text-foreground">
+                      {alert.rule_title || `Rule ${alert.rule_id.slice(0, 8)}`}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-xs text-muted-foreground">{alert.hit_count} hits</span>
+                    <span className="text-[10px] text-muted-foreground">{formatRelative(alert.first_seen)}</span>
+                    <ArrowRight className="h-3 w-3 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                  </div>
+                </Link>
+              ))
+            )}
+          </CardContent>
+        </Card>
 
-        <div className="grid gap-3">
-          {/* ── Onboarding checklist (shown when data is sparse) ────── */}
-          {!hasData && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Getting started</CardTitle>
-                <CardDescription>Complete these steps to bring the dashboard to life.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-1">
-                {onboardingSteps.map((step) => (
-                  <Link
-                    key={step.label}
-                    to={step.to}
-                    className={cn(
-                      'flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-muted/55',
-                      step.done ? 'text-muted-foreground line-through' : 'text-foreground',
-                    )}
-                  >
-                    {step.done
-                      ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
-                      : <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
-                    {step.label}
-                  </Link>
-                ))}
-              </CardContent>
-            </Card>
-          )}
+        {/* ── Disk usage chart ── */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Disk usage</CardTitle>
+            <CardDescription>
+              Log storage utilization{diskCurrent ? ` — ${diskCurrent.used_pct}% used` : ''}.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="h-[200px]">
+            {diskVolume.length === 0 ? (
+              <WorkspaceEmptyState title="Sampling" body="Disk usage samples every 30 min." />
+            ) : (
+              <DashboardEventVolumeChart data={diskVolume} />
+            )}
+          </CardContent>
+        </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Top sources</CardTitle>
-              <CardDescription>Ingest load by source type.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {topSources.length === 0 ? (
-                <WorkspaceEmptyState title="No sources" body="Appears once telemetry starts flowing." />
-              ) : (
-                <div className="space-y-2.5">
-                  {topSources.map((source, index) => {
-                    const max = topSources[0]?.count ?? 1;
-                    const width = max > 0 ? (source.count / max) * 100 : 0;
-                    return (
-                      <div key={source.label} className="space-y-1">
-                        <div className="flex items-center justify-between gap-3 text-xs">
-                          <span className="font-medium text-foreground">{source.label}</span>
-                          <span className="text-muted-foreground">{formatCompact(source.count)}</span>
-                        </div>
-                        <div className="h-1.5 overflow-hidden rounded-full bg-muted/60">
-                          <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(width, index === 0 ? 18 : 8)}%` }} />
-                        </div>
+        {/* ── Top sources ── */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Top sources</CardTitle>
+            <CardDescription>Ingest load by source type.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {topSources.length === 0 ? (
+              <WorkspaceEmptyState title="No sources" body="Appears once telemetry starts flowing." />
+            ) : (
+              <div className="space-y-2.5">
+                {topSources.map((source, index) => {
+                  const max = topSources[0]?.count ?? 1;
+                  const width = max > 0 ? (source.count / max) * 100 : 0;
+                  return (
+                    <div key={source.label} className="space-y-1">
+                      <div className="flex items-center justify-between gap-3 text-xs">
+                        <span className="font-medium text-foreground">{source.label}</span>
+                        <span className="text-muted-foreground">{formatCompact(source.count)}</span>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-
-        </div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-muted/60">
+                        <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(width, index === 0 ? 18 : 8)}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </section>
+
+      {/* ── Onboarding checklist (shown when data is sparse) ────────── */}
+      {!hasData && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Getting started</CardTitle>
+            <CardDescription>Complete these steps to bring the dashboard to life.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {onboardingSteps.map((step) => (
+              <Link
+                key={step.label}
+                to={step.to}
+                className={cn(
+                  'flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-muted/55',
+                  step.done ? 'text-muted-foreground line-through' : 'text-foreground',
+                )}
+              >
+                {step.done
+                  ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  : <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+                {step.label}
+              </Link>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── Top triggered rules (full width) ─────────────────────────── */}
       {topRules.length > 0 && (

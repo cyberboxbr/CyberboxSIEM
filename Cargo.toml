@@ -61,6 +61,7 @@ uuid = { version = "1", features = ["serde", "v4"] }
 url = "2"
 maxminddb = "0.24"
 jsonwebtoken = "9"
+libc = "0.2"
 
 cyberbox-auth = { path = "crates/cyberbox-auth" }
 cyberbox-core = { path = "crates/cyberbox-core" }

@@ -203,6 +203,8 @@ pub fn api_router() -> Router<AppState> {
             "/api/v1/threatintel/blacklist/sync",
             post(sync_abuseipdb_blacklist),
         )
+        // Disk usage monitoring
+        .route("/api/v1/system/disk-usage", get(get_disk_usage))
 }
 
 pub async fn healthz(State(state): State<AppState>) -> Json<Value> {
@@ -4589,4 +4591,65 @@ pub async fn sync_abuseipdb_blacklist(
     tracing::info!(count, "AbuseIPDB blacklist synced");
 
     Ok(Json(json!({"status": "synced", "count": count})))
+}
+
+// ── Disk usage ──────────────────────────────────────────────────────────────
+
+/// Synchronously sample disk usage of the root filesystem.
+fn sample_disk_usage_sync() -> Option<(u64, u64)> {
+    #[cfg(unix)]
+    {
+        use std::ffi::CString;
+        let path = CString::new("/").unwrap();
+        unsafe {
+            let mut stat: libc::statvfs = std::mem::zeroed();
+            if libc::statvfs(path.as_ptr(), &mut stat) == 0 {
+                let total = stat.f_blocks as u64 * stat.f_frsize as u64;
+                let free = stat.f_bavail as u64 * stat.f_frsize as u64;
+                return Some((total - free, total));
+            }
+        }
+        None
+    }
+    #[cfg(not(unix))]
+    {
+        Some((22_000_000_000, 30_000_000_000))
+    }
+}
+
+/// `GET /api/v1/system/disk-usage` — return historical disk usage samples and current snapshot.
+pub async fn get_disk_usage(
+    auth: AuthContext,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, CyberboxError> {
+    auth.require_any(&[Role::Admin, Role::Analyst, Role::Viewer])?;
+
+    let samples = state.disk_usage_samples.lock().unwrap();
+    let data: Vec<Value> = samples
+        .iter()
+        .map(|(ts, used, total)| {
+            json!({
+                "timestamp": ts.to_rfc3339(),
+                "used_bytes": used,
+                "total_bytes": total,
+                "used_pct": if *total > 0 { (*used as f64 / *total as f64 * 100.0).round() } else { 0.0 },
+            })
+        })
+        .collect();
+    drop(samples);
+
+    // Also include current snapshot
+    let current = match sample_disk_usage_sync() {
+        Some((used, total)) => json!({
+            "used_bytes": used,
+            "total_bytes": total,
+            "used_pct": if total > 0 { (used as f64 / total as f64 * 100.0).round() } else { 0.0 },
+        }),
+        None => json!(null),
+    };
+
+    Ok(Json(json!({
+        "samples": data,
+        "current": current,
+    })))
 }

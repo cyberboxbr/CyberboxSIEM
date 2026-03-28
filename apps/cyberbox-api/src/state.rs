@@ -259,6 +259,9 @@ pub struct AppState {
     pub abuseipdb_last_sync: Arc<std::sync::Mutex<Option<chrono::DateTime<chrono::Utc>>>>,
     /// Number of IPs in the current AbuseIPDB blacklist.
     pub abuseipdb_blacklist_count: Arc<AtomicUsize>,
+    /// Ring buffer of disk usage samples (timestamp, used_bytes, total_bytes).
+    /// Sampled every 30 minutes, kept for 7 days (336 samples max).
+    pub disk_usage_samples: Arc<std::sync::Mutex<Vec<(chrono::DateTime<chrono::Utc>, u64, u64)>>>,
 }
 
 impl AppState {
@@ -397,6 +400,7 @@ impl AppState {
             virustotal_enabled: Arc::new(AtomicBool::new(false)),
             abuseipdb_last_sync: Arc::new(std::sync::Mutex::new(None)),
             abuseipdb_blacklist_count: Arc::new(AtomicUsize::new(0)),
+            disk_usage_samples: Arc::new(std::sync::Mutex::new(Vec::new())),
         }
     }
 
@@ -548,6 +552,7 @@ impl AppState {
             virustotal_enabled: Arc::new(AtomicBool::new(!config.virustotal_api_key.is_empty())),
             abuseipdb_last_sync: Arc::new(std::sync::Mutex::new(None)),
             abuseipdb_blacklist_count: Arc::new(AtomicUsize::new(0)),
+            disk_usage_samples: Arc::new(std::sync::Mutex::new(Vec::new())),
         })
     }
 }

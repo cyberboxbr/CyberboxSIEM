@@ -1312,3 +1312,21 @@ export async function toggleThreatIntelProvider(providerId: string, enabled: boo
 export async function syncAbuseIpDbBlacklist(): Promise<{ count: number }> {
   return apiRequest<{ count: number }>('/api/v1/threatintel/blacklist/sync', { method: 'POST' });
 }
+
+// ── Disk usage ────────────────────────────────────────────────────────────
+
+export interface DiskUsageSample {
+  timestamp: string;
+  used_bytes: number;
+  total_bytes: number;
+  used_pct: number;
+}
+
+export interface DiskUsageResponse {
+  samples: DiskUsageSample[];
+  current: { used_bytes: number; total_bytes: number; used_pct: number } | null;
+}
+
+export async function getDiskUsage(): Promise<DiskUsageResponse> {
+  return apiRequest<DiskUsageResponse>('/api/v1/system/disk-usage');
+}

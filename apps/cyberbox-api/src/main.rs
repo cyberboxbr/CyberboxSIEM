@@ -7,6 +7,30 @@ use cyberbox_auth::JwtValidator;
 use cyberbox_core::{telemetry, AppConfig};
 use cyberbox_storage::{ClickHouseWriteBuffer, WriteBufferConfig};
 
+/// Sample disk usage of the root filesystem.
+async fn sample_disk_usage() -> anyhow::Result<(u64, u64)> {
+    #[cfg(unix)]
+    {
+        use std::ffi::CString;
+        let path = CString::new("/").unwrap();
+        unsafe {
+            let mut stat: libc::statvfs = std::mem::zeroed();
+            if libc::statvfs(path.as_ptr(), &mut stat) == 0 {
+                let total = stat.f_blocks as u64 * stat.f_frsize as u64;
+                let free = stat.f_bavail as u64 * stat.f_frsize as u64;
+                let used = total - free;
+                return Ok((used, total));
+            }
+        }
+        anyhow::bail!("statvfs failed");
+    }
+    #[cfg(not(unix))]
+    {
+        // On Windows (dev), return dummy data
+        Ok((22_000_000_000, 30_000_000_000))
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config = AppConfig::from_env()?;
@@ -268,6 +292,53 @@ async fn main() -> anyhow::Result<()> {
             }
         });
         tracing::info!("AbuseIPDB blacklist auto-sync task spawned (interval: 4h)");
+    }
+
+    // Take initial disk usage sample
+    if let Ok((used, total)) = sample_disk_usage().await {
+        state
+            .disk_usage_samples
+            .lock()
+            .unwrap()
+            .push((chrono::Utc::now(), used, total));
+        tracing::info!(
+            used_gb = used / 1_073_741_824,
+            total_gb = total / 1_073_741_824,
+            "initial disk usage sampled"
+        );
+    }
+
+    // Disk usage sampling (every 30 minutes)
+    {
+        let s = state.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30 * 60));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            interval.tick().await; // skip the immediate first tick (already sampled above)
+            loop {
+                interval.tick().await;
+                match sample_disk_usage().await {
+                    Ok((used, total)) => {
+                        let mut samples = s.disk_usage_samples.lock().unwrap();
+                        samples.push((chrono::Utc::now(), used, total));
+                        // Keep max 336 samples (7 days at 30-min intervals)
+                        if samples.len() > 336 {
+                            let drain = samples.len() - 336;
+                            samples.drain(..drain);
+                        }
+                        tracing::debug!(
+                            used_gb = used / 1_073_741_824,
+                            total_gb = total / 1_073_741_824,
+                            "disk usage sampled"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "disk usage sampling failed");
+                    }
+                }
+            }
+        });
+        tracing::info!("disk usage sampling task spawned (interval: 30m)");
     }
 
     // Start syslog UDP/TCP receivers if enabled.
