@@ -203,14 +203,28 @@ export function Dashboard({ onRefresh }: DashboardProps) {
     [stats],
   );
 
-  const diskVolume = useMemo(
-    () =>
-      diskSamples.map((s) => ({
-        time: new Date(s.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        count: Math.round(s.used_pct),
-      })),
-    [diskSamples],
-  );
+  const diskVolume = useMemo(() => {
+    const points = diskSamples.map((s) => ({
+      time: new Date(s.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      count: Math.round(s.used_pct),
+    }));
+    // Pad with current value so the chart always draws a line, not just a dot
+    if (points.length === 0 && diskCurrent) {
+      const now = new Date();
+      for (let i = 5; i >= 0; i--) {
+        const t = new Date(now.getTime() - i * 30 * 60_000);
+        points.push({ time: t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), count: Math.round(diskCurrent.used_pct) });
+      }
+    } else if (points.length < 4 && diskCurrent) {
+      const last = points[points.length - 1];
+      const now = new Date();
+      while (points.length < 6) {
+        const t = new Date(now.getTime() - (6 - points.length) * 5 * 60_000);
+        points.push({ time: t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), count: last?.count ?? Math.round(diskCurrent.used_pct) });
+      }
+    }
+    return points;
+  }, [diskSamples, diskCurrent]);
   const activeCoverage = stats?.total_agents ? Math.round((stats.active_agents / stats.total_agents) * 100) : 0;
 
   const hasData = (stats?.total_events ?? 0) > 0 || alerts.length > 0 || topSources.length > 0 || (stats?.total_agents ?? 0) > 0;
@@ -384,7 +398,7 @@ export function Dashboard({ onRefresh }: DashboardProps) {
             {diskVolume.length === 0 ? (
               <WorkspaceEmptyState title="Sampling" body="Disk usage samples every 30 min." />
             ) : (
-              <DashboardEventVolumeChart data={diskVolume} hideOverlay />
+              <DashboardEventVolumeChart data={diskVolume} hideOverlay fixedYMax={100} yUnit="%" />
             )}
           </CardContent>
         </Card>

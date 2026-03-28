@@ -15,6 +15,10 @@ interface DashboardEventVolumeChartProps {
   }>;
   /** Hide the peak/avg + selected-point overlay cards. */
   hideOverlay?: boolean;
+  /** Force a fixed Y-axis maximum (e.g. 100 for percentages). */
+  fixedYMax?: number;
+  /** Unit suffix for Y-axis labels (e.g. "%"). */
+  yUnit?: string;
 }
 
 const MIN_WIDTH = 320;
@@ -78,7 +82,7 @@ function visibleTickIndices(length: number): number[] {
   return Array.from(tickSet).sort((left, right) => left - right);
 }
 
-export default function DashboardEventVolumeChart({ data, hideOverlay = false }: DashboardEventVolumeChartProps) {
+export default function DashboardEventVolumeChart({ data, hideOverlay = false, fixedYMax, yUnit }: DashboardEventVolumeChartProps) {
   const frameRef = useRef<HTMLDivElement | null>(null);
   const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
   const [activeIndex, setActiveIndex] = useState(Math.max(data.length - 1, 0));
@@ -131,8 +135,8 @@ export default function DashboardEventVolumeChart({ data, hideOverlay = false }:
     [data],
   );
   const yMax = useMemo(
-    () => roundUpToNiceStep(peak),
-    [peak],
+    () => fixedYMax ?? roundUpToNiceStep(peak),
+    [fixedYMax, peak],
   );
   const averageCount = useMemo(
     () => Math.round(data.reduce((sum, point) => sum + point.count, 0) / Math.max(data.length, 1)),
@@ -258,7 +262,7 @@ export default function DashboardEventVolumeChart({ data, hideOverlay = false }:
               fontSize="11"
               textAnchor="end"
             >
-              {formatCompact(Math.round(tick.value))}
+              {formatCompact(Math.round(tick.value))}{yUnit ?? ''}
             </text>
           </g>
         ))}
