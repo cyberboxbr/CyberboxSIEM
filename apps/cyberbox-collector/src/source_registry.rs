@@ -418,6 +418,10 @@ impl SourceRegistry {
         api_key: Option<&str>,
     ) -> Result<(), String> {
         let url = format!("{api_url}/api/v1/agents/register");
+        let group = match platform {
+            "firewall" | "router" | "network" | "container" => "infrastructure",
+            _ => "endpoints",
+        };
         let body = json!({
             "agent_id": agent_id,
             "tenant_id": tenant_id,
@@ -425,6 +429,7 @@ impl SourceRegistry {
             "os": platform,
             "version": "collector-detected",
             "ip": source_ip,
+            "group": group,
         });
 
         let mut req = client

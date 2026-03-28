@@ -3618,6 +3618,8 @@ pub struct RegisterAgentRequest {
     pub hostname: String,
     pub os: String,
     pub version: String,
+    #[serde(default)]
+    pub group: Option<String>,
 }
 
 fn required_header(headers: &HeaderMap, name: &str) -> Result<String, CyberboxError> {
@@ -3854,6 +3856,9 @@ pub async fn register_agent(
     record.os = body.os;
     record.version = body.version;
     record.ip = addr.map(|ConnectInfo(a)| a.ip().to_string());
+    if body.group.is_some() {
+        record.group = body.group;
+    }
     record.registered_at = now;
     record.last_seen = now;
 
