@@ -277,11 +277,8 @@ export function Dashboard({ onRefresh }: DashboardProps) {
       </div>
 
       {/* ── KPI row ──────────────────────────────────────────────────── */}
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+      <section className="grid gap-3 grid-cols-3">
         <WorkspaceMetricCard label="Events" value={formatCompact(stats?.total_events ?? 0)} hint={`${stats?.events_by_source.length ?? 0} sources`} />
-        <WorkspaceMetricCard label="Open alerts" value={String(stats?.open_alerts ?? 0)} hint={`${sevCounts.critical} crit · ${sevCounts.high} high`} />
-        <WorkspaceMetricCard label="Agents" value={`${stats?.active_agents ?? 0}/${stats?.total_agents ?? 0}`} hint={`${activeCoverage}% coverage`} />
-        <WorkspaceMetricCard label="Rules" value={String(stats?.active_rules ?? 0)} hint={`${topRules.length} triggered`} />
         <WorkspaceMetricCard label="EPS" value={stats ? stats.current_eps.toFixed(1) : '0.0'} hint="Events/sec" />
         <WorkspaceMetricCard label="MTTR" value={formatDuration(stats?.mttr_seconds ?? null)} hint="Mean time to resolve" />
       </section>
